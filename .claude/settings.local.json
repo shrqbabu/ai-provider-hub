@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls /Users/dev/workspace-2c8327ed)",
+      "Bash(npx tsc *)",
+      "Bash(ls -la \"/tmp\")",
+      "Bash(ls /mnt)",
+      "Read(//c/Users/hp/**)",
+      "Bash(cat package.json)",
+      "Bash(cat vercel.json)",
+      "Bash(sed -i -e 's|from '\\\\''@vercel/node'\\\\''|from '\\\\''../lib/vercelShim'\\\\''|' -e 's|from '\\\\''firebase-admin/firestore'\\\\''|from '\\\\''../lib/firestoreRest'\\\\''|' -e 's|from \"firebase-admin/firestore\"|from '\\\\''../lib/firestoreRest'\\\\''|' -e 's|from '\\\\''crypto'\\\\''|from '\\\\''../lib/nodeCompat'\\\\''|' poker/action.ts poker/create.ts realludo/action.ts tictactoe/action.ts nine-card/action.ts joker-pair/action.ts)",
+      "Bash(sed -i -e 's|from '\\\\''@vercel/node'\\\\''|from '\\\\''./vercelShim'\\\\''|' -e 's|from '\\\\''firebase-admin/firestore'\\\\''|from '\\\\''./firestoreRest'\\\\''|' -e 's|from '\\\\''crypto'\\\\''|from '\\\\''./nodeCompat'\\\\''|' lib/walletInternal.ts lib/middleware.ts)",
+      "Bash(npm install *)",
+      "Bash(sed -i -e 's|FirebaseFirestore\\\\.Transaction|Transaction|g' -e 's|FirebaseFirestore\\\\.DocumentReference|DocumentReference|g' -e 's|import { FieldValue, Timestamp }              from '\\\\''../lib/firestoreRest'\\\\'';|import { FieldValue, Timestamp, Transaction, DocumentReference } from '\\\\''../lib/firestoreRest'\\\\'';|' -e 's|export default async function handler\\(req: VercelRequest, res: VercelResponse\\): Promise<void> {|export default async function handler\\(req: VercelRequest, res: VercelResponse\\): Promise<any> {|' poker/action.ts)",
+      "Bash(sed -i -e 's|FirebaseFirestore\\\\.Timestamp|Timestamp|g' -e 's|import { FieldValue }                         from '\\\\''../lib/firestoreRest'\\\\'';|import { FieldValue, Timestamp }              from '\\\\''../lib/firestoreRest'\\\\'';|' tictactoe/action.ts)",
+      "Bash(npx wrangler *)",
+      "Bash(printf '.dev.vars\\\\nnode_modules/\\\\ndist/\\\\n')",
+      "Bash(rm -rf dist)",
+      "Bash(rm -rf api package.json)",
+      "Bash(mv cloudflare/* cloudflare/.gitignore .)",
+      "Bash(rm -rf cloudflare)",
+      "Bash(sed -i 's|Vercel serverless \\(`../api`\\) ka|Vercel serverless ka|; s|cd cloudflare\\\\n||' README.md)",
+      "Bash(sed -i '/^cd cloudflare$/d' README.md)",
+      "Bash(echo \"no @vercel package found: exit $?\")",
+      "Bash(ls /Users/dev/worksp)",
+      "Read(//Users/dev/**)",
+      "Read(//Users/**)",
+      "Bash(ls \"/d/Download/claude desktop/betadda\" 2>/dev/null || ls \"D:/Download/claude desktop/betadda\" 2>/dev/null || ls /Users/dev/workspace-043738fa)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" -X OPTIONS \"https://betadda-api.betadda.workers.dev/api/joker-pair/join\" -H \"Origin: https://betadda.vercel.app\" -H \"Access-Control-Request-Method: POST\")",
+      "Bash(curl -s -i -X OPTIONS \"https://betadda-api.betadda.workers.dev/api/joker-pair/join\" -H \"Origin: https://betadda.vercel.app\" -H \"Access-Control-Request-Method: POST\")",
+      "Bash(curl -s -i -X POST \"https://shrq.vercel.app/api/joker-pair/join\" -H \"Content-Type: application/json\" -H \"Origin: https://betadda.vercel.app\" -d '{}')",
+      "Bash(curl -s -i -X OPTIONS \"https://shrq.vercel.app/api/joker-pair/join\" -H \"Origin: https://betadda.vercel.app\" -H \"Access-Control-Request-Method: POST\")",
+      "Bash(curl -s -o /dev/null -w \"status: %{http_code}\\\\n\" -X OPTIONS \"https://betadda-api.betadda.workers.dev/api/joker-pair/join\" -H \"Origin: https://betadda.vercel.app\" -H \"Access-Control-Request-Method: POST\")",
+      "Bash(curl -s -D - -o /dev/null -X OPTIONS \"https://betadda-api.betadda.workers.dev/api/joker-pair/join\" -H \"Origin: https://betadda.vercel.app\")",
+      "Bash(curl -s -D - -o /dev/null -X OPTIONS \"https://betadda-api.betadda.workers.dev/api/joker-pair/join\" -H \"Origin: https://evil.example.com\")"
+    ]
+  }
+}

@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ChatAttachment, DiscoveredModel } from "@/types";
-import { fileToDataUrl, formatBytes } from "@/utils";
+import { fileToDataUrl, formatBytes, isTextLike } from "@/utils";
 import { toast } from "sonner";
 import { v4 as uuid } from "uuid";
 import { cn } from "@/utils";
@@ -38,6 +38,7 @@ export function MessageInput({ onSend, onStop, streaming, disabled, model }: Pro
       for (const f of files) {
         const isImage = f.type.startsWith("image/");
         const isPdf = f.type === "application/pdf";
+        const isText = isTextLike(f.name, f.type);
         if (isImage && !supportsImages) {
           toast.error(`${model?.displayName ?? "This model"} does not support images.`);
           continue;
@@ -46,19 +47,21 @@ export function MessageInput({ onSend, onStop, streaming, disabled, model }: Pro
           toast.error(`${model?.displayName ?? "This model"} does not support PDFs.`);
           continue;
         }
-        if (!isImage && !isPdf) {
-          toast.error(`Unsupported file type: ${f.type}`);
+        // Text/code files work with every model — content is inlined as text.
+        if (!isImage && !isPdf && !isText) {
+          toast.error(`Unsupported file type: ${f.type || f.name}`);
           continue;
         }
-        if (f.size > 20 * 1024 * 1024) {
-          toast.error(`${f.name} exceeds 20 MB.`);
+        const maxSize = isText ? 2 * 1024 * 1024 : 20 * 1024 * 1024;
+        if (f.size > maxSize) {
+          toast.error(`${f.name} exceeds ${isText ? "2" : "20"} MB.`);
           continue;
         }
         const dataUrl = await fileToDataUrl(f);
         next.push({
           id: uuid(),
           name: f.name,
-          type: f.type,
+          type: isText && !f.type ? "text/plain" : f.type,
           size: f.size,
           dataUrl,
         });
@@ -71,10 +74,8 @@ export function MessageInput({ onSend, onStop, streaming, disabled, model }: Pro
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop: handleFiles,
     noClick: true,
-    accept: {
-      "image/*": [".png", ".jpg", ".jpeg", ".webp", ".gif"],
-      "application/pdf": [".pdf"],
-    },
+    // No `accept` filter — validation happens in handleFiles so text/code
+    // files (any extension) can pass through; browsers misreport their MIME.
   });
 
   const send = () => {

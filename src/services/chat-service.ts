@@ -1,5 +1,6 @@
 import type { ChatMessage, ConnectedProvider, DiscoveredModel } from "@/types";
 import { createClient, extractErrorMessage } from "./provider-service";
+import { dataUrlToText, isTextLike } from "@/utils";
 
 export interface StreamHandlers {
   onDelta: (delta: string) => void;
@@ -42,6 +43,24 @@ function buildMessages(
         parts.push({
           type: "image_url",
           image_url: { url: att.dataUrl },
+        });
+      } else if (att.type === "application/pdf" && model.pdf) {
+        // OpenAI-style file content part (works on OpenAI, OpenRouter, and
+        // other compatible endpoints that accept document inputs).
+        parts.push({
+          type: "file",
+          file: {
+            filename: att.name,
+            file_data: att.dataUrl,
+          },
+        });
+      } else if (isTextLike(att.name, att.type)) {
+        // Text/code files: decode and inline as plain text — works with
+        // every provider regardless of vision/file support.
+        const body = dataUrlToText(att.dataUrl);
+        parts.push({
+          type: "text",
+          text: `<file name="${att.name}">\n${body}\n</file>`,
         });
       } else {
         parts.push({

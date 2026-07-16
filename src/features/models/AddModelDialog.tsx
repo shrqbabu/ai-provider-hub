@@ -12,7 +12,7 @@ import { Input, Label } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useModelStore } from "@/store/model-store";
 import type { ConnectedProvider } from "@/types";
-import { inferTier } from "@/constants/providers";
+import { inferTier, inferCapabilities } from "@/constants/providers";
 import { toast } from "sonner";
 
 interface Props {
@@ -93,7 +93,22 @@ export function AddModelDialog({ open, onOpenChange, provider }: Props) {
             <Label>Model ID</Label>
             <Input
               value={f.modelId}
-              onChange={(e) => setF({ ...f, modelId: e.target.value })}
+              onChange={(e) => {
+                const modelId = e.target.value;
+                // Auto-detect capabilities from the model ID so users don't
+                // have to remember to flip Vision/PDF (e.g. Claude models).
+                const caps = inferCapabilities(modelId.trim());
+                setF((prev) => ({
+                  ...prev,
+                  modelId,
+                  vision: caps.vision,
+                  pdf: caps.pdf,
+                  reasoning: caps.reasoning,
+                  contextWindow: caps.context
+                    ? String(caps.context)
+                    : prev.contextWindow,
+                }));
+              }}
               placeholder="claude-3-5-sonnet-20241022"
             />
           </div>

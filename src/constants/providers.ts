@@ -116,6 +116,34 @@ export const KNOWN_MODEL_CAPS: Record<
     inputPrice: 15,
     outputPrice: 75,
   },
+  "claude-opus-4-8": {
+    context: 1_000_000,
+    vision: true,
+    pdf: true,
+    inputPrice: 5,
+    outputPrice: 25,
+  },
+  "claude-sonnet-4-6": {
+    context: 1_000_000,
+    vision: true,
+    pdf: true,
+    inputPrice: 3,
+    outputPrice: 15,
+  },
+  "claude-sonnet-4-5": {
+    context: 200_000,
+    vision: true,
+    pdf: true,
+    inputPrice: 3,
+    outputPrice: 15,
+  },
+  "claude-haiku-4-5": {
+    context: 200_000,
+    vision: true,
+    pdf: true,
+    inputPrice: 1,
+    outputPrice: 5,
+  },
 };
 
 export type ModelTier = "free" | "paid" | "unknown";
@@ -164,8 +192,8 @@ export function inferCapabilities(modelId: string) {
   const exact = KNOWN_MODEL_CAPS[modelId];
   const vision =
     exact?.vision ??
-    /vision|gpt-4o|gpt-4\.1|claude-3|gemini|llava|pixtral|qwen.*vl/.test(lower);
-  const pdf = exact?.pdf ?? /claude-3/.test(lower);
+    /vision|gpt-4o|gpt-4\.1|claude|gemini|llava|pixtral|qwen.*vl/.test(lower);
+  const pdf = exact?.pdf ?? /claude/.test(lower);
   const reasoning =
     exact?.reasoning ??
     /^o[13]|reason|deepseek-r1|qwq/.test(lower);

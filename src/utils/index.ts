@@ -69,3 +69,36 @@ export function fileToDataUrl(file: File): Promise<string> {
     r.readAsDataURL(file);
   });
 }
+
+// Text/code files are inlined into the message body, so they work with EVERY
+// provider — no vision/PDF capability needed. Extension check comes first
+// because browsers report weird MIME types for code files (.ts → video/mp2t).
+const TEXT_EXTENSIONS =
+  /\.(txt|md|markdown|json|jsonc|csv|tsv|xml|yaml|yml|html|htm|css|scss|less|js|jsx|ts|tsx|mjs|cjs|py|java|c|cpp|h|hpp|cs|go|rs|rb|php|sh|bash|zsh|bat|ps1|sql|toml|ini|cfg|conf|log|env|vue|svelte|kt|kts|swift|dart|r|lua|pl|gradle|properties|lock)$/i;
+
+export function isTextLike(name: string, mime: string): boolean {
+  if (TEXT_EXTENSIONS.test(name)) return true;
+  const base = name.split("/").pop() ?? "";
+  if (/^(dockerfile|makefile|license|readme|\.gitignore|\.env.*)$/i.test(base)) {
+    return true;
+  }
+  if (mime.startsWith("text/")) return true;
+  return [
+    "application/json",
+    "application/xml",
+    "application/javascript",
+    "application/x-yaml",
+    "application/x-sh",
+  ].includes(mime);
+}
+
+export function dataUrlToText(dataUrl: string): string {
+  const base64 = dataUrl.split(",")[1] ?? "";
+  try {
+    const bin = atob(base64);
+    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return "";
+  }
+}

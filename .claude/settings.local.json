@@ -32,7 +32,11 @@
       "Bash(curl -s -i -X OPTIONS \"https://shrq.vercel.app/api/joker-pair/join\" -H \"Origin: https://betadda.vercel.app\" -H \"Access-Control-Request-Method: POST\")",
       "Bash(curl -s -o /dev/null -w \"status: %{http_code}\\\\n\" -X OPTIONS \"https://betadda-api.betadda.workers.dev/api/joker-pair/join\" -H \"Origin: https://betadda.vercel.app\" -H \"Access-Control-Request-Method: POST\")",
       "Bash(curl -s -D - -o /dev/null -X OPTIONS \"https://betadda-api.betadda.workers.dev/api/joker-pair/join\" -H \"Origin: https://betadda.vercel.app\")",
-      "Bash(curl -s -D - -o /dev/null -X OPTIONS \"https://betadda-api.betadda.workers.dev/api/joker-pair/join\" -H \"Origin: https://evil.example.com\")"
+      "Bash(curl -s -D - -o /dev/null -X OPTIONS \"https://betadda-api.betadda.workers.dev/api/joker-pair/join\" -H \"Origin: https://evil.example.com\")",
+      "Bash(python -c ' *)",
+      "Bash(powershell -Command \"\\(Get-Content 'action.ts' -Raw -Encoding UTF8\\) -replace [char]0xFFFD, [char]0x2500 | Set-Content 'action.ts' -Encoding UTF8 -NoNewline; 'fixed'\")",
+      "Bash(node scratch/tambola-ticket-test.mjs)",
+      "Bash(ls /Users/dev/workspace-c092b05b)"
     ]
   }
 }

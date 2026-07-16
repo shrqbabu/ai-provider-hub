@@ -8,6 +8,7 @@ import {
   X,
   Image as ImageIcon,
   FileText,
+  FolderOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ChatAttachment, DiscoveredModel } from "@/types";
@@ -24,52 +25,105 @@ interface Props {
   model?: DiscoveredModel;
 }
 
+// Directories that are never useful as chat context — skipped during
+// folder upload to avoid attaching thousands of junk files.
+const SKIP_DIRS =
+  /(^|\/)(node_modules|\.git|\.svn|\.hg|dist|build|out|\.next|\.nuxt|\.cache|coverage|__pycache__|\.venv|venv|vendor|\.idea|\.vscode|target|bin|obj)(\/|$)/i;
+
+const MAX_FOLDER_FILES = 50;
+
+// Relative path for folder uploads: folder-picker files carry
+// webkitRelativePath, dropzone folder-drags carry a `path` property.
+function relPath(f: File): string {
+  const wk = (f as File & { webkitRelativePath?: string }).webkitRelativePath;
+  if (wk) return wk;
+  const p = (f as File & { path?: string }).path;
+  if (p) return p.replace(/^\.?\//, "");
+  return f.name;
+}
+
 export function MessageInput({ onSend, onStop, streaming, disabled, model }: Props) {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   const supportsImages = model?.vision ?? false;
   const supportsPdf = model?.pdf ?? false;
 
   const handleFiles = useCallback(
     async (files: File[]) => {
+      // Folder mode: many files at once, or files carrying a relative path.
+      const isFolderBatch =
+        files.length > 5 || files.some((f) => relPath(f) !== f.name);
       const next: ChatAttachment[] = [];
+      let skipped = 0;
+
+      const reject = (msg: string) => {
+        if (isFolderBatch) skipped++;
+        else toast.error(msg);
+      };
+
       for (const f of files) {
+        const path = relPath(f);
+        if (isFolderBatch && SKIP_DIRS.test(path)) {
+          continue; // junk dirs skipped silently, not counted
+        }
+        if (next.length + attachments.length >= MAX_FOLDER_FILES) {
+          skipped++;
+          continue;
+        }
         const isImage = f.type.startsWith("image/");
         const isPdf = f.type === "application/pdf";
         const isText = isTextLike(f.name, f.type);
         if (isImage && !supportsImages) {
-          toast.error(`${model?.displayName ?? "This model"} does not support images.`);
+          reject(`${model?.displayName ?? "This model"} does not support images.`);
           continue;
         }
         if (isPdf && !supportsPdf) {
-          toast.error(`${model?.displayName ?? "This model"} does not support PDFs.`);
+          reject(`${model?.displayName ?? "This model"} does not support PDFs.`);
           continue;
         }
         // Text/code files work with every model — content is inlined as text.
         if (!isImage && !isPdf && !isText) {
-          toast.error(`Unsupported file type: ${f.type || f.name}`);
+          reject(`Unsupported file type: ${f.type || f.name}`);
           continue;
         }
         const maxSize = isText ? 2 * 1024 * 1024 : 20 * 1024 * 1024;
         if (f.size > maxSize) {
-          toast.error(`${f.name} exceeds ${isText ? "2" : "20"} MB.`);
+          reject(`${f.name} exceeds ${isText ? "2" : "20"} MB.`);
           continue;
         }
         const dataUrl = await fileToDataUrl(f);
         next.push({
           id: uuid(),
-          name: f.name,
+          name: path,
           type: isText && !f.type ? "text/plain" : f.type,
           size: f.size,
           dataUrl,
         });
       }
       setAttachments((a) => [...a, ...next]);
+      if (isFolderBatch) {
+        if (next.length === 0) {
+          toast.error("No usable files found in that folder.");
+        } else {
+          toast.success(
+            `Attached ${next.length} file${next.length === 1 ? "" : "s"}${
+              skipped ? ` (${skipped} skipped)` : ""
+            }.`
+          );
+        }
+      }
     },
-    [supportsImages, supportsPdf, model?.displayName]
+    [supportsImages, supportsPdf, model?.displayName, attachments.length]
   );
+
+  const onFolderPicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length) void handleFiles(files);
+    e.target.value = ""; // allow re-picking the same folder
+  };
 
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop: handleFiles,
@@ -107,6 +161,17 @@ export function MessageInput({ onSend, onStop, streaming, disabled, model }: Pro
       )}
     >
       <input {...getInputProps()} />
+      {/* Hidden folder picker — webkitdirectory lets the user pick a whole
+          directory; files arrive with webkitRelativePath set. */}
+      <input
+        ref={folderInputRef}
+        type="file"
+        // @ts-expect-error — non-standard but supported by all major browsers
+        webkitdirectory=""
+        multiple
+        hidden
+        onChange={onFolderPicked}
+      />
 
       <AnimatePresence>
         {attachments.length > 0 && (
@@ -167,6 +232,17 @@ export function MessageInput({ onSend, onStop, streaming, disabled, model }: Pro
           type="button"
         >
           <Paperclip className="w-4 h-4" />
+        </Button>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-8 w-8"
+          onClick={() => folderInputRef.current?.click()}
+          disabled={disabled}
+          type="button"
+          title="Attach a folder"
+        >
+          <FolderOpen className="w-4 h-4" />
         </Button>
         {supportsImages && (
           <Button

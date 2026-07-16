@@ -1,6 +1,7 @@
 import type { ChatMessage, ConnectedProvider, DiscoveredModel } from "@/types";
 import { createClient, extractErrorMessage } from "./provider-service";
 import { dataUrlToText, isTextLike } from "@/utils";
+import { useSettingsStore } from "@/store/settings-store";
 
 export interface StreamHandlers {
   onDelta: (delta: string) => void;
@@ -30,7 +31,10 @@ const CONTINUE_PROMPT =
 // Ask for a generous output budget. Many OpenAI-compatible servers default
 // max_tokens to something small (512–4096) when omitted — that's the usual
 // reason long files get cut off mid-way.
+// User can override in Settings → Chat → Max output tokens (0 = auto).
 function resolveMaxTokens(model: DiscoveredModel): number {
+  const userMax = useSettingsStore.getState().settings.maxTokens;
+  if (userMax && userMax > 0) return userMax;
   const id = model.modelId.toLowerCase();
   // Reasoning models burn output budget on thinking — give them extra room.
   if (model.reasoning || /o[13]|deepseek-r1|qwq|thinking/.test(id)) {

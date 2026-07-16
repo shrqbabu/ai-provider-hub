@@ -3,7 +3,7 @@ import { Settings, Download, Upload, Trash2, RotateCcw } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/input";
+import { Input, Label } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -133,6 +133,37 @@ export function SettingsPage() {
                   onCheckedChange={(v) => update({ autoScroll: v })}
                 />
               </Row>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-5 space-y-4">
+              <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Chat
+              </div>
+              <Row label="Max output tokens">
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={0}
+                    step={1024}
+                    className="w-[140px]"
+                    placeholder="Auto"
+                    value={settings.maxTokens ? String(settings.maxTokens) : ""}
+                    onChange={(e) => {
+                      const raw = e.target.value.trim();
+                      const n = raw === "" ? 0 : Math.max(0, Math.floor(Number(raw)));
+                      update({ maxTokens: Number.isFinite(n) ? n : 0 });
+                    }}
+                  />
+                </div>
+              </Row>
+              <p className="text-xs text-muted-foreground">
+                Per-response output limit sent to the provider. Leave empty (Auto)
+                for 16K tokens — 32K for reasoning models. If a response still hits
+                the limit, the app auto-continues it in the same message. Higher
+                values may be rejected by models with smaller output caps.
+              </p>
             </CardContent>
           </Card>
 

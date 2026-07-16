@@ -11,6 +11,7 @@ const defaults: AppSettings = {
   animations: true,
   streamingSpeed: 1,
   autoScroll: true,
+  maxTokens: 0, // 0 = auto
 };
 
 interface State {

@@ -125,4 +125,7 @@ export interface AppSettings {
   animations: boolean;
   streamingSpeed: number;
   autoScroll: boolean;
+  // Max output tokens per request. 0 / undefined = auto (16K normal,
+  // 32K reasoning models).
+  maxTokens?: number;
 }

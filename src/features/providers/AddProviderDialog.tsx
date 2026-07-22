@@ -36,7 +36,9 @@ interface Props {
 interface FormState {
   key: ProviderKey;
   displayName: string;
+  authMode: "apiKey" | "cookie";
   apiKey: string;
+  cookie: string;
   baseURL: string;
   organization: string;
   extraHeaders: string;
@@ -50,7 +52,9 @@ interface FormState {
 const initial = (p?: ConnectedProvider): FormState => ({
   key: p?.key ?? "openai",
   displayName: p?.displayName ?? "",
+  authMode: p?.authMode ?? "apiKey",
   apiKey: p?.apiKey ?? "",
+  cookie: p?.cookie ?? "",
   baseURL: p?.baseURL ?? PROVIDERS.openai.baseURL,
   organization: p?.organization ?? "",
   extraHeaders: p?.extraHeaders ? JSON.stringify(p.extraHeaders, null, 2) : "",
@@ -69,6 +73,7 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
   const modelStore = useModelStore();
 
   const isCustom = form.key === "custom";
+  const isCookie = form.authMode === "cookie";
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((s) => ({ ...s, [k]: v }));
@@ -110,7 +115,9 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
     key: form.key,
     name: PROVIDERS[form.key].name,
     displayName: form.displayName || PROVIDERS[form.key].name,
+    authMode: form.authMode,
     apiKey: form.apiKey.trim(),
+    cookie: form.authMode === "cookie" ? form.cookie.trim() : undefined,
     baseURL: form.baseURL.trim(),
     organization: form.organization.trim() || undefined,
     extraHeaders: parseHeaders(),
@@ -124,8 +131,16 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
   });
 
   const handleTest = async () => {
-    if (!form.apiKey || !form.baseURL) {
-      toast.error("API key and base URL are required.");
+    if (isCookie ? !form.cookie.trim() : !form.apiKey) {
+      toast.error(
+        isCookie
+          ? "Cookie and base URL are required."
+          : "API key and base URL are required."
+      );
+      return;
+    }
+    if (!form.baseURL) {
+      toast.error("Base URL is required.");
       return;
     }
     try {
@@ -152,8 +167,16 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
   };
 
   const handleSave = async () => {
-    if (!form.apiKey || !form.baseURL) {
-      toast.error("API key and base URL are required.");
+    if (isCookie ? !form.cookie.trim() : !form.apiKey) {
+      toast.error(
+        isCookie
+          ? "Cookie and base URL are required."
+          : "API key and base URL are required."
+      );
+      return;
+    }
+    if (!form.baseURL) {
+      toast.error("Base URL is required.");
       return;
     }
     try {
@@ -292,22 +315,61 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
             />
           </div>
 
-          <div className="space-y-1.5">
-            <Label>API key</Label>
-            <Input
-              type="password"
-              value={form.apiKey}
-              onChange={(e) => set("apiKey", e.target.value)}
-              placeholder={isCustom ? "nvapi-... / sk-... / any bearer token" : "sk-..."}
-              autoComplete="off"
-            />
-            {isCustom && (
+          {isCustom && (
+            <div className="space-y-1.5">
+              <Label>Auth method</Label>
+              <Select
+                value={form.authMode}
+                onValueChange={(v) => set("authMode", v as "apiKey" | "cookie")}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="apiKey">API key (Bearer token)</SelectItem>
+                  <SelectItem value="cookie">Cookie / session</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {!isCookie && (
+            <div className="space-y-1.5">
+              <Label>API key</Label>
+              <Input
+                type="password"
+                value={form.apiKey}
+                onChange={(e) => set("apiKey", e.target.value)}
+                placeholder={isCustom ? "nvapi-... / sk-... / any bearer token" : "sk-..."}
+                autoComplete="off"
+              />
+              {isCustom && (
+                <p className="text-[11px] text-muted-foreground">
+                  Sent as <code>Authorization: Bearer &lt;key&gt;</code>. Works with
+                  NVIDIA NIM, Groq, Together, Fireworks, DeepInfra, Ollama, LM Studio, vLLM…
+                </p>
+              )}
+            </div>
+          )}
+
+          {isCookie && (
+            <div className="space-y-1.5">
+              <Label>Cookie</Label>
+              <Textarea
+                value={form.cookie}
+                onChange={(e) => set("cookie", e.target.value)}
+                placeholder="session=abc123; token=xyz789"
+                className="font-mono text-xs"
+                rows={3}
+                autoComplete="off"
+              />
               <p className="text-[11px] text-muted-foreground">
-                Sent as <code>Authorization: Bearer &lt;key&gt;</code>. Works with
-                NVIDIA NIM, Groq, Together, Fireworks, DeepInfra, Ollama, LM Studio, vLLM…
+                Sent as the <code>Cookie</code> header via the proxy. For self-hosted /
+                OpenAI-compatible gateways that use session cookies. Needs a hosted
+                https base URL (not localhost).
               </p>
-            )}
-          </div>
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <Label>Base URL</Label>

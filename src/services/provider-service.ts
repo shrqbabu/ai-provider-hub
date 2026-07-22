@@ -54,22 +54,45 @@ function resolveBaseURL(url: string): Resolved {
 }
 
 export function createClient(provider: ConnectedProvider): OpenAI {
+  const authMode = provider.authMode ?? "apiKey";
   const key = (provider.apiKey ?? "").trim();
-  if (!key) {
+  const cookie = (provider.cookie ?? "").trim();
+
+  if (authMode === "cookie") {
+    if (!cookie) {
+      throw new Error(
+        "Cookie is missing. Edit the provider and paste your session cookie string."
+      );
+    }
+  } else if (!key) {
     throw new Error(
       "API key is missing. Edit the provider and paste your API key."
     );
   }
+
   const { baseURL, proxied, targetHeader } = resolveBaseURL(provider.baseURL);
 
+  if (authMode === "cookie" && !proxied) {
+    // Browsers forbid setting the Cookie header on fetch, so cookie auth must
+    // flow through our proxy (which injects it upstream). Localhost endpoints
+    // bypass the proxy and therefore can't use cookie auth.
+    throw new Error(
+      "Cookie auth needs the proxy — it doesn't work with localhost endpoints. Use a hosted https base URL."
+    );
+  }
+
   // When going through the proxy we override the SDK's `fetch` so we can
-  // GUARANTEE `x-provider-key` is set on EVERY request (POST, streaming, all
-  // of them). The proxy rewrites this header into `Authorization: Bearer
-  // <key>` before forwarding to the upstream provider.
+  // GUARANTEE the auth header is set on EVERY request (POST, streaming, all
+  // of them). The proxy rewrites `x-provider-key` → `Authorization: Bearer
+  // <key>`, and `x-provider-cookie` → `Cookie: <cookie>`.
   const customFetch = proxied
     ? (async (input: RequestInfo | URL, init?: RequestInit) => {
         const headers = new Headers(init?.headers);
-        headers.set("x-provider-key", key);
+        if (authMode === "cookie") {
+          headers.set("x-provider-cookie", cookie);
+        } else {
+          headers.set("x-provider-key", key);
+        }
         if (targetHeader) {
           // Append ?target=<upstream-base> so the proxy knows where to route
           // custom endpoints. Must live on the URL because Edge functions

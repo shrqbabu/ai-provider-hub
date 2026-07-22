@@ -75,6 +75,7 @@ export default async function handler(req: Request): Promise<Response> {
     if (HOP_BY_HOP.has(k)) return;
     if (k === "host" || k === "origin" || k === "referer") return;
     if (k === "x-provider-key") return;
+    if (k === "x-provider-cookie") return;
     if (k.startsWith("x-vercel-") || k.startsWith("cf-")) return;
     outHeaders.set(key, value);
   });
@@ -82,6 +83,14 @@ export default async function handler(req: Request): Promise<Response> {
   const providerToken = req.headers.get("x-provider-key");
   if (providerToken) {
     outHeaders.set("Authorization", `Bearer ${providerToken}`);
+  }
+
+  // Cookie-based auth: client sends the cookie string in x-provider-cookie
+  // (browsers can't set the Cookie header directly from fetch). We rewrite it
+  // into a real Cookie header on the upstream request.
+  const providerCookie = req.headers.get("x-provider-cookie");
+  if (providerCookie) {
+    outHeaders.set("Cookie", providerCookie);
   }
 
   const method = req.method.toUpperCase();

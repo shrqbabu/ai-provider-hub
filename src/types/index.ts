@@ -21,7 +21,13 @@ export interface ConnectedProvider {
   key: ProviderKey;
   name: string;
   displayName: string;
+  // Auth mode: "apiKey" (default) sends Authorization: Bearer <apiKey>.
+  // "cookie" sends the raw cookie string as the Cookie header instead —
+  // for self-hosted / OpenAI-compatible gateways that use session cookies.
+  authMode?: "apiKey" | "cookie";
   apiKey: string;
+  // Raw cookie string (e.g. "session=abc; token=xyz"), used when authMode === "cookie".
+  cookie?: string;
   baseURL: string;
   organization?: string;
   extraHeaders?: Record<string, string>;

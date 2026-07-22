@@ -83,6 +83,7 @@ export default defineConfig({
                 if (HOP_BY_HOP.has(k)) continue;
                 if (k === "host" || k === "origin" || k === "referer") continue;
                 if (k === "x-provider-key") continue;
+                if (k === "x-provider-cookie") continue;
                 outHeaders[key] = Array.isArray(value) ? value.join(",") : value;
               }
               const providerToken = req.headers["x-provider-key"];
@@ -90,6 +91,14 @@ export default defineConfig({
                 outHeaders["Authorization"] = `Bearer ${
                   Array.isArray(providerToken) ? providerToken[0] : providerToken
                 }`;
+              }
+              // Cookie-based auth (see api/proxy.ts): rewrite x-provider-cookie
+              // into a real Cookie header on the upstream request.
+              const providerCookie = req.headers["x-provider-cookie"];
+              if (providerCookie) {
+                outHeaders["Cookie"] = Array.isArray(providerCookie)
+                  ? providerCookie[0]
+                  : providerCookie;
               }
 
               const method = (req.method ?? "GET").toUpperCase();

@@ -4,5 +4,13 @@
     { "source": "/api/proxy/:path*", "destination": "/api/proxy?__p=:path*" },
     { "source": "/api/v1/:path*", "destination": "/api/v1?__p=:path*" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
-  ]
+  ],
+  "functions": {
+    "api/proxy.ts": {
+      "maxDuration": 60
+    },
+    "api/v1.ts": {
+      "maxDuration": 60
+    }
+  }
 }

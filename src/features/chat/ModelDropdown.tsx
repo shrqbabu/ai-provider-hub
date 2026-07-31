@@ -8,10 +8,20 @@ import { formatNumber, cn } from "@/utils";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { TierBadge } from "@/components/TierBadge";
+import type { ConnectedProvider } from "@/types";
 
 interface Props {
   modelId?: string;
   onChange: (modelPk: string) => void;
+}
+
+// A provider is usable only if it has credentials for its auth mode:
+// cookie mode → a cookie string; apiKey mode → at least one non-empty key
+// (either the primary `apiKey` or one of the fallback `apiKeys`).
+function hasCredentials(p: ConnectedProvider): boolean {
+  if (p.authMode === "cookie") return !!p.cookie?.trim();
+  if (p.apiKey?.trim()) return true;
+  return (p.apiKeys ?? []).some((k) => k.trim());
 }
 
 export function ModelDropdown({ modelId, onChange }: Props) {
@@ -27,13 +37,17 @@ export function ModelDropdown({ modelId, onChange }: Props) {
 
   const grouped = useMemo(() => {
     const filtered = models.filter((m) => {
-      if (!providerMap[m.providerId]) return false;
+      const provider = providerMap[m.providerId];
+      // Only show models whose provider still exists AND has usable credentials.
+      // Otherwise the model can be selected but the chat request fails with a
+      // 404/401 because the provider was never configured properly.
+      if (!provider || !hasCredentials(provider)) return false;
       if (!q) return true;
       const s = q.toLowerCase();
       return (
         m.modelId.toLowerCase().includes(s) ||
         m.displayName.toLowerCase().includes(s) ||
-        providerMap[m.providerId].displayName.toLowerCase().includes(s)
+        provider.displayName.toLowerCase().includes(s)
       );
     });
     const groups: Record<string, typeof filtered> = {};

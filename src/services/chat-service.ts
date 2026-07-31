@@ -145,6 +145,15 @@ export async function streamChat(
   systemPrompt?: string
 ): Promise<void> {
   const start = performance.now();
+  console.log('[Chat Service] Starting stream:', {
+    provider: provider.displayName,
+    providerKey: provider.key,
+    model: model.modelId,
+    baseURL: provider.baseURL,
+    authMode: provider.authMode,
+    hasApiKey: !!provider.apiKey,
+    hasCookie: !!provider.cookie,
+  });
   try {
     const client = createClient(provider);
     const baseMessages = buildMessages(messages, model, systemPrompt);
@@ -277,6 +286,13 @@ export async function streamChat(
       });
       return;
     }
-    handlers.onError(new Error(extractErrorMessage(err)));
+    const errorMsg = extractErrorMessage(err);
+    console.error('[Chat Service] Stream error:', {
+      provider: provider.displayName,
+      model: model.modelId,
+      error: errorMsg,
+      rawError: err,
+    });
+    handlers.onError(new Error(errorMsg));
   }
 }

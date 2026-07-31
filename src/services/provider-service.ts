@@ -35,18 +35,25 @@ function resolveBaseURL(url: string): Resolved {
     }
   }
   // Any other https endpoint (user-supplied custom base URL) → generic proxy.
-  // Target is passed via a header (SDK drops query params from baseURL).
+  // Target is passed via query param because Edge functions route by path.
   if (/^https:\/\//i.test(url)) {
     try {
       const parsed = new URL(url);
       const base = `${parsed.protocol}//${parsed.host}`;
       const remainingPath = parsed.pathname.replace(/\/$/, "");
+      console.log('[Provider Service] Custom provider detected:', {
+        original: url,
+        base,
+        remainingPath,
+        proxyPath: `${origin}/api/proxy/custom${remainingPath}`
+      });
       return {
         baseURL: `${origin}/api/proxy/custom${remainingPath}`,
         proxied: true,
         targetHeader: base,
       };
-    } catch {
+    } catch (err) {
+      console.error('[Provider Service] Failed to parse custom URL:', url, err);
       return { baseURL: url, proxied: false };
     }
   }
@@ -147,6 +154,12 @@ export function createClient(provider: ConnectedProvider): OpenAI {
             targetUrl.searchParams.set("target", targetHeader);
           }
           input = targetUrl.toString();
+          console.log('[Provider Service] Custom fetch request:', {
+            url: targetUrl.toString(),
+            target: targetHeader,
+            hasKey: !!key,
+            hasCookie: !!cookie,
+          });
         }
         headers.delete("authorization");
         if (provider.extraHeaders) {

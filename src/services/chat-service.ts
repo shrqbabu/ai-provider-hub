@@ -2,6 +2,7 @@ import type { ChatMessage, ConnectedProvider, DiscoveredModel } from "@/types";
 import { createClient, extractErrorMessage } from "./provider-service";
 import { dataUrlToText, isTextLike } from "@/utils";
 import { useSettingsStore } from "@/store/settings-store";
+import { streamAnthropicChat } from "./anthropic-service";
 
 export interface StreamHandlers {
   onDelta: (delta: string) => void;
@@ -144,6 +145,12 @@ export async function streamChat(
   handlers: StreamHandlers,
   systemPrompt?: string
 ): Promise<void> {
+  // Route to Anthropic Messages API if provider uses that format
+  if (provider.apiFormat === "anthropic") {
+    return streamAnthropicChat(provider, model, messages, handlers, systemPrompt);
+  }
+
+  // Otherwise use OpenAI-compatible API
   const start = performance.now();
   console.log('[Chat Service] Starting stream:', {
     provider: provider.displayName,

@@ -3,8 +3,8 @@
 // sub-path (e.g. "chat/completions") arrives in the __p query param. Node
 // runtime + streaming passthrough for SSE.
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { handleGateway } from "./_lib/gateway-core";
-import { sendCoreResponse, toCoreRequest, sendError } from "./_lib/node-adapter";
+import { handleGateway } from "./_lib/gateway-core.js";
+import { sendCoreResponse, toCoreRequest, sendError } from "./_lib/node-adapter.js";
 
 export const config = { runtime: "nodejs" };
 

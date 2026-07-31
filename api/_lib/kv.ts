@@ -3,7 +3,7 @@
 // prompts, usage, settings) is one document holding a JSON blob under
 // users/{uid}/kv/{key}. Swapping the frontend `storage` service to call these
 // keeps every existing Zustand store working unchanged.
-import { getDb } from "./firebase-admin";
+import { getDb } from "./firebase-admin.js";
 
 // Firestore rejects top-level arrays, so we wrap every value in { v: ... }.
 interface KVDoc {

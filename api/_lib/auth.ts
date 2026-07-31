@@ -1,8 +1,8 @@
 // ID-token auth for user-facing routes (/api/data, /api/keys). The frontend
 // sends the Firebase ID token as `Authorization: Bearer <token>`; we verify it
 // with the Admin SDK and return the uid.
-import { getAdminAuth } from "./firebase-admin";
-import type { CoreRequest } from "./http";
+import { getAdminAuth } from "./firebase-admin.js";
+import type { CoreRequest } from "./http.js";
 
 export function bearerToken(req: CoreRequest): string | undefined {
   const h = req.header("authorization") ?? req.header("Authorization");

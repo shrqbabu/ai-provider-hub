@@ -11,16 +11,16 @@
 //   POST completions        → provider /completions
 //   POST embeddings         → provider /embeddings
 //   GET  models             → aggregate of the user's saved models
-import { resolveApiKey } from "./api-keys";
-import { readKV, writeKV } from "./kv";
+import { resolveApiKey } from "./api-keys.js";
+import { readKV, writeKV } from "./kv.js";
 import {
   baseURLFor,
   resolveRoute,
   type GwModel,
   type GwProvider,
-} from "./upstreams";
-import { bearerToken } from "./auth";
-import { jsonResponse, type CoreRequest, type CoreResponse } from "./http";
+} from "./upstreams.js";
+import { bearerToken } from "./auth.js";
+import { jsonResponse, type CoreRequest, type CoreResponse } from "./http.js";
 
 const HOP_BY_HOP = new Set([
   "connection",

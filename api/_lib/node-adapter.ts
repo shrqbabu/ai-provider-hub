@@ -3,7 +3,7 @@
 // api/v1.ts so all the real logic lives in _lib and is shared with the Vite dev
 // middleware.
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { CoreRequest, CoreResponse } from "./http";
+import type { CoreRequest, CoreResponse } from "./http.js";
 
 function readRawBody(req: IncomingMessage): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {

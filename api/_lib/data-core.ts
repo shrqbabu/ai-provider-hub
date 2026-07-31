@@ -7,9 +7,9 @@
 //   DELETE /api/data?key=providers   → removes it
 //
 // Auth: Firebase ID token (Authorization: Bearer <idToken>).
-import { requireUser } from "./auth";
-import { deleteKV, readKV, writeKV } from "./kv";
-import { jsonResponse, type CoreRequest, type CoreResponse } from "./http";
+import { requireUser } from "./auth.js";
+import { deleteKV, readKV, writeKV } from "./kv.js";
+import { jsonResponse, type CoreRequest, type CoreResponse } from "./http.js";
 
 export async function handleData(
   req: CoreRequest,

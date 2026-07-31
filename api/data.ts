@@ -1,8 +1,8 @@
 // /api/data — per-user KV store (frontend storage backend). Node runtime
 // because firebase-admin doesn't run on the edge.
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { handleData } from "./_lib/data-core";
-import { sendCoreResponse, toCoreRequest, sendError } from "./_lib/node-adapter";
+import { handleData } from "./_lib/data-core.js";
+import { sendCoreResponse, toCoreRequest, sendError } from "./_lib/node-adapter.js";
 
 export const config = { runtime: "nodejs" };
 

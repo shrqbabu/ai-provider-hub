@@ -5,7 +5,7 @@
 // its SHA-256 hash, so a leaked database can't reveal usable keys. Lookup on
 // each gateway request hashes the presented key and reads apiKeys/{hash}.
 import { createHash, randomBytes } from "node:crypto";
-import { getDb } from "./firebase-admin";
+import { getDb } from "./firebase-admin.js";
 
 const PREFIX = "ah-";
 

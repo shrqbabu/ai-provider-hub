@@ -1,7 +1,7 @@
 // /api/keys — gateway "ah-…" key management. Node runtime.
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { handleKeys } from "./_lib/keys-core";
-import { sendCoreResponse, toCoreRequest, sendError } from "./_lib/node-adapter";
+import { handleKeys } from "./_lib/keys-core.js";
+import { sendCoreResponse, toCoreRequest, sendError } from "./_lib/node-adapter.js";
 
 export const config = { runtime: "nodejs" };
 

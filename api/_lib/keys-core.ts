@@ -4,9 +4,9 @@
 //   GET    /api/keys            → { keys: [...] }   (metadata only)
 //   POST   /api/keys            → body { label? }, returns { raw, key }
 //   DELETE /api/keys?id=<hash>  → revokes
-import { requireUser } from "./auth";
-import { createApiKey, listApiKeys, revokeApiKey } from "./api-keys";
-import { jsonResponse, type CoreRequest, type CoreResponse } from "./http";
+import { requireUser } from "./auth.js";
+import { createApiKey, listApiKeys, revokeApiKey } from "./api-keys.js";
+import { jsonResponse, type CoreRequest, type CoreResponse } from "./http.js";
 
 export async function handleKeys(
   req: CoreRequest,

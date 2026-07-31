@@ -13,15 +13,20 @@ import {
   Star,
   Pin,
   X,
+  KeyRound,
+  LogOut,
 } from "lucide-react";
 import { useChatStore } from "@/store/chat-store";
 import { useUIStore } from "@/store/ui-store";
+import { useAuthStore } from "@/store/auth-store";
 import { cn, truncate } from "@/utils";
 import { useState } from "react";
+import { toast } from "sonner";
 import { SearchDialog } from "@/features/search/SearchDialog";
 
 const nav = [
   { to: "/providers", label: "Providers", icon: Plug2 },
+  { to: "/api-keys", label: "Gateway Keys", icon: KeyRound },
   { to: "/models", label: "My Models", icon: Layers },
   { to: "/prompts", label: "Prompt Library", icon: BookOpen },
   { to: "/usage", label: "Usage", icon: BarChart3 },
@@ -33,9 +38,21 @@ export function Sidebar() {
   const navigate = useNavigate();
   const chats = useChatStore((s) => s.chats);
   const create = useChatStore((s) => s.create);
+  const user = useAuthStore((s) => s.user);
+  const logout = useAuthStore((s) => s.logout);
   const [searchOpen, setSearchOpen] = useState(false);
   const mobileOpen = useUIStore((s) => s.sidebarOpen);
   const setMobileOpen = useUIStore((s) => s.setSidebarOpen);
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      toast.success("Signed out.");
+      navigate("/");
+    } catch {
+      toast.error("Failed to sign out.");
+    }
+  };
 
   const activeChats = chats
     .filter((c) => !c.deleted)
@@ -158,8 +175,25 @@ export function Sidebar() {
         </div>
       </div>
 
-      <div className="p-3 border-t border-border/60 text-[10px] text-muted-foreground">
-        Everything runs locally in your browser.
+      <div className="p-3 border-t border-border/60">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-medium truncate">
+              {user?.email ?? "Signed in"}
+            </div>
+            <div className="text-[10px] text-muted-foreground">
+              Synced to your account
+            </div>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition shrink-0"
+            aria-label="Sign out"
+            title="Sign out"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
       </div>
     </>
   );

@@ -1,7 +1,12 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 import type { IncomingMessage, ServerResponse } from "http";
+import { handleData } from "./api/_lib/data-core";
+import { handleKeys } from "./api/_lib/keys-core";
+import { handleGateway } from "./api/_lib/gateway-core";
+import { toCoreRequest, sendCoreResponse } from "./api/_lib/node-adapter";
+import type { CoreRequest, CoreResponse } from "./api/_lib/http";
 
 // Dev-mode proxy that mirrors the production Vercel Edge Function
 // (api/proxy/[...path].ts). Same URL scheme in both:
@@ -29,9 +34,63 @@ const HOP_BY_HOP = new Set([
   "proxy-authenticate",
 ]);
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  // Load non-VITE env (e.g. FIREBASE_SERVICE_ACCOUNT) into process.env so the
+  // backend _lib code — shared with the Vercel functions — works in dev too.
+  const env = loadEnv(mode, process.cwd(), "");
+  for (const [k, v] of Object.entries(env)) {
+    if (process.env[k] === undefined) process.env[k] = v;
+  }
+
+  return {
   plugins: [
     react(),
+    // Dev backend — mirrors the Vercel Node functions (api/data.ts, api/keys.ts,
+    // api/v1.ts) by calling the exact same _lib core handlers. Registered before
+    // the proxy so /api/v1 (gateway) and /api/proxy (CORS) both work in dev.
+    {
+      name: "ai-provider-hub-dev-backend",
+      configureServer(server) {
+        const mount = (
+          prefix: string,
+          handler: (req: CoreRequest, now: number) => Promise<CoreResponse>,
+          opts?: { subPathFromUrl?: boolean }
+        ) => {
+          server.middlewares.use(
+            prefix,
+            async (req: IncomingMessage, res: ServerResponse) => {
+              try {
+                const rawUrl = req.url ?? "/";
+                const [pathPart, qs = ""] = rawUrl.split("?");
+                const query = new URLSearchParams(qs);
+                // For the gateway, the sub-path (e.g. "chat/completions") is the
+                // URL remainder after the mount prefix.
+                const subPath = opts?.subPathFromUrl
+                  ? pathPart.replace(/^\//, "")
+                  : "";
+                const core = toCoreRequest(req, subPath, query);
+                const result = await handler(core, Date.now());
+                await sendCoreResponse(res, result);
+              } catch (err) {
+                // eslint-disable-next-line no-console
+                console.error(`[dev-backend ${prefix}]`, err);
+                res.statusCode = 500;
+                res.setHeader("Content-Type", "application/json");
+                res.end(
+                  JSON.stringify({
+                    error: err instanceof Error ? err.message : "Server error",
+                  })
+                );
+              }
+            }
+          );
+        };
+
+        mount("/api/data", handleData);
+        mount("/api/keys", handleKeys);
+        mount("/api/v1", handleGateway, { subPathFromUrl: true });
+      },
+    },
     {
       name: "ai-provider-hub-dev-proxy",
       configureServer(server) {
@@ -159,6 +218,7 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  };
 });
 
 function send(res: ServerResponse, status: number, body: unknown) {

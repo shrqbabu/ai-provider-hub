@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { Loader2, PlugZap, TestTube2 } from "lucide-react";
+import { Loader2, PlugZap, TestTube2, Plus, Trash2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -37,7 +37,7 @@ interface FormState {
   key: ProviderKey;
   displayName: string;
   authMode: "apiKey" | "cookie";
-  apiKey: string;
+  apiKeys: string[];
   cookie: string;
   baseURL: string;
   organization: string;
@@ -53,7 +53,10 @@ const initial = (p?: ConnectedProvider): FormState => ({
   key: p?.key ?? "openai",
   displayName: p?.displayName ?? "",
   authMode: p?.authMode ?? "apiKey",
-  apiKey: p?.apiKey ?? "",
+  // Merge legacy single apiKey with the apiKeys list into one ordered array.
+  apiKeys: dedupeKeys([p?.apiKey ?? "", ...(p?.apiKeys ?? [])]).length
+    ? dedupeKeys([p?.apiKey ?? "", ...(p?.apiKeys ?? [])])
+    : [""],
   cookie: p?.cookie ?? "",
   baseURL: p?.baseURL ?? PROVIDERS.openai.baseURL,
   organization: p?.organization ?? "",
@@ -64,6 +67,20 @@ const initial = (p?: ConnectedProvider): FormState => ({
   fileUpload: p?.fileUpload ?? true,
   defaultModel: p?.defaultModel ?? "",
 });
+
+// Trim, drop empties, and de-dup while preserving order.
+function dedupeKeys(keys: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const k of keys) {
+    const t = k.trim();
+    if (t && !seen.has(t)) {
+      seen.add(t);
+      out.push(t);
+    }
+  }
+  return out;
+}
 
 export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
   const [form, setForm] = useState<FormState>(initial(existing));
@@ -77,6 +94,25 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((s) => ({ ...s, [k]: v }));
+
+  // Multi-key helpers — the API key input is a dynamic, ordered list. The
+  // gateway tries them top-to-bottom for fallback.
+  const setKeyAt = (i: number, v: string) =>
+    setForm((s) => {
+      const apiKeys = [...s.apiKeys];
+      apiKeys[i] = v;
+      return { ...s, apiKeys };
+    });
+  const addKey = () =>
+    setForm((s) => ({ ...s, apiKeys: [...s.apiKeys, ""] }));
+  const removeKeyAt = (i: number) =>
+    setForm((s) => {
+      const apiKeys = s.apiKeys.filter((_, idx) => idx !== i);
+      return { ...s, apiKeys: apiKeys.length ? apiKeys : [""] };
+    });
+
+  // First non-empty key = primary. Used for connection tests.
+  const primaryKey = form.apiKeys.find((k) => k.trim()) ?? "";
 
   const onProviderChange = (key: ProviderKey) => {
     setForm((s) => {
@@ -111,27 +147,31 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
   const buildProvider = (): Omit<
     ConnectedProvider,
     "id" | "connectedAt"
-  > => ({
-    key: form.key,
-    name: PROVIDERS[form.key].name,
-    displayName: form.displayName || PROVIDERS[form.key].name,
-    authMode: form.authMode,
-    apiKey: form.apiKey.trim(),
-    cookie: form.authMode === "cookie" ? form.cookie.trim() : undefined,
-    baseURL: form.baseURL.trim(),
-    organization: form.organization.trim() || undefined,
-    extraHeaders: parseHeaders(),
-    isCustom,
-    customLogo: form.customLogo || undefined,
-    streaming: form.streaming,
-    vision: form.vision,
-    fileUpload: form.fileUpload,
-    defaultModel: form.defaultModel || undefined,
-    lastCheckedAt: Date.now(),
-  });
+  > => {
+    const keys = dedupeKeys(form.apiKeys);
+    return {
+      key: form.key,
+      name: PROVIDERS[form.key].name,
+      displayName: form.displayName || PROVIDERS[form.key].name,
+      authMode: form.authMode,
+      apiKey: keys[0] ?? "",
+      apiKeys: keys,
+      cookie: form.authMode === "cookie" ? form.cookie.trim() : undefined,
+      baseURL: form.baseURL.trim(),
+      organization: form.organization.trim() || undefined,
+      extraHeaders: parseHeaders(),
+      isCustom,
+      customLogo: form.customLogo || undefined,
+      streaming: form.streaming,
+      vision: form.vision,
+      fileUpload: form.fileUpload,
+      defaultModel: form.defaultModel || undefined,
+      lastCheckedAt: Date.now(),
+    };
+  };
 
   const handleTest = async () => {
-    if (isCookie ? !form.cookie.trim() : !form.apiKey) {
+    if (isCookie ? !form.cookie.trim() : !primaryKey) {
       toast.error(
         isCookie
           ? "Cookie and base URL are required."
@@ -167,7 +207,7 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
   };
 
   const handleSave = async () => {
-    if (isCookie ? !form.cookie.trim() : !form.apiKey) {
+    if (isCookie ? !form.cookie.trim() : !primaryKey) {
       toast.error(
         isCookie
           ? "Cookie and base URL are required."
@@ -279,8 +319,8 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
             {existing ? "Edit provider" : "Connect a provider"}
           </DialogTitle>
           <DialogDescription>
-            Your API key stays on this device. Requests go directly from your
-            browser to the provider — no backend proxy.
+            Your keys are stored securely in your account. Add multiple keys per
+            provider for automatic fallback across your unified gateway.
           </DialogDescription>
         </DialogHeader>
 
@@ -335,20 +375,64 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
 
           {!isCookie && (
             <div className="space-y-1.5">
-              <Label>API key</Label>
-              <Input
-                type="password"
-                value={form.apiKey}
-                onChange={(e) => set("apiKey", e.target.value)}
-                placeholder={isCustom ? "nvapi-... / sk-... / any bearer token" : "sk-..."}
-                autoComplete="off"
-              />
-              {isCustom && (
-                <p className="text-[11px] text-muted-foreground">
-                  Sent as <code>Authorization: Bearer &lt;key&gt;</code>. Works with
-                  NVIDIA NIM, Groq, Together, Fireworks, DeepInfra, Ollama, LM Studio, vLLM…
-                </p>
-              )}
+              <div className="flex items-center justify-between">
+                <Label>
+                  API key{form.apiKeys.filter((k) => k.trim()).length > 1 ? "s" : ""}
+                </Label>
+                <button
+                  type="button"
+                  onClick={addKey}
+                  className="flex items-center gap-1 text-[11px] text-primary hover:underline"
+                >
+                  <Plus className="w-3 h-3" />
+                  Add fallback key
+                </button>
+              </div>
+              <div className="space-y-2">
+                {form.apiKeys.map((k, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <Input
+                        type="password"
+                        value={k}
+                        onChange={(e) => setKeyAt(i, e.target.value)}
+                        placeholder={
+                          i === 0
+                            ? isCustom
+                              ? "nvapi-... / sk-... / any bearer token"
+                              : "sk-..."
+                            : "Fallback key"
+                        }
+                        autoComplete="off"
+                      />
+                      {form.apiKeys.length > 1 && (
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">
+                          {i === 0 ? "primary" : `#${i + 1}`}
+                        </span>
+                      )}
+                    </div>
+                    {form.apiKeys.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeKeyAt(i)}
+                        className="p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-secondary transition shrink-0"
+                        aria-label="Remove key"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {isCustom ? (
+                  <>
+                    Sent as <code>Authorization: Bearer &lt;key&gt;</code>.{" "}
+                  </>
+                ) : null}
+                Add multiple keys for automatic fallback — the gateway tries them
+                top-to-bottom when one hits a rate limit or auth error.
+              </p>
             </div>
           )}
 

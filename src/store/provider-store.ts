@@ -3,7 +3,6 @@ import { v4 as uuid } from "uuid";
 import type { ConnectedProvider, ProviderKey } from "@/types";
 import { PROVIDERS } from "@/constants/providers";
 import { storage } from "@/services/storage";
-import { deobfuscate, obfuscate } from "@/utils";
 
 const KEY = "providers";
 
@@ -22,16 +21,16 @@ interface Actions {
 }
 
 async function persist(list: ConnectedProvider[]) {
-  const serialized = list.map((p) => ({ ...p, apiKey: obfuscate(p.apiKey) }));
-  await storage.set(KEY, serialized);
+  // Keys are stored server-side in Firestore (admin-protected), so no local
+  // obfuscation is needed — they never sit in browser storage anymore.
+  await storage.set(KEY, list);
 }
 
 export const useProviderStore = create<State & Actions>((set, get) => ({
   providers: [],
   hydrated: false,
   hydrate: async () => {
-    const raw = await storage.get<ConnectedProvider[]>(KEY, []);
-    const list = raw.map((p) => ({ ...p, apiKey: deobfuscate(p.apiKey) }));
+    const list = await storage.get<ConnectedProvider[]>(KEY, []);
     set({ providers: list, hydrated: true });
   },
   add: (p) => {

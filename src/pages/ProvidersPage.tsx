@@ -84,7 +84,8 @@ export function ProvidersPage() {
               Providers
             </h1>
             <p className="text-sm text-muted-foreground">
-              Connect the AI providers you use. Keys stay on this device.
+              Connect the AI providers you use. Add multiple keys per provider
+              for automatic fallback.
             </p>
           </div>
           <Button

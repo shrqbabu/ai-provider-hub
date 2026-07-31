@@ -26,6 +26,10 @@ export interface ConnectedProvider {
   // for self-hosted / OpenAI-compatible gateways that use session cookies.
   authMode?: "apiKey" | "cookie";
   apiKey: string;
+  // Additional API keys for fallback. The gateway tries them in order when the
+  // primary (apiKey) hits 401/403/429/5xx. apiKey is always the first key tried;
+  // apiKeys holds the rest. Stored so the whole ordered list survives.
+  apiKeys?: string[];
   // Raw cookie string (e.g. "session=abc; token=xyz"), used when authMode === "cookie".
   cookie?: string;
   baseURL: string;

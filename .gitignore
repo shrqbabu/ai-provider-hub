@@ -2,6 +2,11 @@ node_modules
 dist
 dist-ssr
 *.local
+
+# env / secrets
+.env
+.env.*
+!.env.example
 .DS_Store
 .vscode
 .idea

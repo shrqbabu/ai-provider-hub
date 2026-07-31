@@ -10,6 +10,9 @@ import { PromptsPage } from "@/pages/PromptsPage";
 import { UsagePage } from "@/pages/UsagePage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { TrashPage } from "@/pages/TrashPage";
+import { AuthPage } from "@/pages/AuthPage";
+import { ApiKeysPage } from "@/pages/ApiKeysPage";
+import { useAuthStore } from "@/store/auth-store";
 import { useProviderStore } from "@/store/provider-store";
 import { useModelStore } from "@/store/model-store";
 import { inferTier } from "@/constants/providers";
@@ -21,6 +24,10 @@ import { Sparkles } from "lucide-react";
 
 export default function App() {
   const [ready, setReady] = useState(false);
+  const authLoading = useAuthStore((s) => s.loading);
+  const authConfigured = useAuthStore((s) => s.configured);
+  const user = useAuthStore((s) => s.user);
+  const init = useAuthStore((s) => s.init);
   const hydrateProviders = useProviderStore((s) => s.hydrate);
   const hydrateModels = useModelStore((s) => s.hydrate);
   const hydrateChats = useChatStore((s) => s.hydrate);
@@ -28,7 +35,18 @@ export default function App() {
   const hydrateUsage = useUsageStore((s) => s.hydrate);
   const hydrateSettings = useSettingsStore((s) => s.hydrate);
 
+  // Initialize Firebase auth listener once on mount.
   useEffect(() => {
+    init();
+  }, [init]);
+
+  // Once auth resolves (user signed in), hydrate stores from the backend.
+  useEffect(() => {
+    if (authLoading || !authConfigured) return;
+    if (!user) {
+      setReady(true);
+      return;
+    }
     Promise.all([
       hydrateProviders(),
       hydrateModels(),
@@ -60,6 +78,9 @@ export default function App() {
       setReady(true);
     });
   }, [
+    authLoading,
+    authConfigured,
+    user,
     hydrateProviders,
     hydrateModels,
     hydrateChats,
@@ -68,16 +89,47 @@ export default function App() {
     hydrateSettings,
   ]);
 
-  if (!ready) {
+  // Firebase env not set → tell the developer how to configure it.
+  if (!authConfigured) {
+    return (
+      <div className="h-full w-full aurora flex items-center justify-center p-4">
+        <div className="max-w-md rounded-2xl border border-border/60 bg-card/40 backdrop-blur-xl p-6 text-center space-y-3">
+          <div className="w-12 h-12 mx-auto rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
+            <Sparkles className="w-6 h-6 text-primary-foreground" />
+          </div>
+          <div className="text-lg font-semibold">Firebase not configured</div>
+          <div className="text-sm text-muted-foreground">
+            Set <code>VITE_FIREBASE_*</code> in your <code>.env</code> file, then
+            restart the dev server. See <code>.env.example</code> for the required
+            keys.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Loading spinner while auth initializes.
+  if (authLoading || !ready) {
     return (
       <div className="h-full w-full aurora flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center animate-pulse">
             <Sparkles className="w-6 h-6 text-primary-foreground" />
           </div>
-          <div className="text-sm text-muted-foreground">Loading local data…</div>
+          <div className="text-sm text-muted-foreground">
+            {authLoading ? "Checking auth…" : "Loading…"}
+          </div>
         </div>
       </div>
+    );
+  }
+
+  // Not signed in → show auth page.
+  if (!user) {
+    return (
+      <TooltipProvider>
+        <AuthPage />
+      </TooltipProvider>
     );
   }
 
@@ -87,6 +139,7 @@ export default function App() {
         <Route element={<AppShell />}>
           <Route path="/" element={<LandingPage />} />
           <Route path="/providers" element={<ProvidersPage />} />
+          <Route path="/api-keys" element={<ApiKeysPage />} />
           <Route path="/models" element={<ModelsPage />} />
           <Route path="/chat/:id" element={<ChatPage />} />
           <Route path="/prompts" element={<PromptsPage />} />

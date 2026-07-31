@@ -10,14 +10,18 @@
 //   POST chat/completions   → provider /chat/completions
 //   POST completions        → provider /completions
 //   POST embeddings         → provider /embeddings
-//   GET  models             → aggregate of the user's saved models
+//   POST messages           → provider /messages (Anthropic-native)
+//   GET  models             → aggregate of the user's saved models + combos
 import { resolveApiKey } from "./api-keys.js";
 import { readKV, writeKV } from "./kv.js";
 import {
   baseURLFor,
-  resolveRoute,
+  resolveAttempts,
+  providerKeys,
+  type GwCombo,
   type GwModel,
   type GwProvider,
+  type ResolvedRoute,
 } from "./upstreams.js";
 import { bearerToken } from "./auth.js";
 import { jsonResponse, type CoreRequest, type CoreResponse } from "./http.js";
@@ -60,21 +64,31 @@ export async function handleGateway(
 
   const path = req.subPath.replace(/^\/+/, "").toLowerCase();
 
-  // ── Load the user's connected providers + models ─────────────────────────
-  const [providers, models] = await Promise.all([
+  // ── Load the user's connected providers + models + combos ───────────────
+  const [providers, models, combos] = await Promise.all([
     readKV<GwProvider[]>(uid, "providers", []),
     readKV<GwModel[]>(uid, "models", []),
+    readKV<GwCombo[]>(uid, "combos", []),
   ]);
 
-  // ── GET models: return the user's saved models in OpenAI list shape ──────
+  // ── GET models: return the user's saved models + combos in list shape ────
   if (path === "models" || path === "v1/models") {
     return jsonResponse(200, {
       object: "list",
-      data: models.map((m) => ({
-        id: m.modelId,
-        object: "model",
-        owned_by: m.providerKey,
-      })),
+      data: [
+        ...models.map((m) => ({
+          id: m.modelId,
+          object: "model",
+          owned_by: m.providerKey,
+        })),
+        ...combos
+          .filter((c) => (c.name ?? "").trim())
+          .map((c) => ({
+            id: c.name,
+            object: "model",
+            owned_by: "combo",
+          })),
+      ],
     });
   }
 
@@ -96,53 +110,49 @@ export async function handleGateway(
   }
 
   const requestedModel = String(body.model ?? "");
-  const route = resolveRoute(requestedModel, providers, models);
-  if ("error" in route) {
-    return jsonResponse(route.status, {
-      error: { message: route.error, type: "invalid_request" },
+  const resolved = resolveAttempts(requestedModel, providers, models, combos);
+  if ("error" in resolved) {
+    return jsonResponse(resolved.status, {
+      error: { message: resolved.error, type: "invalid_request" },
     });
   }
 
-  const { provider, modelId, keys } = route;
-  const base = baseURLFor(provider);
-  if (!base) {
-    return jsonResponse(400, {
-      error: { message: `Provider "${provider.displayName ?? provider.key}" has no base URL.`, type: "invalid_request" },
-    });
-  }
-
-  // Send upstream with the resolved (prefix-stripped) model id.
-  const upstreamBody = JSON.stringify({ ...body, model: modelId });
   const wantsStream = body.stream === true;
-  const targetURL = base.replace(/\/$/, "") + endpoint;
 
-  const authList =
-    provider.authMode === "cookie"
-      ? [provider.cookie ?? ""].filter(Boolean)
-      : keys;
+  // Flatten the ordered attempts (combo members, or a single model) into a
+  // flat list of concrete (provider, modelId, cred) tries. Combo priority is
+  // the outer order; each member's own multi-key fallback is the inner order.
+  type Try = { route: ResolvedRoute; cred: string };
+  const tries: Try[] = [];
+  for (const route of resolved.attempts) {
+    if (!baseURLFor(route.provider)) continue; // no base URL → unusable
+    const authList =
+      route.provider.authMode === "cookie"
+        ? [route.provider.cookie ?? ""].filter(Boolean)
+        : route.keys.length
+        ? route.keys
+        : providerKeys(route.provider);
+    for (const cred of authList) tries.push({ route, cred });
+  }
 
-  if (!authList.length) {
+  if (!tries.length) {
     return jsonResponse(400, {
       error: {
-        message: `Provider "${provider.displayName ?? provider.key}" has no API key configured.`,
+        message: `No usable provider/key found for "${requestedModel}". Check the provider's base URL and API key in the app.`,
         type: "invalid_request",
       },
     });
   }
 
-  // ── Fallback loop over the provider's keys ───────────────────────────────
+  // ── Fallback loop over every (member × key) attempt in priority order ─────
   let lastStatus = 502;
-  let lastText = "All provider keys failed.";
-  for (let i = 0; i < authList.length; i++) {
-    const cred = authList[i];
-    const headers = new Headers();
-    headers.set("Content-Type", "application/json");
-    if (provider.authMode === "cookie") headers.set("Cookie", cred);
-    else headers.set("Authorization", `Bearer ${cred}`);
-    if (provider.organization) headers.set("OpenAI-Organization", provider.organization);
-    if (provider.extraHeaders) {
-      for (const [k, v] of Object.entries(provider.extraHeaders)) headers.set(k, v);
-    }
+  let lastText = "All provider attempts failed.";
+  for (let i = 0; i < tries.length; i++) {
+    const { route, cred } = tries[i];
+    const { provider, modelId } = route;
+    const targetURL = baseURLFor(provider).replace(/\/$/, "") + endpoint;
+    const upstreamBody = JSON.stringify({ ...body, model: modelId });
+    const headers = buildUpstreamHeaders(provider, cred, endpoint);
 
     let upstream: Response;
     try {
@@ -154,13 +164,13 @@ export async function handleGateway(
     } catch (err) {
       lastStatus = 502;
       lastText = err instanceof Error ? err.message : "Upstream fetch failed.";
-      continue; // network error → try next key
+      continue; // network error → try next attempt
     }
 
-    if (shouldFallback(upstream.status) && i < authList.length - 1) {
+    if (shouldFallback(upstream.status) && i < tries.length - 1) {
       lastStatus = upstream.status;
       lastText = await safeText(upstream);
-      continue; // try next key
+      continue; // try next attempt
     }
 
     // Success (or final attempt) → relay this response to the caller.
@@ -170,10 +180,40 @@ export async function handleGateway(
 
   return jsonResponse(lastStatus, {
     error: {
-      message: `All ${authList.length} key(s) for this provider failed. Last upstream error: ${lastText}`,
+      message: `All ${tries.length} attempt(s) failed. Last upstream error: ${lastText}`,
       type: "upstream_error",
     },
   });
+}
+
+// Build the auth headers for an upstream request. OpenAI-compatible providers
+// use `Authorization: Bearer`; Anthropic-native ones (apiFormat "anthropic",
+// or when the caller hit the /messages endpoint directly) use `x-api-key` +
+// `anthropic-version`. Cookie-auth providers send a raw Cookie header.
+function buildUpstreamHeaders(
+  provider: GwProvider,
+  cred: string,
+  endpoint: string
+): Headers {
+  const headers = new Headers();
+  headers.set("Content-Type", "application/json");
+  const isAnthropic =
+    provider.apiFormat === "anthropic" || endpoint === "/messages";
+  if (provider.authMode === "cookie") {
+    headers.set("Cookie", cred);
+  } else if (isAnthropic) {
+    headers.set("x-api-key", cred);
+    headers.set("anthropic-version", "2023-06-01");
+  } else {
+    headers.set("Authorization", `Bearer ${cred}`);
+  }
+  if (provider.organization)
+    headers.set("OpenAI-Organization", provider.organization);
+  if (provider.extraHeaders) {
+    for (const [k, v] of Object.entries(provider.extraHeaders))
+      headers.set(k, v);
+  }
+  return headers;
 }
 
 function matchEndpoint(path: string): string | null {
@@ -181,6 +221,7 @@ function matchEndpoint(path: string): string | null {
   if (p === "chat/completions") return "/chat/completions";
   if (p === "completions") return "/completions";
   if (p === "embeddings") return "/embeddings";
+  if (p === "messages") return "/messages";
   return null;
 }
 

@@ -225,6 +225,22 @@ client.chat.completions.create(model="gpt-4o", messages=[...])
 client.chat.completions.create(model="claude-opus-4-8", messages=[...])`}
             </pre>
           </div>
+
+          <div className="space-y-1.5">
+            <div className="text-xs text-muted-foreground">
+              Combos — automatic fallback
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Call a combo by its name and the gateway tries its models in your
+              priority order — if the first is rate-limited or down, it falls
+              through to the next automatically. Combos also show up in{" "}
+              <code>GET /v1/models</code>.
+            </p>
+            <pre className="rounded-lg bg-background border border-border p-3 text-xs font-mono overflow-x-auto">
+{`# "smart-router" is a combo you defined on the Combos page:
+client.chat.completions.create(model="smart-router", messages=[...])`}
+            </pre>
+          </div>
         </div>
       </div>
     </div>

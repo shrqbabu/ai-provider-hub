@@ -71,6 +71,26 @@ export interface DiscoveredModel {
   tier?: "free" | "paid" | "unknown";
 }
 
+// A named group of models with a user-defined fallback priority order. When
+// the gateway is called with `model: "<combo name>"`, it tries each member in
+// order (top → bottom) until one succeeds. Combos accept OpenAI-format models
+// only — no request/response translation happens. The combo name is surfaced
+// in the gateway's GET /v1/models list.
+export interface ComboMember {
+  providerId: string;
+  modelId: string;
+}
+
+export interface Combo {
+  id: string;
+  name: string;
+  description?: string;
+  // Ordered by fallback priority: members[0] is tried first.
+  members: ComboMember[];
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface ChatAttachment {
   id: string;
   name: string;

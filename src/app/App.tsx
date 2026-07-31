@@ -5,6 +5,7 @@ import { AppShell } from "@/layouts/AppShell";
 import { LandingPage } from "@/pages/LandingPage";
 import { ProvidersPage } from "@/pages/ProvidersPage";
 import { ModelsPage } from "@/pages/ModelsPage";
+import { CombosPage } from "@/pages/CombosPage";
 import { ChatPage } from "@/pages/ChatPage";
 import { PromptsPage } from "@/pages/PromptsPage";
 import { UsagePage } from "@/pages/UsagePage";
@@ -15,6 +16,7 @@ import { ApiKeysPage } from "@/pages/ApiKeysPage";
 import { useAuthStore } from "@/store/auth-store";
 import { useProviderStore } from "@/store/provider-store";
 import { useModelStore } from "@/store/model-store";
+import { useComboStore } from "@/store/combo-store";
 import { inferTier } from "@/constants/providers";
 import { useChatStore } from "@/store/chat-store";
 import { usePromptStore } from "@/store/prompt-store";
@@ -30,6 +32,7 @@ export default function App() {
   const init = useAuthStore((s) => s.init);
   const hydrateProviders = useProviderStore((s) => s.hydrate);
   const hydrateModels = useModelStore((s) => s.hydrate);
+  const hydrateCombos = useComboStore((s) => s.hydrate);
   const hydrateChats = useChatStore((s) => s.hydrate);
   const hydratePrompts = usePromptStore((s) => s.hydrate);
   const hydrateUsage = useUsageStore((s) => s.hydrate);
@@ -50,6 +53,7 @@ export default function App() {
     Promise.all([
       hydrateProviders(),
       hydrateModels(),
+      hydrateCombos(),
       hydrateChats(),
       hydratePrompts(),
       hydrateUsage(),
@@ -83,6 +87,7 @@ export default function App() {
     user,
     hydrateProviders,
     hydrateModels,
+    hydrateCombos,
     hydrateChats,
     hydratePrompts,
     hydrateUsage,
@@ -141,6 +146,7 @@ export default function App() {
           <Route path="/providers" element={<ProvidersPage />} />
           <Route path="/api-keys" element={<ApiKeysPage />} />
           <Route path="/models" element={<ModelsPage />} />
+          <Route path="/combos" element={<CombosPage />} />
           <Route path="/chat/:id" element={<ChatPage />} />
           <Route path="/prompts" element={<PromptsPage />} />
           <Route path="/usage" element={<UsagePage />} />

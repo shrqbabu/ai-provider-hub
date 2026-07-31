@@ -34,6 +34,15 @@ export interface GwModel {
   modelId: string;
 }
 
+// A user-defined combo: a named group of models with a fallback priority
+// order. When the gateway is called with `model: "<combo name>"`, it tries
+// each member in order until one succeeds. Combos are OpenAI-format only.
+export interface GwCombo {
+  id: string;
+  name: string;
+  members: { providerId: string; modelId: string }[];
+}
+
 export interface ResolvedRoute {
   provider: GwProvider;
   /** The model id to send upstream (prefix stripped). */
@@ -123,4 +132,51 @@ export function resolveRoute(
 
 function finalize(provider: GwProvider, modelId: string): ResolvedRoute {
   return { provider, modelId, keys: providerKeys(provider) };
+}
+
+/**
+ * Resolve `model` into an ORDERED list of attempts (provider + modelId + keys).
+ *
+ * - If `model` matches a combo name → one attempt per combo member, in the
+ *   user-defined priority order. The gateway falls through them on failure.
+ * - Otherwise → a single attempt via `resolveRoute`.
+ *
+ * This is what the gateway actually loops over: normal models yield one
+ * attempt, combos yield N. Each attempt still carries its own key list, so
+ * per-provider multi-key fallback stacks on top of combo fallback.
+ */
+export function resolveAttempts(
+  model: string,
+  providers: GwProvider[],
+  models: GwModel[],
+  combos: GwCombo[]
+): { attempts: ResolvedRoute[] } | { error: string; status: number } {
+  if (!model) return { error: "Request is missing `model`.", status: 400 };
+  if (!providers.length)
+    return {
+      error: "No providers connected. Add a provider in the app first.",
+      status: 400,
+    };
+
+  const wanted = model.trim().toLowerCase();
+  const combo = combos.find((c) => (c.name ?? "").trim().toLowerCase() === wanted);
+  if (combo) {
+    const byId = new Map(providers.map((p) => [p.id, p]));
+    const attempts: ResolvedRoute[] = [];
+    for (const member of combo.members ?? []) {
+      const provider = byId.get(member.providerId);
+      if (!provider) continue; // provider deleted since combo was saved — skip
+      attempts.push(finalize(provider, member.modelId));
+    }
+    if (!attempts.length)
+      return {
+        error: `Combo "${combo.name}" has no usable members. Its providers may have been removed — edit the combo in the app.`,
+        status: 400,
+      };
+    return { attempts };
+  }
+
+  const route = resolveRoute(model, providers, models);
+  if ("error" in route) return route;
+  return { attempts: [route] };
 }

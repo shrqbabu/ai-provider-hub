@@ -39,7 +39,8 @@ export function ComboDialog({ open, onOpenChange, editing }: Props) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [members, setMembers] = useState<ComboMember[]>([]);
-  const [pick, setPick] = useState<string>("");
+  const [selectedProviderFilter, setSelectedProviderFilter] = useState<string>("all");
+  const [selectedModels, setSelectedModels] = useState<string[]>([]);
 
   // Reset the form whenever the dialog opens (fresh for create, prefilled for edit).
   useEffect(() => {
@@ -47,7 +48,8 @@ export function ComboDialog({ open, onOpenChange, editing }: Props) {
     setName(editing?.name ?? "");
     setDescription(editing?.description ?? "");
     setMembers(editing?.members ? [...editing.members] : []);
-    setPick("");
+    setSelectedProviderFilter("all");
+    setSelectedModels([]);
   }, [open, editing]);
 
   // Combos accept OpenAI-format models only — exclude any model whose provider
@@ -65,6 +67,20 @@ export function ComboDialog({ open, onOpenChange, editing }: Props) {
       });
   }, [models, providers]);
 
+  const filteredEligible = useMemo(() => {
+    return eligible.filter(({ model }) => {
+      // 1. Filter by provider id if not "all"
+      if (selectedProviderFilter !== "all" && model.providerId !== selectedProviderFilter) {
+        return false;
+      }
+      // 2. Exclude models that are already in members
+      const isAlreadyMember = members.some(
+        (m) => m.providerId === model.providerId && m.modelId === model.modelId
+      );
+      return !isAlreadyMember;
+    });
+  }, [eligible, selectedProviderFilter, members]);
+
   const providerName = (providerId: string) =>
     providers.find((p) => p.id === providerId)?.displayName ?? "Unknown provider";
 
@@ -75,21 +91,32 @@ export function ComboDialog({ open, onOpenChange, editing }: Props) {
     return found?.displayName || m.modelId;
   };
 
-  const addMember = () => {
-    if (!pick) return;
-    // pick value is "providerId::modelId"
-    const [providerId, ...rest] = pick.split("::");
-    const modelId = rest.join("::");
-    if (
-      members.some(
-        (mm) => mm.providerId === providerId && mm.modelId === modelId
-      )
-    ) {
-      toast.error("That model is already in the combo.");
-      return;
+  const addSelectedModels = () => {
+    if (selectedModels.length === 0) return;
+
+    const newMembers = [...members];
+    let addedCount = 0;
+
+    selectedModels.forEach((val) => {
+      const [providerId, ...rest] = val.split("::");
+      const modelId = rest.join("::");
+
+      // Safety check to prevent duplicates
+      if (
+        !newMembers.some(
+          (mm) => mm.providerId === providerId && mm.modelId === modelId
+        )
+      ) {
+        newMembers.push({ providerId, modelId });
+        addedCount++;
+      }
+    });
+
+    setMembers(newMembers);
+    setSelectedModels([]);
+    if (addedCount > 0) {
+      toast.success(`Added ${addedCount} model${addedCount > 1 ? "s" : ""} to the combo`);
     }
-    setMembers([...members, { providerId, modelId }]);
-    setPick("");
   };
 
   const move = (i: number, dir: -1 | 1) => {
@@ -223,36 +250,83 @@ export function ComboDialog({ open, onOpenChange, editing }: Props) {
               </div>
             )}
 
-            <div className="flex gap-2">
-              <Select value={pick} onValueChange={setPick}>
-                <SelectTrigger className="flex-1">
-                  <SelectValue placeholder="Pick a model to add…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {eligible.length === 0 ? (
-                    <div className="px-2 py-3 text-xs text-muted-foreground">
-                      No OpenAI-format models available. Add some on the Models
-                      page first.
-                    </div>
-                  ) : (
-                    eligible.map(({ model, providerName }) => (
-                      <SelectItem
-                        key={`${model.providerId}::${model.modelId}`}
-                        value={`${model.providerId}::${model.modelId}`}
+            <div className="space-y-3 pt-3 border-t border-border">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                <Label className="text-xs">Add Models</Label>
+                <div className="w-full sm:w-[200px]">
+                  <Select
+                    value={selectedProviderFilter}
+                    onValueChange={(val) => {
+                      setSelectedProviderFilter(val);
+                      setSelectedModels([]);
+                    }}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="All Providers" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Providers</SelectItem>
+                      {providers
+                        .filter((p) => (p.apiFormat ?? "openai") === "openai")
+                        .map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.displayName}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {filteredEligible.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+                  {selectedProviderFilter !== "all"
+                    ? "No remaining OpenAI-format models for this provider."
+                    : "No remaining OpenAI-format models available."}
+                </div>
+              ) : (
+                <div className="border border-border rounded-xl max-h-[160px] overflow-y-auto p-1.5 space-y-0.5 scrollbar-thin bg-background/20">
+                  {filteredEligible.map(({ model, providerName }) => {
+                    const val = `${model.providerId}::${model.modelId}`;
+                    const isChecked = selectedModels.includes(val);
+                    return (
+                      <div
+                        key={val}
+                        onClick={() => {
+                          if (isChecked) {
+                            setSelectedModels(selectedModels.filter((x) => x !== val));
+                          } else {
+                            setSelectedModels([...selectedModels, val]);
+                          }
+                        }}
+                        className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-secondary/60 cursor-pointer transition select-none text-xs"
                       >
-                        {model.displayName} · {providerName}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => {}} // handled by parent onClick
+                          className="rounded border-input text-primary focus:ring-ring h-4 w-4 accent-primary cursor-pointer shrink-0"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium truncate text-foreground">{model.displayName}</div>
+                          <div className="text-[10px] text-muted-foreground truncate">
+                            {model.modelId} · {providerName}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               <Button
+                className="w-full h-9"
                 variant="outline"
-                onClick={addMember}
-                disabled={!pick}
-                className="shrink-0"
+                disabled={selectedModels.length === 0}
+                onClick={addSelectedModels}
               >
-                <Plus className="w-4 h-4" /> Add
+                <Plus className="w-4 h-4 mr-1.5" />
+                Add Selected ({selectedModels.length})
               </Button>
             </div>
           </div>

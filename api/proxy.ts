@@ -19,6 +19,7 @@ const TARGETS: Record<string, string> = {
   nvidia: "https://integrate.api.nvidia.com",
   anthropic: "https://api.anthropic.com",
   openrouter: "https://openrouter.ai",
+  google: "https://generativelanguage.googleapis.com",
 };
 
 const HOP_BY_HOP = new Set([

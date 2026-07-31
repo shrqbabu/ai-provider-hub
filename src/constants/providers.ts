@@ -45,6 +45,17 @@ export const PROVIDERS: Record<ProviderKey, ProviderDefinition> = {
     supportsModelsList: true,
     logo: "openrouter",
   },
+  google: {
+    key: "google",
+    name: "Google (Gemini)",
+    description:
+      "Google AI Studio & Gemini — multi-modal models with vision, coding, and reasoning capabilities.",
+    baseURL: "https://generativelanguage.googleapis.com/v1",
+    docsURL: "https://ai.google.dev/gemini-api/docs",
+    gradient: "from-red-400 via-pink-500 to-rose-500",
+    supportsModelsList: false,
+    logo: "google",
+  },
   custom: {
     key: "custom",
     name: "OpenAI Compatible",

@@ -11,6 +11,7 @@ export const PROVIDER_BASE: Record<string, string> = {
   nvidia: "https://integrate.api.nvidia.com/v1",
   anthropic: "https://api.anthropic.com/v1",
   openrouter: "https://openrouter.ai/api/v1",
+  google: "https://generativelanguage.googleapis.com/v1",
 };
 
 // Minimal mirror of the frontend types (api code can't import from src/).

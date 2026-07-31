@@ -3,6 +3,7 @@ export type ProviderKey =
   | "nvidia"
   | "anthropic"
   | "openrouter"
+  | "google"
   | "custom";
 
 export interface ProviderDefinition {

@@ -19,6 +19,7 @@ export interface GwProvider {
   key: string;
   displayName?: string;
   authMode?: "apiKey" | "cookie";
+  apiFormat?: "openai" | "anthropic";
   apiKey?: string;
   apiKeys?: string[];
   cookie?: string;

@@ -32,6 +32,11 @@ export interface ConnectedProvider {
   apiKeys?: string[];
   // Raw cookie string (e.g. "session=abc; token=xyz"), used when authMode === "cookie".
   cookie?: string;
+  // Wire protocol the endpoint speaks. "openai" (default) → POST /chat/completions
+  // in OpenAI shape. "anthropic" → POST /v1/messages in Anthropic Messages shape
+  // (for api.anthropic.com and Claude-native gateways like api.lumosel.vip that
+  // don't expose an OpenAI-compatible /chat/completions path).
+  apiFormat?: "openai" | "anthropic";
   baseURL: string;
   organization?: string;
   extraHeaders?: Record<string, string>;

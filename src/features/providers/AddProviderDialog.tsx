@@ -37,6 +37,7 @@ interface FormState {
   key: ProviderKey;
   displayName: string;
   authMode: "apiKey" | "cookie";
+  apiFormat: "openai" | "anthropic";
   apiKeys: string[];
   cookie: string;
   baseURL: string;
@@ -53,6 +54,8 @@ const initial = (p?: ConnectedProvider): FormState => ({
   key: p?.key ?? "openai",
   displayName: p?.displayName ?? "",
   authMode: p?.authMode ?? "apiKey",
+  // Default anthropic providers to the Messages API; everything else to OpenAI.
+  apiFormat: p?.apiFormat ?? (p?.key === "anthropic" ? "anthropic" : "openai"),
   // Merge legacy single apiKey with the apiKeys list into one ordered array.
   apiKeys: dedupeKeys([p?.apiKey ?? "", ...(p?.apiKeys ?? [])]).length
     ? dedupeKeys([p?.apiKey ?? "", ...(p?.apiKeys ?? [])])
@@ -122,6 +125,8 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
         ...s,
         key,
         baseURL: PROVIDERS[key].baseURL || s.baseURL,
+        // Anthropic → Messages API by default; other built-ins → OpenAI.
+        apiFormat: key === "anthropic" ? "anthropic" : "openai",
         // Custom endpoints: don't auto-fill display name — user provides it.
         // For built-in providers: fill only if empty or previously auto-filled.
         displayName:
@@ -154,6 +159,7 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
       name: PROVIDERS[form.key].name,
       displayName: form.displayName || PROVIDERS[form.key].name,
       authMode: form.authMode,
+      apiFormat: form.apiFormat,
       apiKey: keys[0] ?? "",
       apiKeys: keys,
       cookie: form.authMode === "cookie" ? form.cookie.trim() : undefined,
@@ -467,6 +473,33 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
               }
             />
           </div>
+
+          {!isCookie && (
+            <div className="space-y-1.5">
+              <Label>API format</Label>
+              <Select
+                value={form.apiFormat}
+                onValueChange={(v) => set("apiFormat", v as "openai" | "anthropic")}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="openai">
+                    OpenAI compatible (/chat/completions)
+                  </SelectItem>
+                  <SelectItem value="anthropic">
+                    Anthropic Messages (/v1/messages)
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">
+                Pick <code>Anthropic Messages</code> for api.anthropic.com or
+                Claude-native gateways that don't expose an OpenAI
+                <code>/chat/completions</code> path.
+              </p>
+            </div>
+          )}
 
           {!isCustom && (
             <div className="space-y-1.5">

@@ -53,6 +53,48 @@ function resolveBaseURL(url: string): Resolved {
   return { baseURL: url, proxied: false };
 }
 
+// Build the fetch URL + headers for a raw request to a provider (used by the
+// Anthropic Messages path, which can't go through the OpenAI SDK). Reuses the
+// same proxy resolution as createClient so auth + CORS work identically.
+// `subPath` is appended to the resolved base, e.g. "/messages".
+export function resolveRawRequest(
+  provider: ConnectedProvider,
+  subPath: string
+): { url: string; headers: Record<string, string> } {
+  const authMode = provider.authMode ?? "apiKey";
+  const key = (provider.apiKey ?? "").trim();
+  const cookie = (provider.cookie ?? "").trim();
+  const { baseURL, proxied, targetHeader } = resolveBaseURL(provider.baseURL);
+
+  let url = baseURL.replace(/\/$/, "") + subPath;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  if (proxied) {
+    // The proxy rewrites x-provider-key → Authorization: Bearer (and x-api-key
+    // for Anthropic-native upstreams), x-provider-cookie → Cookie.
+    if (authMode === "cookie") headers["x-provider-cookie"] = cookie;
+    else headers["x-provider-key"] = key;
+    if (targetHeader) {
+      const u = new URL(url);
+      if (!u.searchParams.has("target")) u.searchParams.set("target", targetHeader);
+      url = u.toString();
+    }
+  } else {
+    // Direct (localhost) — set auth headers ourselves. Anthropic uses x-api-key.
+    if (authMode !== "cookie" && key) {
+      headers["Authorization"] = `Bearer ${key}`;
+      headers["x-api-key"] = key;
+    }
+  }
+
+  if (provider.extraHeaders) {
+    for (const [k, v] of Object.entries(provider.extraHeaders)) headers[k] = v;
+  }
+  return { url, headers };
+}
+
 export function createClient(provider: ConnectedProvider): OpenAI {
   const authMode = provider.authMode ?? "apiKey";
   const key = (provider.apiKey ?? "").trim();

@@ -82,7 +82,14 @@ export default async function handler(req: Request): Promise<Response> {
 
   const providerToken = req.headers.get("x-provider-key");
   if (providerToken) {
-    outHeaders.set("Authorization", `Bearer ${providerToken}`);
+    // For Anthropic Messages API endpoints, use x-api-key header
+    // (e.g., api.anthropic.com, Lumosel, and other Claude-native gateways)
+    if (upstreamPath.includes("/messages") || providerKey === "anthropic") {
+      outHeaders.set("x-api-key", providerToken);
+    } else {
+      // For OpenAI-compatible endpoints, use Authorization: Bearer
+      outHeaders.set("Authorization", `Bearer ${providerToken}`);
+    }
   }
 
   // Cookie-based auth: client sends the cookie string in x-provider-cookie

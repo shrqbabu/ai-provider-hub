@@ -117,6 +117,9 @@ export async function streamAnthropicChat(
 
     const { url, headers } = resolveRawRequest(provider, "/messages");
 
+    // Anthropic native API requires anthropic-version header
+    headers["anthropic-version"] = "2023-06-01";
+
     const body = {
       model: model.modelId,
       messages: anthropicMessages,

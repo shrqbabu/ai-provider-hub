@@ -65,3 +65,14 @@ export async function sendCoreResponse(
   res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify(core.jsonBody ?? {}));
 }
+
+/** Write a 500 with the real error message so failures are debuggable in the
+ *  browser Network tab instead of an opaque "Internal Server Error". */
+export function sendError(res: ServerResponse, err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err);
+  // eslint-disable-next-line no-console
+  console.error("[api error]", err);
+  res.statusCode = 500;
+  res.setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify({ error: message }));
+}

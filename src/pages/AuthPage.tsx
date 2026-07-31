@@ -6,6 +6,39 @@ import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { useAuthStore } from "@/store/auth-store";
 
+// Firebase auth errors carry a `code` (e.g. "auth/invalid-credential"). Map the
+// common ones to clear, actionable messages so 400s from identitytoolkit make
+// sense instead of showing a raw SDK string.
+function authErrorMessage(err: unknown): string {
+  const code =
+    typeof err === "object" && err && "code" in err
+      ? String((err as { code: unknown }).code)
+      : "";
+  switch (code) {
+    case "auth/invalid-credential":
+    case "auth/wrong-password":
+    case "auth/user-not-found":
+      return "Wrong email or password. No account yet? Tap “Sign up” below.";
+    case "auth/email-already-in-use":
+      return "That email already has an account. Switch to “Sign in”.";
+    case "auth/invalid-email":
+      return "That email address looks invalid.";
+    case "auth/weak-password":
+      return "Password is too weak — use at least 6 characters.";
+    case "auth/operation-not-allowed":
+      return "Email/Password sign-in is disabled. Enable it in Firebase Console → Authentication → Sign-in method.";
+    case "auth/network-request-failed":
+      return "Network error — check your connection and try again.";
+    case "auth/too-many-requests":
+      return "Too many attempts. Wait a moment and try again.";
+    case "auth/api-key-not-valid":
+    case "auth/invalid-api-key":
+      return "Firebase API key is invalid. Check VITE_FIREBASE_API_KEY in your env.";
+    default:
+      return err instanceof Error ? err.message : "Authentication failed.";
+  }
+}
+
 export function AuthPage() {
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [email, setEmail] = useState("");
@@ -38,9 +71,7 @@ export function AuthPage() {
       }
       navigate("/");
     } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : "Authentication failed.";
-      toast.error(message);
+      toast.error(authErrorMessage(err));
     } finally {
       setLoading(false);
     }

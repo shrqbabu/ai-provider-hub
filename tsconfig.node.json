@@ -5,7 +5,12 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
-    "strict": true
+    "strict": true,
+    // Composite projects must emit, but we only want type-checking — send the
+    // generated .js/.d.ts to a throwaway dir so they never pollute api/_lib
+    // (where Vercel would otherwise pick up stale compiled files).
+    "outDir": "./node_modules/.cache/tsnode",
+    "emitDeclarationOnly": true
   },
   "include": ["vite.config.ts", "api/_lib/**/*.ts"]
 }

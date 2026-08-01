@@ -45,7 +45,9 @@ export async function sendCoreResponse(
   res: ServerResponse,
   core: CoreResponse
 ): Promise<void> {
-  res.statusCode = core.status;
+  // Map 404 -> 400 to prevent Vercel's edge router from overriding API error
+  // JSON responses with Vercel's generic HTML "404 page not found" page.
+  res.statusCode = core.status === 404 ? 400 : core.status;
   if (core.headers) {
     for (const [k, v] of Object.entries(core.headers)) res.setHeader(k, v);
   }

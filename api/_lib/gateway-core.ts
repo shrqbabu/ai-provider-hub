@@ -165,22 +165,24 @@ export async function handleGateway(
     let targetURL: string;
     let upstreamBody: string;
 
+    const cleanModelId = modelId.replace(/^(aip|nvidia|openai|anthropic|google|openrouter|custom)\//i, "");
+
     if (needsTranslation && isGoogleProvider) {
       // Google uses its own API format — translate Anthropic → Google directly.
-      const googleRequest = anthropicToGoogle(body, modelId);
+      const googleRequest = anthropicToGoogle(body, cleanModelId);
       const streamEndpoint = wantsStream ? "streamGenerateContent" : "generateContent";
-      targetURL = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:${streamEndpoint}?key=${encodeURIComponent(cred)}`;
+      targetURL = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}?key=${encodeURIComponent(cred)}`;
       upstreamBody = JSON.stringify(googleRequest);
       actualEndpoint = endpoint; // just for header building — we override URL
     } else if (needsTranslation) {
       // Standard OpenAI-format provider — translate Anthropic → OpenAI.
       actualEndpoint = "/chat/completions";
       targetURL = baseURLFor(provider).replace(/\/$/, "") + actualEndpoint;
-      upstreamBody = JSON.stringify(anthropicToOpenAI(body, modelId));
+      upstreamBody = JSON.stringify(anthropicToOpenAI(body, cleanModelId, provider.key));
     } else {
       actualEndpoint = endpoint;
       targetURL = baseURLFor(provider).replace(/\/$/, "") + actualEndpoint;
-      upstreamBody = JSON.stringify({ ...body, model: modelId });
+      upstreamBody = JSON.stringify({ ...body, model: cleanModelId });
     }
 
     // Google uses query-param auth, not headers.
@@ -264,7 +266,8 @@ function buildUpstreamHeaders(
 
 function anthropicToOpenAI(
   body: Record<string, unknown>,
-  modelId: string
+  modelId: string,
+  providerKey?: string
 ): Record<string, unknown> {
   const messages: Array<{ role: string; content: string | unknown[] }> = [];
 
@@ -308,7 +311,13 @@ function anthropicToOpenAI(
   };
 
   if (body.stream === true) result.stream = true;
-  if (body.max_tokens != null) result.max_tokens = body.max_tokens;
+  if (body.max_tokens != null) {
+    let maxTokens = Number(body.max_tokens);
+    if (providerKey === "nvidia" && maxTokens > 2048) {
+      maxTokens = 2048;
+    }
+    result.max_tokens = maxTokens;
+  }
   if (body.temperature != null) result.temperature = body.temperature;
   if (body.top_p != null) result.top_p = body.top_p;
   if (body.stop_sequences != null) result.stop = body.stop_sequences;

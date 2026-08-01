@@ -250,7 +250,7 @@ async function handleGoogleChatCompletion(
 
   // Make request to Google API
   const endpoint = stream ? "streamGenerateContent" : "generateContent";
-  const googleUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}?key=${encodeURIComponent(apiKey)}&alt=sse`;
+  const googleUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}?key=${encodeURIComponent(apiKey)}`;
 
   try {
     const upstream = await fetch(googleUrl, {
@@ -261,10 +261,28 @@ async function handleGoogleChatCompletion(
 
     if (!upstream.ok) {
       const errorText = await upstream.text();
-      return new Response(errorText, {
-        status: upstream.status,
-        headers: { "Content-Type": "application/json" },
-      });
+
+      // Try to parse and format Google error for better UX
+      try {
+        const errorJson = JSON.parse(errorText);
+        const errorMsg = errorJson.error?.message || errorText;
+
+        return json({
+          error: {
+            message: errorMsg,
+            type: "google_api_error",
+            code: errorJson.error?.code || upstream.status,
+          }
+        }, upstream.status);
+      } catch {
+        return json({
+          error: {
+            message: errorText,
+            type: "google_api_error",
+            code: upstream.status,
+          }
+        }, upstream.status);
+      }
     }
 
     if (stream) {

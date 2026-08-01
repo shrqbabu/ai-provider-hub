@@ -67,6 +67,14 @@ export default async function handler(req: Request): Promise<Response> {
   const forwardedParams = new URLSearchParams(url.searchParams);
   forwardedParams.delete("target");
   forwardedParams.delete("__p");
+
+  const providerToken = req.headers.get("x-provider-key");
+
+  // Google's Generative Language API uses query parameter auth
+  if (providerKey === "google" && providerToken) {
+    forwardedParams.set("key", providerToken);
+  }
+
   const qs = forwardedParams.toString();
   const targetURL = upstreamBase + upstreamPath + (qs ? "?" + qs : "");
 
@@ -81,8 +89,7 @@ export default async function handler(req: Request): Promise<Response> {
     outHeaders.set(key, value);
   });
 
-  const providerToken = req.headers.get("x-provider-key");
-  if (providerToken) {
+  if (providerToken && providerKey !== "google") {
     // For Anthropic Messages API endpoints, use x-api-key header
     // (e.g., api.anthropic.com, Lumosel, and other Claude-native gateways)
     if (upstreamPath.includes("/messages") || providerKey === "anthropic") {

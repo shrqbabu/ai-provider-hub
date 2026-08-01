@@ -77,7 +77,7 @@ export async function handleGateway(
       object: "list",
       data: [
         ...models.map((m) => ({
-          id: m.modelId,
+          id: displayModelId(m.modelId),
           object: "model",
           owned_by: m.providerKey,
         })),
@@ -214,6 +214,20 @@ function buildUpstreamHeaders(
       headers.set(k, v);
   }
   return headers;
+}
+
+// Normalize a saved model id for the /v1/models listing so every Claude model
+// shows up as "aip/<bare-id>" regardless of how it was stored (bare, or with an
+// old "anthropic/" prefix). Non-Claude ids pass through unchanged. Routing is
+// unaffected: resolveRoute strips the "aip/"/"anthropic/" prefix before the
+// request goes upstream.
+function displayModelId(modelId: string): string {
+  const id = (modelId ?? "").trim();
+  if (!id) return id;
+  if (!/claude/i.test(id)) return id;
+  const slash = id.indexOf("/");
+  const bare = slash > 0 ? id.slice(slash + 1) : id;
+  return `aip/${bare}`;
 }
 
 function matchEndpoint(path: string): string | null {

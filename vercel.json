@@ -3,6 +3,7 @@
   "rewrites": [
     { "source": "/api/proxy/:path*", "destination": "/api/proxy?__p=:path*" },
     { "source": "/api/v1/:path*", "destination": "/api/v1?__p=:path*" },
+    { "source": "/v1/:path*/", "destination": "/api/v1?__p=:path*" },
     { "source": "/v1/:path*", "destination": "/api/v1?__p=:path*" },
     { "source": "/((?!api/|v1/).*)", "destination": "/index.html" }
   ],

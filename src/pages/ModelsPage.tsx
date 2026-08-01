@@ -20,6 +20,7 @@ import { AddModelDialog } from "@/features/models/AddModelDialog";
 
 export function ModelsPage() {
   const models = useModelStore((s) => s.models);
+  const updateModel = useModelStore((s) => s.update);
   const providers = useProviderStore((s) => s.providers);
   const toggleFav = useModelStore((s) => s.toggleFavorite);
   const toggleSaved = useModelStore((s) => s.toggleSaved);
@@ -49,7 +50,7 @@ export function ModelsPage() {
     if (showFavOnly) list = list.filter((m) => m.favorite);
     if (showSavedOnly) list = list.filter((m) => m.saved);
     if (tierFilter !== "all") list = list.filter((m) => m.tier === tierFilter);
-    if (showOnlyWorking) list = list.filter((m) => testResults[m.id] === true);
+    if (showOnlyWorking) list = list.filter((m) => m.working === true);
     if (q) {
       const s = q.toLowerCase();
       list = list.filter(
@@ -96,6 +97,7 @@ export function ModelsPage() {
           const provider = providerMap[m.providerId];
           const ok = provider ? await testSingleModel(provider, m.modelId) : false;
           results[m.id] = ok;
+          updateModel(m.id, { working: ok });
           if (ok) passed++;
           finished++;
           setTestedCount(finished);
@@ -248,7 +250,7 @@ export function ModelsPage() {
                   model={m}
                   providerName={p.displayName}
                   providerKey={p.key}
-                  passedTest={testResults[m.id] === true}
+                  passedTest={m.working === true}
                   onToggleFavorite={() => toggleFav(m.id)}
                   onToggleSaved={() => toggleSaved(m.id)}
                   onDelete={m.manual ? () => remove(m.id) : undefined}

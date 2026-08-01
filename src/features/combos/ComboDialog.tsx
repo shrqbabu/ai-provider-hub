@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
-import { Plus, ArrowUp, ArrowDown, Trash2, Boxes } from "lucide-react";
+import { Plus, ArrowUp, ArrowDown, Trash2, Boxes, CheckCircle2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -218,7 +218,12 @@ export function ComboDialog({ open, onOpenChange, editing }: Props) {
                       #{i + 1}
                     </Badge>
                     <div className="min-w-0 flex-1">
-                      <div className="text-sm truncate">{modelLabel(m)}</div>
+                      <div className="text-sm truncate flex items-center gap-1.5">
+                        {modelLabel(m)}
+                        {models.find((x) => x.providerId === m.providerId && x.modelId === m.modelId)?.working && (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                        )}
+                      </div>
                       <div className="text-[11px] text-muted-foreground truncate">
                         {isClaudeModel(m.modelId) ? withClaudePrefix(m.modelId) : m.modelId} · {providerName(m.providerId)}
                       </div>
@@ -311,7 +316,12 @@ export function ComboDialog({ open, onOpenChange, editing }: Props) {
                           className="rounded border-input text-primary focus:ring-ring h-4 w-4 accent-primary cursor-pointer shrink-0"
                         />
                         <div className="min-w-0 flex-1">
-                          <div className="font-medium truncate text-foreground">{model.displayName}</div>
+                          <div className="font-medium truncate text-foreground flex items-center gap-1.5">
+                            {model.displayName}
+                            {model.working && (
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                            )}
+                          </div>
                           <div className="text-[10px] text-muted-foreground truncate">
                             {isClaudeModel(model.modelId) ? withClaudePrefix(model.modelId) : model.modelId} · {providerName}
                           </div>

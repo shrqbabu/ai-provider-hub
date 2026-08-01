@@ -69,6 +69,7 @@ export interface DiscoveredModel {
   favorite?: boolean;
   saved?: boolean;
   manual?: boolean;
+  working?: boolean;
   tier?: "free" | "paid" | "unknown";
 }
 

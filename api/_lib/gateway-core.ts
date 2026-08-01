@@ -62,7 +62,7 @@ export async function handleGateway(
     });
   }
 
-  const path = req.subPath.replace(/^\/+/, "").toLowerCase();
+  const path = req.subPath.replace(/^\/+/, "").replace(/\/+$/, "").toLowerCase();
 
   // ── Load the user's connected providers + models + combos ───────────────
   const [providers, models, combos] = await Promise.all([
@@ -825,7 +825,7 @@ function displayModelId(modelId: string): string {
 }
 
 function matchEndpoint(path: string): string | null {
-  const p = path.replace(/^v1\//, "");
+  const p = path.replace(/^v1\//, "").replace(/\/$/, "");
   if (p === "chat/completions") return "/chat/completions";
   if (p === "completions") return "/completions";
   if (p === "embeddings") return "/embeddings";

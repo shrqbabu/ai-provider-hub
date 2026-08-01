@@ -117,6 +117,21 @@ export async function handleGateway(
     });
   }
 
+  // Validate endpoint compatibility: /messages only works with Anthropic providers
+  if (endpoint === "/messages") {
+    const incompatible = resolved.attempts.find(
+      (attempt) => (attempt.provider.apiFormat ?? "openai") !== "anthropic"
+    );
+    if (incompatible) {
+      return jsonResponse(400, {
+        error: {
+          message: `Model "${requestedModel}" uses OpenAI format and cannot be used with the /messages endpoint. Use /chat/completions instead, or select an Anthropic model.`,
+          type: "invalid_request",
+        },
+      });
+    }
+  }
+
   const wantsStream = body.stream === true;
 
   // Flatten the ordered attempts (combo members, or a single model) into a

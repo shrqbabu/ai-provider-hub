@@ -25,6 +25,7 @@ import { useProviderStore } from "@/store/provider-store";
 import { testConnection, fetchModelIds } from "@/services/provider-service";
 import { useModelStore } from "@/store/model-store";
 import { inferCapabilities, inferTier } from "@/constants/providers";
+import { withClaudePrefix } from "@/utils/model-prefix";
 import { ProviderLogo } from "@/components/ProviderLogo";
 
 interface Props {
@@ -279,11 +280,14 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
               inputPrice,
               outputPrice,
             });
+            // Claude models get the virtual "aip/" prefix so they show up (and
+            // are callable) as aip/<id> everywhere. Non-Claude ids are untouched.
+            const displayId = withClaudePrefix(m.id);
             return {
               providerId,
               providerKey: form.key,
-              modelId: m.id,
-              displayName: m.id,
+              modelId: displayId,
+              displayName: displayId,
               contextWindow,
               vision: m.supportsVision ?? caps.vision,
               pdf: caps.pdf,

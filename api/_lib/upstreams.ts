@@ -64,11 +64,20 @@ export function parseModel(model: string): {
   const slash = trimmed.indexOf("/");
   if (slash > 0) {
     const head = trimmed.slice(0, slash).toLowerCase();
-    if (head in PROVIDER_BASE || head === "custom") {
+    // "aip/" is a virtual prefix for Claude models (aip = Anthropic In Prefix).
+    // It isn't a real provider key — it just marks "this is a Claude model" so
+    // the gateway can route it to whichever provider serves Claude and strip
+    // the prefix before the request goes upstream.
+    if (head in PROVIDER_BASE || head === "custom" || head === "aip") {
       return { providerHint: head, modelId: trimmed.slice(slash + 1) };
     }
   }
   return { modelId: trimmed };
+}
+
+/** Convenience: return just the model id with any known prefix stripped. */
+export function stripKnownPrefix(model: string): string {
+  return parseModel(model).modelId;
 }
 
 /** Ordered list of auth keys for a provider (multi-key fallback). */
@@ -109,17 +118,32 @@ export function resolveRoute(
 
   // 1. Explicit provider prefix → first connected provider of that key.
   if (providerHint) {
+    // "aip/" is the virtual Claude prefix — route it to whichever provider
+    // serves Claude. Prefer a native anthropic provider; else a provider that
+    // speaks the Anthropic wire format; else the provider that has this exact
+    // model saved.
+    if (providerHint === "aip") {
+      const savedHit = models.find((m) => stripKnownPrefix(m.modelId) === modelId);
+      const claude =
+        providers.find((p) => p.key === "anthropic") ??
+        providers.find((p) => p.apiFormat === "anthropic") ??
+        (savedHit ? byId.get(savedHit.providerId) : undefined);
+      if (claude) return finalize(claude, modelId);
+    }
     const match = providers.find((p) => p.key === providerHint);
     if (match) return finalize(match, modelId);
   }
 
-  // 2. Auto-detect via saved models (match against full model OR stripped id).
+  // 2. Auto-detect via saved models. A saved modelId may itself carry the
+  // virtual "aip/" prefix, so compare on the stripped form both ways, and
+  // send the stripped id upstream.
   const hit =
     models.find((m) => m.modelId === model) ??
-    models.find((m) => m.modelId === modelId);
+    models.find((m) => m.modelId === modelId) ??
+    models.find((m) => stripKnownPrefix(m.modelId) === modelId);
   if (hit) {
     const provider = byId.get(hit.providerId);
-    if (provider) return finalize(provider, hit.modelId);
+    if (provider) return finalize(provider, stripKnownPrefix(hit.modelId));
   }
 
   // 3. Single-provider convenience: no ambiguity possible.
@@ -167,7 +191,11 @@ export function resolveAttempts(
     for (const member of combo.members ?? []) {
       const provider = byId.get(member.providerId);
       if (!provider) continue; // provider deleted since combo was saved — skip
-      attempts.push(finalize(provider, member.modelId));
+      // A combo member's modelId may carry the virtual "aip/" (or a real
+      // provider) prefix if it was picked from the prefixed model list. Strip
+      // it so the concrete id goes upstream.
+      const { modelId } = parseModel(member.modelId);
+      attempts.push(finalize(provider, modelId));
     }
     if (!attempts.length)
       return {

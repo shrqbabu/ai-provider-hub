@@ -13,6 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { useModelStore } from "@/store/model-store";
 import type { ConnectedProvider } from "@/types";
 import { inferTier, inferCapabilities } from "@/constants/providers";
+import { withClaudePrefix } from "@/utils/model-prefix";
 import { toast } from "sonner";
 
 interface Props {
@@ -39,16 +40,19 @@ export function AddModelDialog({ open, onOpenChange, provider }: Props) {
       toast.error("Model ID is required.");
       return;
     }
+    // Claude models get the virtual "aip/" prefix so they're callable as
+    // aip/<id> via the gateway (the prefix is stripped before going upstream).
+    const modelId = withClaudePrefix(f.modelId.trim());
     const tier = inferTier({
       providerKey: provider.key,
-      modelId: f.modelId.trim(),
+      modelId,
       baseURL: provider.baseURL,
     });
     modelStore.add({
       providerId: provider.id,
       providerKey: provider.key,
-      modelId: f.modelId.trim(),
-      displayName: f.displayName.trim() || f.modelId.trim(),
+      modelId,
+      displayName: f.displayName.trim() || modelId,
       contextWindow: f.contextWindow ? Number(f.contextWindow) : undefined,
       vision: f.vision,
       pdf: f.pdf,
@@ -60,7 +64,7 @@ export function AddModelDialog({ open, onOpenChange, provider }: Props) {
       saved: true,
       createdAt: Date.now(),
     });
-    toast.success(`Added ${f.modelId}`);
+    toast.success(`Added ${modelId}`);
     onOpenChange(false);
     setF({
       displayName: "",

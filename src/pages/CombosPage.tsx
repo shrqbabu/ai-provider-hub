@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Boxes, Plus, Pencil, Trash2, ArrowRight } from "lucide-react";
+import { Boxes, Plus, Pencil, Trash2, ArrowRight, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useComboStore } from "@/store/combo-store";
@@ -97,6 +97,17 @@ export function CombosPage() {
                     )}
                   </div>
                   <div className="flex items-center gap-0.5 shrink-0">
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(c.name);
+                        toast.success(`Copied "${c.name}" to clipboard`);
+                      }}
+                      className="p-1.5 rounded-lg hover:bg-secondary transition"
+                      aria-label="Copy combo name"
+                      title="Copy name"
+                    >
+                      <Copy className="w-4 h-4" />
+                    </button>
                     <button
                       onClick={() => openEdit(c)}
                       className="p-1.5 rounded-lg hover:bg-secondary transition"

@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Star, Trash2, Save, Eye, FileText, Zap, Brain, Wrench } from "lucide-react";
+import { Star, Trash2, Save, Eye, FileText, Zap, Brain, Wrench, CheckCircle2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ interface Props {
   onToggleSaved: () => void;
   onDelete?: () => void;
   onClick?: () => void;
+  passedTest?: boolean;
 }
 
 export function ModelCard({
@@ -27,6 +28,7 @@ export function ModelCard({
   onToggleSaved,
   onDelete,
   onClick,
+  passedTest,
 }: Props) {
   return (
     <motion.div
@@ -54,6 +56,11 @@ export function ModelCard({
                 {model.modelId}
               </div>
             </div>
+            {passedTest && (
+              <Badge variant="default" className="bg-emerald-500 hover:bg-emerald-600 text-white shrink-0 gap-1 text-[11px]">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Working
+              </Badge>
+            )}
             <button
               onClick={(e) => {
                 e.stopPropagation();

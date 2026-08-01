@@ -193,6 +193,53 @@ export function createClient(provider: ConnectedProvider): OpenAI {
   });
 }
 
+export async function testSingleModel(
+  provider: ConnectedProvider,
+  modelId: string
+): Promise<boolean> {
+  try {
+    const rawId = modelId.replace(/^aip\//, "");
+    if (provider.key === "google" || provider.baseURL.includes("generativelanguage.googleapis.com")) {
+      const key = (provider.apiKey ?? "").trim();
+      if (!key) return false;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(rawId)}:generateContent?key=${encodeURIComponent(key)}`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: "hi" }] }],
+          generationConfig: { maxOutputTokens: 1 },
+        }),
+      });
+      return res.ok;
+    }
+
+    if (provider.apiFormat === "anthropic" || provider.key === "anthropic") {
+      const { url, headers } = resolveRawRequest(provider, "/messages");
+      const res = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          model: rawId,
+          messages: [{ role: "user", content: "hi" }],
+          max_tokens: 1,
+        }),
+      });
+      return res.ok;
+    }
+
+    const client = createClient(provider);
+    const res = await client.chat.completions.create({
+      model: rawId,
+      messages: [{ role: "user", content: "hi" }],
+      max_tokens: 1,
+    });
+    return !!res.choices?.length;
+  } catch {
+    return false;
+  }
+}
+
 export interface TestResult {
   ok: boolean;
   message: string;

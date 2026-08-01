@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
-import { Search, Star, Layers, Plus } from "lucide-react";
+import { Search, Star, Layers, Plus, TestTube2, Loader2, CheckCircle2, RotateCcw } from "lucide-react";
+import { toast } from "sonner";
+import { testSingleModel } from "@/services/provider-service";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ModelCard } from "@/features/models/ModelCard";
@@ -31,6 +33,10 @@ export function ModelsPage() {
   const [showSavedOnly, setShowSavedOnly] = useState(false);
   const [tierFilter, setTierFilter] = useState<"all" | "free" | "paid">("all");
   const [addFor, setAddFor] = useState<string | undefined>();
+  const [testResults, setTestResults] = useState<Record<string, boolean>>({});
+  const [isTesting, setIsTesting] = useState(false);
+  const [showOnlyWorking, setShowOnlyWorking] = useState(false);
+  const [testedCount, setTestedCount] = useState(0);
 
   const providerMap = useMemo(
     () => Object.fromEntries(providers.map((p) => [p.id, p])),
@@ -43,6 +49,7 @@ export function ModelsPage() {
     if (showFavOnly) list = list.filter((m) => m.favorite);
     if (showSavedOnly) list = list.filter((m) => m.saved);
     if (tierFilter !== "all") list = list.filter((m) => m.tier === tierFilter);
+    if (showOnlyWorking) list = list.filter((m) => testResults[m.id] === true);
     if (q) {
       const s = q.toLowerCase();
       list = list.filter(
@@ -57,13 +64,49 @@ export function ModelsPage() {
       return (b.createdAt ?? 0) - (a.createdAt ?? 0);
     });
     return list;
-  }, [models, providerMap, providerFilter, showFavOnly, showSavedOnly, tierFilter, q, sort]);
+  }, [models, providerMap, providerFilter, showFavOnly, showSavedOnly, tierFilter, showOnlyWorking, testResults, q, sort]);
 
   const startChat = (modelId: string) => {
     const model = models.find((m) => m.id === modelId);
     if (!model) return;
     const c = create({ modelId: model.id, providerId: model.providerId });
     navigate(`/chat/${c.id}`);
+  };
+
+  const runModelTests = async () => {
+    const targetModels = models.filter((m) => providerMap[m.providerId]);
+    if (!targetModels.length) {
+      toast.error("No models available to test.");
+      return;
+    }
+
+    setIsTesting(true);
+    setTestedCount(0);
+    const results: Record<string, boolean> = {};
+    let passed = 0;
+    let finished = 0;
+
+    toast.info(`Testing ${targetModels.length} models...`);
+
+    const BATCH_SIZE = 4;
+    for (let i = 0; i < targetModels.length; i += BATCH_SIZE) {
+      const batch = targetModels.slice(i, i + BATCH_SIZE);
+      await Promise.all(
+        batch.map(async (m) => {
+          const provider = providerMap[m.providerId];
+          const ok = provider ? await testSingleModel(provider, m.modelId) : false;
+          results[m.id] = ok;
+          if (ok) passed++;
+          finished++;
+          setTestedCount(finished);
+        })
+      );
+      setTestResults({ ...results });
+    }
+
+    setIsTesting(false);
+    setShowOnlyWorking(true);
+    toast.success(`Testing complete! ${passed} of ${targetModels.length} models working.`);
   };
 
   return (
@@ -78,11 +121,44 @@ export function ModelsPage() {
               All discovered and saved models across your providers.
             </p>
           </div>
-          {providers.length > 0 && (
-            <Button variant="outline" onClick={() => setAddFor(providers[0].id)}>
-              <Plus className="w-4 h-4" /> Add manually
+          <div className="flex items-center gap-2">
+            <Button
+              variant={showOnlyWorking ? "default" : "outline"}
+              onClick={runModelTests}
+              disabled={isTesting}
+              className={showOnlyWorking ? "bg-emerald-600 hover:bg-emerald-700 text-white" : ""}
+            >
+              {isTesting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Testing... ({testedCount}/{models.length})
+                </>
+              ) : (
+                <>
+                  <TestTube2 className="w-4 h-4 text-emerald-500" />
+                  Test models
+                </>
+              )}
             </Button>
-          )}
+
+            {showOnlyWorking && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowOnlyWorking(false)}
+                title="Show all models"
+              >
+                <RotateCcw className="w-4 h-4" />
+                Show all
+              </Button>
+            )}
+
+            {providers.length > 0 && (
+              <Button variant="outline" onClick={() => setAddFor(providers[0].id)}>
+                <Plus className="w-4 h-4" /> Add manually
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-2 mb-5">
@@ -172,6 +248,7 @@ export function ModelsPage() {
                   model={m}
                   providerName={p.displayName}
                   providerKey={p.key}
+                  passedTest={testResults[m.id] === true}
                   onToggleFavorite={() => toggleFav(m.id)}
                   onToggleSaved={() => toggleSaved(m.id)}
                   onDelete={m.manual ? () => remove(m.id) : undefined}

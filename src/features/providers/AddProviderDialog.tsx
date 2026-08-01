@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { Loader2, PlugZap, TestTube2, Plus, Trash2 } from "lucide-react";
 import {
@@ -51,26 +51,27 @@ interface FormState {
   defaultModel: string;
 }
 
-const initial = (p?: ConnectedProvider): FormState => ({
-  key: p?.key ?? "openai",
-  displayName: p?.displayName ?? "",
-  authMode: p?.authMode ?? "apiKey",
-  // Default anthropic providers to the Messages API; everything else to OpenAI.
-  apiFormat: p?.apiFormat ?? (p?.key === "anthropic" ? "anthropic" : "openai"),
-  // Merge legacy single apiKey with the apiKeys list into one ordered array.
-  apiKeys: dedupeKeys([p?.apiKey ?? "", ...(p?.apiKeys ?? [])]).length
-    ? dedupeKeys([p?.apiKey ?? "", ...(p?.apiKeys ?? [])])
-    : [""],
-  cookie: p?.cookie ?? "",
-  baseURL: p?.baseURL ?? PROVIDERS.openai.baseURL,
-  organization: p?.organization ?? "",
-  extraHeaders: p?.extraHeaders ? JSON.stringify(p.extraHeaders, null, 2) : "",
-  customLogo: p?.customLogo ?? "",
-  streaming: p?.streaming ?? true,
-  vision: p?.vision ?? true,
-  fileUpload: p?.fileUpload ?? true,
-  defaultModel: p?.defaultModel ?? "",
-});
+const initial = (p?: ConnectedProvider): FormState => {
+  const key = p?.key ?? "openai";
+  return {
+    key,
+    displayName: p?.displayName ?? "",
+    authMode: p?.authMode ?? "apiKey",
+    apiFormat: p?.apiFormat ?? (key === "anthropic" ? "anthropic" : "openai"),
+    apiKeys: dedupeKeys([p?.apiKey ?? "", ...(p?.apiKeys ?? [])]).length
+      ? dedupeKeys([p?.apiKey ?? "", ...(p?.apiKeys ?? [])])
+      : [""],
+    cookie: p?.cookie ?? "",
+    baseURL: p?.baseURL ?? PROVIDERS[key].baseURL,
+    organization: p?.organization ?? "",
+    extraHeaders: p?.extraHeaders ? JSON.stringify(p.extraHeaders, null, 2) : "",
+    customLogo: p?.customLogo ?? "",
+    streaming: p?.streaming ?? true,
+    vision: p?.vision ?? true,
+    fileUpload: p?.fileUpload ?? true,
+    defaultModel: p?.defaultModel ?? "",
+  };
+};
 
 // Trim, drop empties, and de-dup while preserving order.
 function dedupeKeys(keys: string[]): string[] {
@@ -92,6 +93,12 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
   const [saving, setSaving] = useState(false);
   const providerStore = useProviderStore();
   const modelStore = useModelStore();
+
+  useEffect(() => {
+    if (open) {
+      setForm(initial(existing));
+    }
+  }, [open, existing]);
 
   const isCustom = form.key === "custom";
   const isCookie = form.authMode === "cookie";

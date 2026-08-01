@@ -48,18 +48,16 @@ export async function handleGateway(
   req: CoreRequest,
   nowMs: number
 ): Promise<CoreResponse> {
+  const isAnthropicReq = req.subPath.toLowerCase().includes("messages");
+
   // ── 1. Auth ────────────────────────────────────────────────────────────
   const raw = bearerToken(req);
   if (!raw) {
-    return jsonResponse(401, {
-      error: { message: "Missing API key. Send `Authorization: Bearer ah-…`.", type: "auth" },
-    });
+    return formatGatewayError(401, "Missing API key. Send `Authorization: Bearer ah-…`.", isAnthropicReq);
   }
   const uid = await resolveApiKey(raw);
   if (!uid) {
-    return jsonResponse(401, {
-      error: { message: "Invalid or revoked API key.", type: "auth" },
-    });
+    return formatGatewayError(401, "Invalid or revoked API key.", isAnthropicReq);
   }
 
   const path = req.subPath.replace(/^\/+/, "").replace(/\/+$/, "").toLowerCase();
@@ -95,26 +93,20 @@ export async function handleGateway(
   // ── POST inference endpoints ─────────────────────────────────────────────
   const endpoint = matchEndpoint(path);
   if (!endpoint) {
-    return jsonResponse(400, {
-      error: { message: `Unsupported gateway path "/${path}".`, type: "invalid_request" },
-    });
+    return formatGatewayError(400, `Unsupported gateway path "/${path}".`, isAnthropicReq);
   }
 
   let body: Record<string, unknown>;
   try {
     body = await req.json<Record<string, unknown>>();
   } catch {
-    return jsonResponse(400, {
-      error: { message: "Request body must be valid JSON.", type: "invalid_request" },
-    });
+    return formatGatewayError(400, "Request body must be valid JSON.", isAnthropicReq);
   }
 
   const requestedModel = String(body.model ?? "");
   const resolved = resolveAttempts(requestedModel, providers, models, combos);
   if ("error" in resolved) {
-    return jsonResponse(resolved.status, {
-      error: { message: resolved.error, type: "invalid_request" },
-    });
+    return formatGatewayError(resolved.status, resolved.error, isAnthropicReq);
   }
 
   // When the caller uses /messages (Anthropic-native, e.g. Claude Desktop) but
@@ -140,12 +132,11 @@ export async function handleGateway(
   }
 
   if (!tries.length) {
-    return jsonResponse(400, {
-      error: {
-        message: `No usable provider/key found for "${requestedModel}". Check the provider's base URL and API key in the app.`,
-        type: "invalid_request",
-      },
-    });
+    return formatGatewayError(
+      400,
+      `No usable provider/key found for "${requestedModel}". Check the provider's base URL and API key in the app.`,
+      isAnthropicReq
+    );
   }
 
   // ── Fallback loop over every (member × key) attempt in priority order ─────
@@ -223,12 +214,11 @@ export async function handleGateway(
     return relay(upstream, wantsStream);
   }
 
-  return jsonResponse(lastStatus, {
-    error: {
-      message: `All ${tries.length} attempt(s) failed. Last upstream error: ${lastText}`,
-      type: "upstream_error",
-    },
-  });
+  return formatGatewayError(
+    lastStatus,
+    `All ${tries.length} attempt(s) failed. Last upstream error: ${lastText}`,
+    isAnthropicReq
+  );
 }
 
 // Build the auth headers for an upstream request. OpenAI-compatible providers
@@ -352,7 +342,18 @@ function anthropicToGoogle(
     } else {
       text = String(msg.content ?? "");
     }
-    contents.push({ role, parts: [{ text }] });
+    if (!text.trim()) continue;
+
+    const last = contents[contents.length - 1];
+    if (last && last.role === role) {
+      last.parts[0].text += "\n" + text;
+    } else {
+      contents.push({ role, parts: [{ text }] });
+    }
+  }
+
+  if (contents.length > 0 && contents[0].role !== "user") {
+    contents.unshift({ role: "user", parts: [{ text: "Hello" }] });
   }
 
   if (contents.length === 0) {
@@ -819,6 +820,26 @@ function processSSELines(
 // old "anthropic/" prefix). Non-Claude ids pass through unchanged. Routing is
 // unaffected: resolveRoute strips the "aip/"/"anthropic/" prefix before the
 // request goes upstream.
+function formatGatewayError(
+  status: number,
+  message: string,
+  isAnthropic: boolean
+): CoreResponse {
+  const code = status === 404 ? 400 : status;
+  if (isAnthropic) {
+    return jsonResponse(code, {
+      type: "error",
+      error: {
+        type: status === 401 ? "authentication_error" : "invalid_request_error",
+        message,
+      },
+    });
+  }
+  return jsonResponse(code, {
+    error: { message, type: "invalid_request_error" },
+  });
+}
+
 function displayModelId(modelId: string): string {
   const id = (modelId ?? "").trim();
   if (!id) return id;

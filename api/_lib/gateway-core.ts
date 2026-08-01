@@ -171,7 +171,8 @@ export async function handleGateway(
       // Google uses its own API format — translate Anthropic → Google directly.
       const googleRequest = anthropicToGoogle(body, cleanModelId);
       const streamEndpoint = wantsStream ? "streamGenerateContent" : "generateContent";
-      targetURL = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}?key=${encodeURIComponent(cred)}`;
+      const sseParam = wantsStream ? "&alt=sse" : "";
+      targetURL = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}?key=${encodeURIComponent(cred)}${sseParam}`;
       upstreamBody = JSON.stringify(googleRequest);
       actualEndpoint = endpoint; // just for header building — we override URL
     } else if (needsTranslation) {
@@ -450,6 +451,7 @@ function translateGoogleStreamToAnthropic(
   modelId: string
 ): CoreResponse {
   const reader = upstream.body?.getReader();
+  const reader = upstream.body?.getReader();
   if (!reader) {
     return {
       status: 200,
@@ -509,6 +511,9 @@ function translateGoogleStreamToAnthropic(
         const { done, value } = await reader.read();
         if (done) {
           streamDone = true;
+          if (buffer.trim()) {
+            processGoogleSSELines(buffer.split("\n"), controller, encoder);
+          }
           const endEvents = [
             `event: content_block_stop\ndata: ${JSON.stringify({
               type: "content_block_stop",
@@ -530,55 +535,9 @@ function translateGoogleStreamToAnthropic(
 
         buffer += decoder.decode(value, { stream: true });
 
-        let searchFrom = 0;
-        while (searchFrom < buffer.length) {
-          const objStart = buffer.indexOf("{", searchFrom);
-          if (objStart < 0) break;
-
-          let braceCount = 0;
-          let objEnd = -1;
-          for (let i = objStart; i < buffer.length; i++) {
-            if (buffer[i] === "{") braceCount++;
-            if (buffer[i] === "}") {
-              braceCount--;
-              if (braceCount === 0) {
-                objEnd = i + 1;
-                break;
-              }
-            }
-          }
-
-          if (objEnd < 0) break;
-
-          const jsonStr = buffer.slice(objStart, objEnd);
-          searchFrom = objEnd;
-
-          try {
-            const chunk = JSON.parse(jsonStr) as {
-              candidates?: Array<{
-                content?: { parts?: Array<{ text?: string }> };
-              }>;
-            };
-            const text =
-              chunk.candidates?.[0]?.content?.parts
-                ?.map((p) => p.text ?? "")
-                .join("") ?? "";
-            if (text) {
-              const evt = `event: content_block_delta\ndata: ${JSON.stringify({
-                type: "content_block_delta",
-                index: 0,
-                delta: { type: "text_delta", text },
-              })}\n\n`;
-              controller.enqueue(encoder.encode(evt));
-            }
-          } catch {
-            // skip malformed chunks
-          }
-        }
-
-        if (searchFrom > 0) {
-          buffer = buffer.slice(searchFrom);
-        }
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        processGoogleSSELines(lines, controller, encoder);
       } catch {
         streamDone = true;
         try {
@@ -792,19 +751,21 @@ function processSSELines(
   controller: ReadableStreamDefaultController<Uint8Array>,
   encoder: TextEncoder
 ): void {
-  for (const line of lines) {
-    if (!line.startsWith("data: ")) continue;
-    const payload = line.slice(6).trim();
-    if (payload === "[DONE]") continue;
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line.startsWith("data:")) continue;
+    const payload = line.slice(5).trim();
+    if (!payload || payload === "[DONE]") continue;
 
     try {
       const chunk = JSON.parse(payload) as {
         choices?: Array<{
           delta?: { content?: string };
+          text?: string;
           finish_reason?: string | null;
         }>;
       };
-      const delta = chunk.choices?.[0]?.delta?.content;
+      const delta = chunk.choices?.[0]?.delta?.content ?? chunk.choices?.[0]?.text;
       if (delta) {
         const evt = `event: content_block_delta\ndata: ${JSON.stringify({
           type: "content_block_delta",

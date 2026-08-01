@@ -451,7 +451,6 @@ function translateGoogleStreamToAnthropic(
   modelId: string
 ): CoreResponse {
   const reader = upstream.body?.getReader();
-  const reader = upstream.body?.getReader();
   if (!reader) {
     return {
       status: 200,
@@ -570,6 +569,41 @@ function translateGoogleStreamToAnthropic(
     },
     streamBody: stream,
   };
+}
+
+function processGoogleSSELines(
+  lines: string[],
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  encoder: TextEncoder
+): void {
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line.startsWith("data:")) continue;
+    const payload = line.slice(5).trim();
+    if (!payload || payload === "[DONE]") continue;
+
+    try {
+      const chunk = JSON.parse(payload) as {
+        candidates?: Array<{
+          content?: { parts?: Array<{ text?: string }> };
+        }>;
+      };
+      const text =
+        chunk.candidates?.[0]?.content?.parts
+          ?.map((p) => p.text ?? "")
+          .join("") ?? "";
+      if (text) {
+        const evt = `event: content_block_delta\ndata: ${JSON.stringify({
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text },
+        })}\n\n`;
+        controller.enqueue(encoder.encode(evt));
+      }
+    } catch {
+      // skip malformed chunks
+    }
+  }
 }
 
 async function translateResponseToAnthropic(

@@ -10,6 +10,7 @@ const HOSTED_PROXY_MAP: Array<[RegExp, string]> = [
   [/^https:\/\/integrate\.api\.nvidia\.com/i, "/api/proxy/nvidia"],
   [/^https:\/\/api\.anthropic\.com/i, "/api/proxy/anthropic"],
   [/^https:\/\/openrouter\.ai/i, "/api/proxy/openrouter"],
+  [/^https:\/\/generativelanguage\.googleapis\.com/i, "/api/proxy/google"],
 ];
 
 interface Resolved {

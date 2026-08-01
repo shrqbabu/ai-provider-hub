@@ -151,7 +151,7 @@ export function resolveRoute(
 
   return {
     error: `Could not route model "${model}". Add it under a provider in the app, or prefix it with the provider (e.g. "openai/${modelId}").`,
-    status: 404,
+    status: 400,
   };
 }
 
@@ -184,7 +184,11 @@ export function resolveAttempts(
     };
 
   const wanted = model.trim().toLowerCase();
-  const combo = combos.find((c) => (c.name ?? "").trim().toLowerCase() === wanted);
+  const { modelId: strippedWanted } = parseModel(wanted);
+  const combo = combos.find((c) => {
+    const name = (c.name ?? "").trim().toLowerCase();
+    return name === wanted || name === strippedWanted;
+  });
   if (combo) {
     const byId = new Map(providers.map((p) => [p.id, p]));
     const attempts: ResolvedRoute[] = [];

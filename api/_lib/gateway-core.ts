@@ -41,7 +41,7 @@ const HOP_BY_HOP = new Set([
 // 429 → this key is rate-limited; 5xx → upstream hiccup, another key/region
 // may succeed.
 function shouldFallback(status: number): boolean {
-  return status === 401 || status === 403 || status === 429 || status >= 500;
+  return status === 401 || status === 403 || status === 404 || status === 429 || status >= 500;
 }
 
 export async function handleGateway(
@@ -95,7 +95,7 @@ export async function handleGateway(
   // ── POST inference endpoints ─────────────────────────────────────────────
   const endpoint = matchEndpoint(path);
   if (!endpoint) {
-    return jsonResponse(404, {
+    return jsonResponse(400, {
       error: { message: `Unsupported gateway path "/${path}".`, type: "invalid_request" },
     });
   }

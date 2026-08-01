@@ -354,104 +354,112 @@ function streamGoogleResponse(upstream: Response): Response {
 
         buffer += decoder.decode(value, { stream: true });
 
-        // Google streams as: [{"candidates":[...]},{"candidates":[...]}]
-        // Split by "},{"
-        const chunks = buffer.split(/\},\s*\{/);
+        // Google streams JSON array: [{"candidates":[...]},{"candidates":[...]}]
+        // Try to parse complete JSON objects from buffer
+        let startIdx = 0;
+        while (startIdx < buffer.length) {
+          // Find the start of a JSON object
+          const objStart = buffer.indexOf("{", startIdx);
+          if (objStart === -1) break;
 
-        // Keep the last incomplete chunk in buffer
-        if (!buffer.endsWith("}")) {
-          buffer = chunks.pop() || "";
-        } else {
-          buffer = "";
-        }
+          // Find the matching closing brace
+          let braceCount = 0;
+          let objEnd = -1;
+          for (let i = objStart; i < buffer.length; i++) {
+            if (buffer[i] === "{") braceCount++;
+            if (buffer[i] === "}") {
+              braceCount--;
+              if (braceCount === 0) {
+                objEnd = i + 1;
+                break;
+              }
+            }
+          }
 
-        for (let chunk of chunks) {
-          // Fix the chunk if it was split
-          if (!chunk.startsWith("{")) chunk = "{" + chunk;
-          if (!chunk.endsWith("}")) chunk = chunk + "}";
+          // If we found a complete object, parse it
+          if (objEnd !== -1) {
+            const chunk = buffer.substring(objStart, objEnd);
+            try {
+              const googleChunk = JSON.parse(chunk);
+              const candidate = googleChunk.candidates?.[0];
 
-          // Remove array brackets if present
-          chunk = chunk.replace(/^\[/, "").replace(/\]$/, "");
+              if (candidate) {
+                const parts = candidate?.content?.parts || [];
+                const text = parts.map((p: any) => p.text || "").join("");
 
-          try {
-            const googleChunk = JSON.parse(chunk);
-            const candidate = googleChunk.candidates?.[0];
+                // Send text delta if there's content
+                if (text) {
+                  const openaiChunk = {
+                    id: chatId,
+                    object: "chat.completion.chunk",
+                    created: Math.floor(Date.now() / 1000),
+                    model: "gemini-pro",
+                    choices: [
+                      {
+                        index: 0,
+                        delta: { content: text },
+                        finish_reason: null,
+                      },
+                    ],
+                  };
 
-            if (!candidate) continue;
+                  await writer.write(
+                    encoder.encode(`data: ${JSON.stringify(openaiChunk)}\n\n`)
+                  );
+                }
 
-            const parts = candidate?.content?.parts || [];
-            const text = parts.map((p: any) => p.text || "").join("");
+                // Send finish reason if present
+                if (candidate?.finishReason) {
+                  const finalChunk = {
+                    id: chatId,
+                    object: "chat.completion.chunk",
+                    created: Math.floor(Date.now() / 1000),
+                    model: "gemini-pro",
+                    choices: [
+                      {
+                        index: 0,
+                        delta: {},
+                        finish_reason: "stop",
+                      },
+                    ],
+                  };
+                  await writer.write(
+                    encoder.encode(`data: ${JSON.stringify(finalChunk)}\n\n`)
+                  );
+                }
 
-            // Send text delta if there's content
-            if (text) {
-              const openaiChunk = {
-                id: chatId,
-                object: "chat.completion.chunk",
-                created: Math.floor(Date.now() / 1000),
-                model: "gemini-pro",
-                choices: [
-                  {
-                    index: 0,
-                    delta: { content: text },
-                    finish_reason: null,
-                  },
-                ],
-              };
-
-              await writer.write(
-                encoder.encode(`data: ${JSON.stringify(openaiChunk)}\n\n`)
-              );
+                // Add usage info if present
+                if (googleChunk.usageMetadata) {
+                  const usageChunk = {
+                    id: chatId,
+                    object: "chat.completion.chunk",
+                    created: Math.floor(Date.now() / 1000),
+                    model: "gemini-pro",
+                    choices: [],
+                    usage: {
+                      prompt_tokens: googleChunk.usageMetadata.promptTokenCount || 0,
+                      completion_tokens: googleChunk.usageMetadata.candidatesTokenCount || 0,
+                      total_tokens: googleChunk.usageMetadata.totalTokenCount || 0,
+                    },
+                  };
+                  await writer.write(
+                    encoder.encode(`data: ${JSON.stringify(usageChunk)}\n\n`)
+                  );
+                }
+              }
+            } catch (e) {
+              // Skip malformed JSON
             }
 
-            // Send finish reason if present
-            if (candidate?.finishReason && candidate.finishReason !== "STOP") {
-              const finalChunk = {
-                id: chatId,
-                object: "chat.completion.chunk",
-                created: Math.floor(Date.now() / 1000),
-                model: "gemini-pro",
-                choices: [
-                  {
-                    index: 0,
-                    delta: {},
-                    finish_reason: candidate.finishReason.toLowerCase(),
-                  },
-                ],
-              };
-              await writer.write(
-                encoder.encode(`data: ${JSON.stringify(finalChunk)}\n\n`)
-              );
-            }
-
-            // Add usage info if present
-            if (googleChunk.usageMetadata) {
-              const usageChunk = {
-                id: chatId,
-                object: "chat.completion.chunk",
-                created: Math.floor(Date.now() / 1000),
-                model: "gemini-pro",
-                choices: [
-                  {
-                    index: 0,
-                    delta: {},
-                    finish_reason: "stop",
-                  },
-                ],
-                usage: {
-                  prompt_tokens: googleChunk.usageMetadata.promptTokenCount || 0,
-                  completion_tokens: googleChunk.usageMetadata.candidatesTokenCount || 0,
-                  total_tokens: googleChunk.usageMetadata.totalTokenCount || 0,
-                },
-              };
-              await writer.write(
-                encoder.encode(`data: ${JSON.stringify(usageChunk)}\n\n`)
-              );
-            }
-          } catch (e) {
-            // Skip malformed JSON chunks
-            console.error("Failed to parse Google chunk:", e, chunk);
+            startIdx = objEnd;
+          } else {
+            // Incomplete object, keep in buffer
+            break;
           }
         }
+
+        // Keep the unparsed part in buffer
+        buffer = buffer.substring(startIdx);
       }
 
       // Send final [DONE] message

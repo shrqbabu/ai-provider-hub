@@ -186,10 +186,12 @@ async function handleGoogleChatCompletion(
     const parts: any[] = [];
 
     if (typeof msg.content === "string") {
-      parts.push({ text: msg.content });
+      if (msg.content.trim()) {
+        parts.push({ text: msg.content });
+      }
     } else if (Array.isArray(msg.content)) {
       for (const part of msg.content) {
-        if (part.type === "text") {
+        if (part.type === "text" && part.text) {
           parts.push({ text: part.text });
         } else if (part.type === "image_url") {
           // Convert data URL to inline data format
@@ -214,15 +216,33 @@ async function handleGoogleChatCompletion(
     }
   }
 
+  // Google requires at least one user message
+  if (contents.length === 0) {
+    contents.push({
+      role: "user",
+      parts: [{ text: "Hello" }],
+    });
+  }
+
   // Build Google API request
   const googleBody: any = {
     contents,
-    generationConfig: {
-      temperature: openaiBody.temperature,
-      maxOutputTokens: openaiBody.max_tokens || openaiBody.max_completion_tokens,
-      topP: openaiBody.top_p,
-    },
   };
+
+  const generationConfig: any = {};
+  if (openaiBody.temperature !== undefined) {
+    generationConfig.temperature = openaiBody.temperature;
+  }
+  if (openaiBody.max_tokens || openaiBody.max_completion_tokens) {
+    generationConfig.maxOutputTokens = openaiBody.max_tokens || openaiBody.max_completion_tokens;
+  }
+  if (openaiBody.top_p !== undefined) {
+    generationConfig.topP = openaiBody.top_p;
+  }
+
+  if (Object.keys(generationConfig).length > 0) {
+    googleBody.generationConfig = generationConfig;
+  }
 
   if (systemInstruction) {
     googleBody.systemInstruction = { parts: [{ text: systemInstruction }] };
@@ -230,7 +250,7 @@ async function handleGoogleChatCompletion(
 
   // Make request to Google API
   const endpoint = stream ? "streamGenerateContent" : "generateContent";
-  const googleUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}?key=${encodeURIComponent(apiKey)}`;
+  const googleUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}?key=${encodeURIComponent(apiKey)}&alt=sse`;
 
   try {
     const upstream = await fetch(googleUrl, {
@@ -297,6 +317,7 @@ function streamGoogleResponse(upstream: Response): Response {
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
   const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
 
   (async () => {
     try {
@@ -307,26 +328,46 @@ function streamGoogleResponse(upstream: Response): Response {
       }
 
       let buffer = "";
+      const chatId = `chatcmpl-${Date.now()}`;
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        buffer += new TextDecoder().decode(value);
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
+        buffer += decoder.decode(value, { stream: true });
 
-        for (const line of lines) {
-          if (!line.trim() || !line.startsWith("{")) continue;
+        // Google streams as: [{"candidates":[...]},{"candidates":[...]}]
+        // Split by "},{"
+        const chunks = buffer.split(/\},\s*\{/);
+
+        // Keep the last incomplete chunk in buffer
+        if (!buffer.endsWith("}")) {
+          buffer = chunks.pop() || "";
+        } else {
+          buffer = "";
+        }
+
+        for (let chunk of chunks) {
+          // Fix the chunk if it was split
+          if (!chunk.startsWith("{")) chunk = "{" + chunk;
+          if (!chunk.endsWith("}")) chunk = chunk + "}";
+
+          // Remove array brackets if present
+          chunk = chunk.replace(/^\[/, "").replace(/\]$/, "");
 
           try {
-            const googleChunk = JSON.parse(line);
+            const googleChunk = JSON.parse(chunk);
             const candidate = googleChunk.candidates?.[0];
+
+            if (!candidate) continue;
+
             const parts = candidate?.content?.parts || [];
             const text = parts.map((p: any) => p.text || "").join("");
 
+            // Send text delta if there's content
             if (text) {
               const openaiChunk = {
-                id: `chatcmpl-${Date.now()}`,
+                id: chatId,
                 object: "chat.completion.chunk",
                 created: Math.floor(Date.now() / 1000),
                 model: "gemini-pro",
@@ -344,9 +385,10 @@ function streamGoogleResponse(upstream: Response): Response {
               );
             }
 
-            if (candidate?.finishReason) {
+            // Send finish reason if present
+            if (candidate?.finishReason && candidate.finishReason !== "STOP") {
               const finalChunk = {
-                id: `chatcmpl-${Date.now()}`,
+                id: chatId,
                 object: "chat.completion.chunk",
                 created: Math.floor(Date.now() / 1000),
                 model: "gemini-pro",
@@ -362,16 +404,48 @@ function streamGoogleResponse(upstream: Response): Response {
                 encoder.encode(`data: ${JSON.stringify(finalChunk)}\n\n`)
               );
             }
+
+            // Add usage info if present
+            if (googleChunk.usageMetadata) {
+              const usageChunk = {
+                id: chatId,
+                object: "chat.completion.chunk",
+                created: Math.floor(Date.now() / 1000),
+                model: "gemini-pro",
+                choices: [
+                  {
+                    index: 0,
+                    delta: {},
+                    finish_reason: "stop",
+                  },
+                ],
+                usage: {
+                  prompt_tokens: googleChunk.usageMetadata.promptTokenCount || 0,
+                  completion_tokens: googleChunk.usageMetadata.candidatesTokenCount || 0,
+                  total_tokens: googleChunk.usageMetadata.totalTokenCount || 0,
+                },
+              };
+              await writer.write(
+                encoder.encode(`data: ${JSON.stringify(usageChunk)}\n\n`)
+              );
+            }
           } catch (e) {
-            // Skip malformed JSON lines
+            // Skip malformed JSON chunks
+            console.error("Failed to parse Google chunk:", e, chunk);
           }
         }
       }
 
+      // Send final [DONE] message
       await writer.write(encoder.encode("data: [DONE]\n\n"));
       await writer.close();
     } catch (err) {
-      await writer.abort(err);
+      console.error("Stream error:", err);
+      try {
+        await writer.abort(err);
+      } catch (abortErr) {
+        // Writer already closed
+      }
     }
   })();
 

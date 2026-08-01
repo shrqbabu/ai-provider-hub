@@ -202,6 +202,43 @@ export async function testConnection(
   provider: ConnectedProvider
 ): Promise<TestResult> {
   try {
+    // Google's Generative Language API requires special handling
+    if (provider.key === "google" || provider.baseURL.includes("generativelanguage.googleapis.com")) {
+      const key = (provider.apiKey ?? "").trim();
+      if (!key) {
+        throw new Error("API key is missing.");
+      }
+
+      // Test with a direct fetch to Google's models endpoint
+      const { baseURL, proxied } = resolveBaseURL(provider.baseURL);
+
+      // For Google, the endpoint is /v1/models (not /models)
+      const testUrl = `${baseURL.replace(/\/$/, "")}/models`;
+
+      const headers: Record<string, string> = {};
+      if (proxied) {
+        // Proxy will convert x-provider-key to ?key=... query param
+        headers["x-provider-key"] = key;
+      } else {
+        // Direct call (localhost) - won't work for Google since it needs CORS
+        throw new Error("Google API requires proxied access. Use the default base URL.");
+      }
+
+      const res = await fetch(testUrl, { headers });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`${res.status} ${res.statusText}: ${text}`);
+      }
+
+      const data = await res.json();
+      const count = (data.models ?? []).length;
+      return {
+        ok: true,
+        message: `Connected — ${count} model${count === 1 ? "" : "s"} available.`,
+        modelCount: count,
+      };
+    }
+
     const client = createClient(provider);
     const res = await client.models.list();
     const count = (res.data ?? []).length;
@@ -283,6 +320,41 @@ function parsePricePerMillion(raw: unknown): number | undefined {
 export async function fetchModelIds(
   provider: ConnectedProvider
 ): Promise<DiscoveredModelInfo[]> {
+  // Google's Generative Language API requires special handling
+  if (provider.key === "google" || provider.baseURL.includes("generativelanguage.googleapis.com")) {
+    const key = (provider.apiKey ?? "").trim();
+    if (!key) {
+      throw new Error("API key is missing.");
+    }
+
+    const { baseURL, proxied } = resolveBaseURL(provider.baseURL);
+    const testUrl = `${baseURL.replace(/\/$/, "")}/models`;
+
+    const headers: Record<string, string> = {};
+    if (proxied) {
+      headers["x-provider-key"] = key;
+    } else {
+      throw new Error("Google API requires proxied access.");
+    }
+
+    const res = await fetch(testUrl, { headers });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`${res.status} ${res.statusText}: ${text}`);
+    }
+
+    const data = await res.json();
+    return (data.models ?? []).map((m: any) => ({
+      id: m.name?.replace("models/", "") ?? m.name,
+      created: undefined,
+      contextLength: undefined,
+      inputPrice: undefined,
+      outputPrice: undefined,
+      supportsVision: m.supportedGenerationMethods?.includes("generateContent"),
+      isFree: undefined,
+    }));
+  }
+
   const client = createClient(provider);
   const res = await client.models.list();
   return (res.data ?? []).map((m) => {

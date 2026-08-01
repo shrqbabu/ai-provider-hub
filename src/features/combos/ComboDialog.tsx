@@ -22,6 +22,7 @@ import { useModelStore } from "@/store/model-store";
 import { useProviderStore } from "@/store/provider-store";
 import type { Combo, ComboMember } from "@/types";
 import { toast } from "sonner";
+import { withClaudePrefix, isClaudeModel } from "@/utils/model-prefix";
 
 interface Props {
   open: boolean;
@@ -88,7 +89,9 @@ export function ComboDialog({ open, onOpenChange, editing }: Props) {
     const found = models.find(
       (x) => x.providerId === m.providerId && x.modelId === m.modelId
     );
-    return found?.displayName || m.modelId;
+    // Display with aip/ prefix for Claude models
+    const displayId = isClaudeModel(m.modelId) ? withClaudePrefix(m.modelId) : m.modelId;
+    return found?.displayName || displayId;
   };
 
   const addSelectedModels = () => {
@@ -217,7 +220,7 @@ export function ComboDialog({ open, onOpenChange, editing }: Props) {
                     <div className="min-w-0 flex-1">
                       <div className="text-sm truncate">{modelLabel(m)}</div>
                       <div className="text-[11px] text-muted-foreground truncate">
-                        {m.modelId} · {providerName(m.providerId)}
+                        {isClaudeModel(m.modelId) ? withClaudePrefix(m.modelId) : m.modelId} · {providerName(m.providerId)}
                       </div>
                     </div>
                     <div className="flex items-center gap-0.5 shrink-0">
@@ -310,7 +313,7 @@ export function ComboDialog({ open, onOpenChange, editing }: Props) {
                         <div className="min-w-0 flex-1">
                           <div className="font-medium truncate text-foreground">{model.displayName}</div>
                           <div className="text-[10px] text-muted-foreground truncate">
-                            {model.modelId} · {providerName}
+                            {isClaudeModel(model.modelId) ? withClaudePrefix(model.modelId) : model.modelId} · {providerName}
                           </div>
                         </div>
                       </div>

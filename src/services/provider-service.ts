@@ -210,22 +210,11 @@ export async function testConnection(
         throw new Error("API key is missing.");
       }
 
-      // Test with a direct fetch to Google's models endpoint
-      const { baseURL, proxied } = resolveBaseURL(provider.baseURL);
+      // Google's API uses /v1beta/models endpoint with key as query param
+      // Test directly without going through the proxy since Google needs the key in URL
+      const testUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`;
 
-      // For Google, the endpoint is /v1/models (not /models)
-      const testUrl = `${baseURL.replace(/\/$/, "")}/models`;
-
-      const headers: Record<string, string> = {};
-      if (proxied) {
-        // Proxy will convert x-provider-key to ?key=... query param
-        headers["x-provider-key"] = key;
-      } else {
-        // Direct call (localhost) - won't work for Google since it needs CORS
-        throw new Error("Google API requires proxied access. Use the default base URL.");
-      }
-
-      const res = await fetch(testUrl, { headers });
+      const res = await fetch(testUrl);
       if (!res.ok) {
         const text = await res.text();
         throw new Error(`${res.status} ${res.statusText}: ${text}`);
@@ -328,17 +317,10 @@ export async function fetchModelIds(
       throw new Error("API key is missing.");
     }
 
-    const { baseURL, proxied } = resolveBaseURL(provider.baseURL);
-    const testUrl = `${baseURL.replace(/\/$/, "")}/models`;
+    // Google's API uses /v1beta/models endpoint with key as query param
+    const testUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`;
 
-    const headers: Record<string, string> = {};
-    if (proxied) {
-      headers["x-provider-key"] = key;
-    } else {
-      throw new Error("Google API requires proxied access.");
-    }
-
-    const res = await fetch(testUrl, { headers });
+    const res = await fetch(testUrl);
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`${res.status} ${res.statusText}: ${text}`);

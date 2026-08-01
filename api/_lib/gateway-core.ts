@@ -462,39 +462,44 @@ function translateGoogleStreamToAnthropic(
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
 
-  let sentStart = false;
   let buffer = "";
+  let streamDone = false;
 
   const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const startEvents = [
+        `event: message_start\ndata: ${JSON.stringify({
+          type: "message_start",
+          message: {
+            id: msgId,
+            type: "message",
+            role: "assistant",
+            model: modelId,
+            content: [],
+            stop_reason: null,
+            stop_sequence: null,
+            usage: { input_tokens: 0, output_tokens: 0 },
+          },
+        })}\n\n`,
+        `event: content_block_start\ndata: ${JSON.stringify({
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "text", text: "" },
+        })}\n\n`,
+      ];
+      controller.enqueue(encoder.encode(startEvents.join("")));
+    },
+
     async pull(controller) {
-      if (!sentStart) {
-        sentStart = true;
-        const startEvents = [
-          `event: message_start\ndata: ${JSON.stringify({
-            type: "message_start",
-            message: {
-              id: msgId,
-              type: "message",
-              role: "assistant",
-              model: modelId,
-              content: [],
-              stop_reason: null,
-              stop_sequence: null,
-              usage: { input_tokens: 0, output_tokens: 0 },
-            },
-          })}\n\n`,
-          `event: content_block_start\ndata: ${JSON.stringify({
-            type: "content_block_start",
-            index: 0,
-            content_block: { type: "text", text: "" },
-          })}\n\n`,
-        ];
-        controller.enqueue(encoder.encode(startEvents.join("")));
+      if (streamDone) {
+        controller.close();
+        return;
       }
 
-      while (true) {
+      try {
         const { done, value } = await reader.read();
         if (done) {
+          streamDone = true;
           const endEvents = [
             `event: content_block_stop\ndata: ${JSON.stringify({
               type: "content_block_stop",
@@ -516,8 +521,6 @@ function translateGoogleStreamToAnthropic(
 
         buffer += decoder.decode(value, { stream: true });
 
-        // Google streams JSON array chunks — parse complete JSON objects
-        // using brace counting.
         let searchFrom = 0;
         while (searchFrom < buffer.length) {
           const objStart = buffer.indexOf("{", searchFrom);
@@ -536,7 +539,7 @@ function translateGoogleStreamToAnthropic(
             }
           }
 
-          if (objEnd < 0) break; // incomplete object — wait for more data
+          if (objEnd < 0) break;
 
           const jsonStr = buffer.slice(objStart, objEnd);
           searchFrom = objEnd;
@@ -564,10 +567,28 @@ function translateGoogleStreamToAnthropic(
           }
         }
 
-        // Keep only the unprocessed remainder
         if (searchFrom > 0) {
           buffer = buffer.slice(searchFrom);
         }
+      } catch {
+        streamDone = true;
+        try {
+          const endEvents = [
+            `event: content_block_stop\ndata: ${JSON.stringify({
+              type: "content_block_stop", index: 0,
+            })}\n\n`,
+            `event: message_delta\ndata: ${JSON.stringify({
+              type: "message_delta",
+              delta: { stop_reason: "end_turn", stop_sequence: null },
+              usage: { output_tokens: 0 },
+            })}\n\n`,
+            `event: message_stop\ndata: ${JSON.stringify({
+              type: "message_stop",
+            })}\n\n`,
+          ];
+          controller.enqueue(encoder.encode(endEvents.join("")));
+        } catch { /* controller already closed */ }
+        controller.close();
       }
     },
   });
@@ -657,41 +678,48 @@ function translateStreamToAnthropic(
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
 
-  let sentStart = false;
   let buffer = "";
+  let streamDone = false;
 
   const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const startEvents = [
+        `event: message_start\ndata: ${JSON.stringify({
+          type: "message_start",
+          message: {
+            id: msgId,
+            type: "message",
+            role: "assistant",
+            model: modelId,
+            content: [],
+            stop_reason: null,
+            stop_sequence: null,
+            usage: { input_tokens: 0, output_tokens: 0 },
+          },
+        })}\n\n`,
+        `event: content_block_start\ndata: ${JSON.stringify({
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "text", text: "" },
+        })}\n\n`,
+      ];
+      controller.enqueue(encoder.encode(startEvents.join("")));
+    },
+
     async pull(controller) {
-      // Send opening events before the first content delta.
-      if (!sentStart) {
-        sentStart = true;
-        const startEvents = [
-          `event: message_start\ndata: ${JSON.stringify({
-            type: "message_start",
-            message: {
-              id: msgId,
-              type: "message",
-              role: "assistant",
-              model: modelId,
-              content: [],
-              stop_reason: null,
-              stop_sequence: null,
-              usage: { input_tokens: 0, output_tokens: 0 },
-            },
-          })}\n\n`,
-          `event: content_block_start\ndata: ${JSON.stringify({
-            type: "content_block_start",
-            index: 0,
-            content_block: { type: "text", text: "" },
-          })}\n\n`,
-        ];
-        controller.enqueue(encoder.encode(startEvents.join("")));
+      if (streamDone) {
+        controller.close();
+        return;
       }
 
-      while (true) {
+      try {
         const { done, value } = await reader.read();
         if (done) {
-          // Stream finished — send closing events.
+          streamDone = true;
+          // Flush any remaining buffer
+          if (buffer.trim()) {
+            processSSELines(buffer.split("\n"), controller, encoder);
+          }
           const endEvents = [
             `event: content_block_stop\ndata: ${JSON.stringify({
               type: "content_block_stop",
@@ -713,35 +741,28 @@ function translateStreamToAnthropic(
 
         buffer += decoder.decode(value, { stream: true });
 
-        // Parse SSE lines from the OpenAI stream.
         const lines = buffer.split("\n");
         buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const payload = line.slice(6).trim();
-          if (payload === "[DONE]") continue;
-
-          try {
-            const chunk = JSON.parse(payload) as {
-              choices?: Array<{
-                delta?: { content?: string };
-                finish_reason?: string | null;
-              }>;
-            };
-            const delta = chunk.choices?.[0]?.delta?.content;
-            if (delta) {
-              const evt = `event: content_block_delta\ndata: ${JSON.stringify({
-                type: "content_block_delta",
-                index: 0,
-                delta: { type: "text_delta", text: delta },
-              })}\n\n`;
-              controller.enqueue(encoder.encode(evt));
-            }
-          } catch {
-            // skip malformed chunks
-          }
-        }
+        processSSELines(lines, controller, encoder);
+      } catch {
+        streamDone = true;
+        try {
+          const endEvents = [
+            `event: content_block_stop\ndata: ${JSON.stringify({
+              type: "content_block_stop", index: 0,
+            })}\n\n`,
+            `event: message_delta\ndata: ${JSON.stringify({
+              type: "message_delta",
+              delta: { stop_reason: "end_turn", stop_sequence: null },
+              usage: { output_tokens: 0 },
+            })}\n\n`,
+            `event: message_stop\ndata: ${JSON.stringify({
+              type: "message_stop",
+            })}\n\n`,
+          ];
+          controller.enqueue(encoder.encode(endEvents.join("")));
+        } catch { /* controller already closed */ }
+        controller.close();
       }
     },
   });
@@ -755,6 +776,38 @@ function translateStreamToAnthropic(
     },
     streamBody: stream,
   };
+}
+
+function processSSELines(
+  lines: string[],
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  encoder: TextEncoder
+): void {
+  for (const line of lines) {
+    if (!line.startsWith("data: ")) continue;
+    const payload = line.slice(6).trim();
+    if (payload === "[DONE]") continue;
+
+    try {
+      const chunk = JSON.parse(payload) as {
+        choices?: Array<{
+          delta?: { content?: string };
+          finish_reason?: string | null;
+        }>;
+      };
+      const delta = chunk.choices?.[0]?.delta?.content;
+      if (delta) {
+        const evt = `event: content_block_delta\ndata: ${JSON.stringify({
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text: delta },
+        })}\n\n`;
+        controller.enqueue(encoder.encode(evt));
+      }
+    } catch {
+      // skip malformed chunks
+    }
+  }
 }
 
 // Normalize a saved model id for the /v1/models listing so every Claude model

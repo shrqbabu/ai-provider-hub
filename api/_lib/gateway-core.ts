@@ -274,26 +274,61 @@ function anthropicToOpenAI(
     if (sysText) messages.push({ role: "system", content: sysText });
   }
 
-  // Convert messages.
+  // Convert messages, translating Anthropic tool_use / tool_result blocks into
+  // OpenAI tool_calls / tool-role messages so agentic clients (Claude Desktop)
+  // can complete multi-step tasks instead of stopping after one text turn.
   const inMsgs = (body.messages ?? []) as Array<{
     role: string;
-    content: string | Array<{ type: string; text?: string; source?: unknown }>;
+    content: string | Array<Record<string, unknown>>;
   }>;
 
   for (const msg of inMsgs) {
-    const role = msg.role === "assistant" ? "assistant" : "user";
-    let content: string;
     if (typeof msg.content === "string") {
-      content = msg.content;
-    } else if (Array.isArray(msg.content)) {
-      content = msg.content
-        .filter((b) => b.type === "text")
-        .map((b) => b.text ?? "")
-        .join("\n");
-    } else {
-      content = String(msg.content ?? "");
+      messages.push({ role: msg.role, content: msg.content });
+      continue;
     }
-    messages.push({ role, content });
+    if (!Array.isArray(msg.content)) {
+      messages.push({ role: msg.role, content: String(msg.content ?? "") });
+      continue;
+    }
+
+    const blocks = msg.content;
+    const textParts = blocks
+      .filter((b) => b.type === "text")
+      .map((b) => (b.text as string) ?? "")
+      .join("\n");
+
+    if (msg.role === "assistant") {
+      const toolUses = blocks.filter((b) => b.type === "tool_use");
+      const m: Record<string, unknown> = { role: "assistant", content: textParts || null };
+      if (toolUses.length) {
+        m.tool_calls = toolUses.map((t) => ({
+          id: t.id,
+          type: "function",
+          function: { name: t.name, arguments: JSON.stringify(t.input ?? {}) },
+        }));
+      }
+      messages.push(m as { role: string; content: string | unknown[] });
+      continue;
+    }
+
+    // user role — extract any tool_result blocks into OpenAI `tool` messages
+    const toolResults = blocks.filter((b) => b.type === "tool_result");
+    for (const tr of toolResults) {
+      let trText = "";
+      const trc = tr.content;
+      if (typeof trc === "string") trText = trc;
+      else if (Array.isArray(trc)) {
+        trText = (trc as Array<Record<string, unknown>>)
+          .filter((x) => x.type === "text")
+          .map((x) => (x.text as string) ?? "")
+          .join("\n");
+      }
+      messages.push({ role: "tool", tool_call_id: tr.tool_use_id, content: trText } as unknown as { role: string; content: string });
+    }
+    if (textParts || !toolResults.length) {
+      messages.push({ role: "user", content: textParts });
+    }
   }
 
   const result: Record<string, unknown> = {
@@ -312,6 +347,28 @@ function anthropicToOpenAI(
   if (body.temperature != null) result.temperature = body.temperature;
   if (body.top_p != null) result.top_p = body.top_p;
   if (body.stop_sequences != null) result.stop = body.stop_sequences;
+
+  // Forward tool definitions so agentic clients keep working (Anthropic tool
+  // shape → OpenAI function-tool shape).
+  const tools = body.tools as Array<Record<string, unknown>> | undefined;
+  if (Array.isArray(tools) && tools.length) {
+    result.tools = tools.map((t) => ({
+      type: "function",
+      function: {
+        name: t.name,
+        description: t.description ?? "",
+        parameters: t.input_schema ?? { type: "object", properties: {} },
+      },
+    }));
+    const tc = body.tool_choice as { type?: string; name?: string } | undefined;
+    if (tc?.type === "tool" && tc.name) {
+      result.tool_choice = { type: "function", function: { name: tc.name } };
+    } else if (tc?.type === "any") {
+      result.tool_choice = "required";
+    } else if (tc?.type === "auto") {
+      result.tool_choice = "auto";
+    }
+  }
 
   return result;
 }
@@ -396,16 +453,15 @@ async function translateGoogleResponseToAnthropic(
   modelId: string
 ): Promise<CoreResponse> {
   if (upstream.status !== 200) {
-    // Pass through error as-is, wrapped in Anthropic error shape.
+    // Convert Google's error into a clean Anthropic error so Claude Desktop
+    // shows the real message (and 404 → 400 to dodge Vercel's HTML override).
     const errText = await safeText(upstream);
-    return {
-      status: upstream.status,
-      headers: { "Content-Type": "application/json" },
-      jsonBody: {
-        type: "error",
-        error: { type: "api_error", message: errText },
-      },
-    };
+    let message = errText;
+    try {
+      const parsed = JSON.parse(errText) as { error?: { message?: string } };
+      if (parsed.error?.message) message = parsed.error.message;
+    } catch { /* keep raw text */ }
+    return formatGatewayError(upstream.status, message || `Upstream error ${upstream.status}.`, true);
   }
 
   if (wantsStream) {
@@ -613,7 +669,16 @@ async function translateResponseToAnthropic(
   modelId: string
 ): Promise<CoreResponse> {
   if (upstream.status !== 200) {
-    return relay(upstream, wantsStream);
+    // Convert the upstream (OpenAI-shaped) error into an Anthropic error so
+    // Claude Desktop shows the real message instead of a raw/garbled body.
+    const errText = await safeText(upstream);
+    let message = errText;
+    try {
+      const parsed = JSON.parse(errText) as { error?: { message?: string } | string };
+      if (typeof parsed.error === "string") message = parsed.error;
+      else if (parsed.error?.message) message = parsed.error.message;
+    } catch { /* keep raw text */ }
+    return formatGatewayError(upstream.status, message || `Upstream error ${upstream.status}.`, true);
   }
 
   if (wantsStream) {
@@ -623,7 +688,14 @@ async function translateResponseToAnthropic(
   // Non-streaming: read the full OpenAI response and convert.
   const openai = (await upstream.json()) as {
     choices?: Array<{
-      message?: { role?: string; content?: string };
+      message?: {
+        role?: string;
+        content?: string;
+        tool_calls?: Array<{
+          id?: string;
+          function?: { name?: string; arguments?: string };
+        }>;
+      };
       finish_reason?: string;
     }>;
     usage?: { prompt_tokens?: number; completion_tokens?: number };
@@ -631,15 +703,37 @@ async function translateResponseToAnthropic(
 
   const choice = openai.choices?.[0];
   const text = choice?.message?.content ?? "";
-  const stopReason =
-    choice?.finish_reason === "length" ? "max_tokens" : "end_turn";
+  const toolCalls = choice?.message?.tool_calls ?? [];
+
+  const content: Array<Record<string, unknown>> = [];
+  if (text) content.push({ type: "text", text });
+  for (const tc of toolCalls) {
+    let input: unknown = {};
+    try {
+      input = tc.function?.arguments ? JSON.parse(tc.function.arguments) : {};
+    } catch {
+      input = {};
+    }
+    content.push({
+      type: "tool_use",
+      id: tc.id ?? `toolu_${Date.now()}`,
+      name: tc.function?.name ?? "",
+      input,
+    });
+  }
+  if (content.length === 0) content.push({ type: "text", text: "" });
+
+  let stopReason: string;
+  if (toolCalls.length) stopReason = "tool_use";
+  else if (choice?.finish_reason === "length") stopReason = "max_tokens";
+  else stopReason = "end_turn";
 
   const anthropicBody = {
     id: `msg_${Date.now()}`,
     type: "message",
     role: "assistant",
     model: modelId,
-    content: [{ type: "text", text }],
+    content,
     stop_reason: stopReason,
     stop_sequence: null,
     usage: {
@@ -684,29 +778,141 @@ function translateStreamToAnthropic(
   let buffer = "";
   let streamDone = false;
 
+  // Block lifecycle state. Text block 0 is pre-opened in start(). Tool calls
+  // open their own blocks at incrementing indices. Only one block is open at
+  // a time (OpenAI streams tool calls sequentially).
+  let nextIndex = 1;
+  let openIndex = 0;
+  let openType: "text" | "tool" = "text";
+  let textBlockUsed = false;
+  let finishReason: string | null = null;
+  const toolIndexMap = new Map<number, number>();
+
+  const ev = (obj: unknown, name: string) =>
+    encoder.encode(`event: ${name}\ndata: ${JSON.stringify(obj)}\n\n`);
+
+  const closeOpen = (controller: ReadableStreamDefaultController<Uint8Array>) => {
+    if (openIndex !== -1) {
+      controller.enqueue(ev({ type: "content_block_stop", index: openIndex }, "content_block_stop"));
+      openIndex = -1;
+    }
+  };
+
+  const handleChunk = (
+    chunk: {
+      choices?: Array<{
+        delta?: {
+          content?: string;
+          tool_calls?: Array<{
+            index?: number;
+            id?: string;
+            function?: { name?: string; arguments?: string };
+          }>;
+        };
+        text?: string;
+        finish_reason?: string | null;
+      }>;
+    },
+    controller: ReadableStreamDefaultController<Uint8Array>
+  ) => {
+    const choice = chunk.choices?.[0];
+    if (!choice) return;
+    if (choice.finish_reason) finishReason = choice.finish_reason;
+
+    const textDelta = choice.delta?.content ?? choice.text;
+    if (textDelta) {
+      // Route text to a text block. Reuse block 0 unless we've moved past it.
+      if (openType !== "text" || openIndex === -1) {
+        closeOpen(controller);
+        openIndex = textBlockUsed ? nextIndex++ : 0;
+        openType = "text";
+        controller.enqueue(ev({
+          type: "content_block_start", index: openIndex,
+          content_block: { type: "text", text: "" },
+        }, "content_block_start"));
+      }
+      textBlockUsed = true;
+      controller.enqueue(ev({
+        type: "content_block_delta", index: openIndex,
+        delta: { type: "text_delta", text: textDelta },
+      }, "content_block_delta"));
+    }
+
+    const toolCalls = choice.delta?.tool_calls;
+    if (Array.isArray(toolCalls)) {
+      for (const tc of toolCalls) {
+        const oaiIdx = tc.index ?? 0;
+        if (!toolIndexMap.has(oaiIdx)) {
+          // New tool call → close whatever's open, open a tool_use block.
+          closeOpen(controller);
+          const idx = nextIndex++;
+          toolIndexMap.set(oaiIdx, idx);
+          openIndex = idx;
+          openType = "tool";
+          controller.enqueue(ev({
+            type: "content_block_start", index: idx,
+            content_block: {
+              type: "tool_use",
+              id: tc.id ?? `toolu_${Date.now()}_${idx}`,
+              name: tc.function?.name ?? "",
+              input: {},
+            },
+          }, "content_block_start"));
+        }
+        const argFrag = tc.function?.arguments;
+        if (argFrag) {
+          controller.enqueue(ev({
+            type: "content_block_delta", index: toolIndexMap.get(oaiIdx),
+            delta: { type: "input_json_delta", partial_json: argFrag },
+          }, "content_block_delta"));
+        }
+      }
+    }
+  };
+
+  const flushEnd = (controller: ReadableStreamDefaultController<Uint8Array>) => {
+    closeOpen(controller);
+    const stopReason =
+      finishReason === "tool_calls" ? "tool_use"
+      : finishReason === "length" ? "max_tokens"
+      : "end_turn";
+    controller.enqueue(ev({
+      type: "message_delta",
+      delta: { stop_reason: stopReason, stop_sequence: null },
+      usage: { output_tokens: 0 },
+    }, "message_delta"));
+    controller.enqueue(ev({ type: "message_stop" }, "message_stop"));
+  };
+
+  const processLines = (
+    lines: string[],
+    controller: ReadableStreamDefaultController<Uint8Array>
+  ) => {
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line.startsWith("data:")) continue;
+      const payload = line.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+      try {
+        handleChunk(JSON.parse(payload), controller);
+      } catch { /* skip malformed chunks */ }
+    }
+  };
+
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      const startEvents = [
-        `event: message_start\ndata: ${JSON.stringify({
-          type: "message_start",
-          message: {
-            id: msgId,
-            type: "message",
-            role: "assistant",
-            model: modelId,
-            content: [],
-            stop_reason: null,
-            stop_sequence: null,
-            usage: { input_tokens: 0, output_tokens: 0 },
-          },
-        })}\n\n`,
-        `event: content_block_start\ndata: ${JSON.stringify({
-          type: "content_block_start",
-          index: 0,
-          content_block: { type: "text", text: "" },
-        })}\n\n`,
-      ];
-      controller.enqueue(encoder.encode(startEvents.join("")));
+      controller.enqueue(ev({
+        type: "message_start",
+        message: {
+          id: msgId, type: "message", role: "assistant", model: modelId,
+          content: [], stop_reason: null, stop_sequence: null,
+          usage: { input_tokens: 0, output_tokens: 0 },
+        },
+      }, "message_start"));
+      controller.enqueue(ev({
+        type: "content_block_start", index: 0,
+        content_block: { type: "text", text: "" },
+      }, "content_block_start"));
     },
 
     async pull(controller) {
@@ -714,57 +920,22 @@ function translateStreamToAnthropic(
         controller.close();
         return;
       }
-
       try {
         const { done, value } = await reader.read();
         if (done) {
           streamDone = true;
-          // Flush any remaining buffer
-          if (buffer.trim()) {
-            processSSELines(buffer.split("\n"), controller, encoder);
-          }
-          const endEvents = [
-            `event: content_block_stop\ndata: ${JSON.stringify({
-              type: "content_block_stop",
-              index: 0,
-            })}\n\n`,
-            `event: message_delta\ndata: ${JSON.stringify({
-              type: "message_delta",
-              delta: { stop_reason: "end_turn", stop_sequence: null },
-              usage: { output_tokens: 0 },
-            })}\n\n`,
-            `event: message_stop\ndata: ${JSON.stringify({
-              type: "message_stop",
-            })}\n\n`,
-          ];
-          controller.enqueue(encoder.encode(endEvents.join("")));
+          if (buffer.trim()) processLines(buffer.split("\n"), controller);
+          flushEnd(controller);
           controller.close();
           return;
         }
-
         buffer += decoder.decode(value, { stream: true });
-
         const lines = buffer.split("\n");
         buffer = lines.pop() ?? "";
-        processSSELines(lines, controller, encoder);
+        processLines(lines, controller);
       } catch {
         streamDone = true;
-        try {
-          const endEvents = [
-            `event: content_block_stop\ndata: ${JSON.stringify({
-              type: "content_block_stop", index: 0,
-            })}\n\n`,
-            `event: message_delta\ndata: ${JSON.stringify({
-              type: "message_delta",
-              delta: { stop_reason: "end_turn", stop_sequence: null },
-              usage: { output_tokens: 0 },
-            })}\n\n`,
-            `event: message_stop\ndata: ${JSON.stringify({
-              type: "message_stop",
-            })}\n\n`,
-          ];
-          controller.enqueue(encoder.encode(endEvents.join("")));
-        } catch { /* controller already closed */ }
+        try { flushEnd(controller); } catch { /* already closed */ }
         controller.close();
       }
     },
@@ -779,40 +950,6 @@ function translateStreamToAnthropic(
     },
     streamBody: stream,
   };
-}
-
-function processSSELines(
-  lines: string[],
-  controller: ReadableStreamDefaultController<Uint8Array>,
-  encoder: TextEncoder
-): void {
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line.startsWith("data:")) continue;
-    const payload = line.slice(5).trim();
-    if (!payload || payload === "[DONE]") continue;
-
-    try {
-      const chunk = JSON.parse(payload) as {
-        choices?: Array<{
-          delta?: { content?: string };
-          text?: string;
-          finish_reason?: string | null;
-        }>;
-      };
-      const delta = chunk.choices?.[0]?.delta?.content ?? chunk.choices?.[0]?.text;
-      if (delta) {
-        const evt = `event: content_block_delta\ndata: ${JSON.stringify({
-          type: "content_block_delta",
-          index: 0,
-          delta: { type: "text_delta", text: delta },
-        })}\n\n`;
-        controller.enqueue(encoder.encode(evt));
-      }
-    } catch {
-      // skip malformed chunks
-    }
-  }
 }
 
 // Normalize a saved model id for the /v1/models listing so every Claude model

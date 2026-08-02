@@ -375,37 +375,77 @@ function anthropicToOpenAI(
 
 // ── Anthropic → Google Generative Language API ──────────────────────────────
 
+// ── Anthropic → Google Generative Language API ──────────────────────────────
+
 function anthropicToGoogle(
   body: Record<string, unknown>,
   _modelId: string
 ): Record<string, unknown> {
-  const contents: Array<{ role: string; parts: Array<{ text: string }> }> = [];
+  const contents: Array<{
+    role: string;
+    parts: Array<Record<string, unknown>>;
+  }> = [];
+
+  const toolUseMap = new Map<string, string>(); // tool_use_id -> tool_name
 
   const inMsgs = (body.messages ?? []) as Array<{
     role: string;
-    content: string | Array<{ type: string; text?: string }>;
+    content: string | Array<Record<string, unknown>>;
   }>;
 
   for (const msg of inMsgs) {
     const role = msg.role === "assistant" ? "model" : "user";
-    let text: string;
+    const parts: Array<Record<string, unknown>> = [];
+
     if (typeof msg.content === "string") {
-      text = msg.content;
+      if (msg.content.trim()) {
+        parts.push({ text: msg.content });
+      }
     } else if (Array.isArray(msg.content)) {
-      text = msg.content
-        .filter((b) => b.type === "text")
-        .map((b) => b.text ?? "")
-        .join("\n");
-    } else {
-      text = String(msg.content ?? "");
+      for (const block of msg.content) {
+        if (block.type === "text" && typeof block.text === "string" && block.text.trim()) {
+          parts.push({ text: block.text });
+        } else if (block.type === "tool_use") {
+          const id = String(block.id ?? "");
+          const name = String(block.name ?? "");
+          if (id && name) toolUseMap.set(id, name);
+          parts.push({
+            functionCall: {
+              name,
+              args: block.input && typeof block.input === "object" ? block.input : {},
+            },
+          });
+        } else if (block.type === "tool_result") {
+          const toolUseId = String(block.tool_use_id ?? "");
+          const name = toolUseMap.get(toolUseId) || "tool_result";
+          let resultText = "";
+          if (typeof block.content === "string") {
+            resultText = block.content;
+          } else if (Array.isArray(block.content)) {
+            resultText = (block.content as Array<Record<string, unknown>>)
+              .filter((x) => x.type === "text")
+              .map((x) => String(x.text ?? ""))
+              .join("\n");
+          } else {
+            resultText = String(block.content ?? "");
+          }
+          parts.push({
+            functionResponse: {
+              name,
+              response: { name, output: resultText },
+            },
+          });
+        }
+      }
     }
-    if (!text.trim()) continue;
+
+    if (parts.length === 0) continue;
 
     const last = contents[contents.length - 1];
     if (last && last.role === role) {
-      last.parts[0].text += "\n" + text;
+      last.parts.push(...parts);
     } else {
-      contents.push({ role, parts: [{ text }] });
+      contents.push({ role, parts });
     }
   }
 
@@ -433,6 +473,20 @@ function anthropicToGoogle(
     }
   }
 
+  // Tools definition
+  const tools = body.tools as Array<Record<string, unknown>> | undefined;
+  if (Array.isArray(tools) && tools.length) {
+    googleBody.tools = [
+      {
+        functionDeclarations: tools.map((t) => ({
+          name: t.name,
+          description: t.description ?? "",
+          parameters: t.input_schema ?? { type: "object", properties: {} },
+        })),
+      },
+    ];
+  }
+
   // Generation config
   const generationConfig: Record<string, unknown> = {};
   if (body.max_tokens != null) generationConfig.maxOutputTokens = body.max_tokens;
@@ -453,8 +507,6 @@ async function translateGoogleResponseToAnthropic(
   modelId: string
 ): Promise<CoreResponse> {
   if (upstream.status !== 200) {
-    // Convert Google's error into a clean Anthropic error so Claude Desktop
-    // shows the real message (and 404 → 400 to dodge Vercel's HTML override).
     const errText = await safeText(upstream);
     let message = errText;
     try {
@@ -471,7 +523,12 @@ async function translateGoogleResponseToAnthropic(
   // Non-streaming Google response
   const googleResp = (await upstream.json()) as {
     candidates?: Array<{
-      content?: { parts?: Array<{ text?: string }> };
+      content?: {
+        parts?: Array<{
+          text?: string;
+          functionCall?: { name?: string; args?: Record<string, unknown> };
+        }>;
+      };
       finishReason?: string;
     }>;
     usageMetadata?: {
@@ -481,8 +538,26 @@ async function translateGoogleResponseToAnthropic(
   };
 
   const candidate = googleResp.candidates?.[0];
-  const text =
-    candidate?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+  const parts = candidate?.content?.parts ?? [];
+  const content: Array<Record<string, unknown>> = [];
+  let hasToolCall = false;
+
+  for (const p of parts) {
+    if (p.text) {
+      content.push({ type: "text", text: p.text });
+    }
+    if (p.functionCall) {
+      hasToolCall = true;
+      content.push({
+        type: "tool_use",
+        id: `toolu_g_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        name: p.functionCall.name ?? "",
+        input: p.functionCall.args ?? {},
+      });
+    }
+  }
+
+  if (content.length === 0) content.push({ type: "text", text: "" });
 
   return {
     status: 200,
@@ -492,8 +567,8 @@ async function translateGoogleResponseToAnthropic(
       type: "message",
       role: "assistant",
       model: modelId,
-      content: [{ type: "text", text }],
-      stop_reason: "end_turn",
+      content,
+      stop_reason: hasToolCall ? "tool_use" : "end_turn",
       stop_sequence: null,
       usage: {
         input_tokens: googleResp.usageMetadata?.promptTokenCount ?? 0,
@@ -515,6 +590,7 @@ function translateGoogleStreamToAnthropic(
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       let text = "";
+      const toolCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
 
       try {
         const reader = upstream.body?.getReader();
@@ -537,14 +613,24 @@ function translateGoogleStreamToAnthropic(
               try {
                 const chunk = JSON.parse(payload) as {
                   candidates?: Array<{
-                    content?: { parts?: Array<{ text?: string }> };
+                    content?: {
+                      parts?: Array<{
+                        text?: string;
+                        functionCall?: { name?: string; args?: Record<string, unknown> };
+                      }>;
+                    };
                   }>;
                 };
-                const t =
-                  chunk.candidates?.[0]?.content?.parts
-                    ?.map((p) => p.text ?? "")
-                    .join("") ?? "";
-                if (t) text += t;
+                const parts = chunk.candidates?.[0]?.content?.parts ?? [];
+                for (const p of parts) {
+                  if (p.text) text += p.text;
+                  if (p.functionCall?.name) {
+                    toolCalls.push({
+                      name: p.functionCall.name,
+                      args: p.functionCall.args ?? {},
+                    });
+                  }
+                }
               } catch { /* skip malformed */ }
             }
           }
@@ -561,23 +647,44 @@ function translateGoogleStreamToAnthropic(
         },
       }, "message_start"));
 
+      let index = 0;
       controller.enqueue(ev({
-        type: "content_block_start", index: 0,
+        type: "content_block_start", index,
         content_block: { type: "text", text: "" },
       }, "content_block_start"));
 
       if (text) {
         controller.enqueue(ev({
-          type: "content_block_delta", index: 0,
+          type: "content_block_delta", index,
           delta: { type: "text_delta", text },
         }, "content_block_delta"));
       }
 
-      controller.enqueue(ev({ type: "content_block_stop", index: 0 }, "content_block_stop"));
+      controller.enqueue(ev({ type: "content_block_stop", index }, "content_block_stop"));
 
+      for (const tc of toolCalls) {
+        index += 1;
+        const toolId = `toolu_g_${Date.now()}_${index}`;
+        controller.enqueue(ev({
+          type: "content_block_start", index,
+          content_block: {
+            type: "tool_use",
+            id: toolId,
+            name: tc.name,
+            input: {},
+          },
+        }, "content_block_start"));
+        controller.enqueue(ev({
+          type: "content_block_delta", index,
+          delta: { type: "input_json_delta", partial_json: JSON.stringify(tc.args) },
+        }, "content_block_delta"));
+        controller.enqueue(ev({ type: "content_block_stop", index }, "content_block_stop"));
+      }
+
+      const stopReason = toolCalls.length ? "tool_use" : "end_turn";
       controller.enqueue(ev({
         type: "message_delta",
-        delta: { stop_reason: "end_turn", stop_sequence: null },
+        delta: { stop_reason: stopReason, stop_sequence: null },
         usage: { output_tokens: 0 },
       }, "message_delta"));
 
@@ -836,17 +943,21 @@ function formatGatewayError(
   isAnthropic: boolean
 ): CoreResponse {
   const code = status === 404 ? 400 : status;
+  let cleanMsg = message;
+  if (cleanMsg.includes("404 page not found") || cleanMsg.includes("404 Not Found")) {
+    cleanMsg = `Upstream API returned 404 Page Not Found. Check provider Base URL (ensure /v1 is included) and model ID in AI Provider Hub. Details: ${message}`;
+  }
   if (isAnthropic) {
     return jsonResponse(code, {
       type: "error",
       error: {
         type: status === 401 ? "authentication_error" : "invalid_request_error",
-        message,
+        message: cleanMsg,
       },
     });
   }
   return jsonResponse(code, {
-    error: { message, type: "invalid_request_error" },
+    error: { message: cleanMsg, type: "invalid_request_error" },
   });
 }
 

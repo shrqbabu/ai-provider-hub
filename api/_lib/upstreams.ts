@@ -90,9 +90,22 @@ export function providerKeys(p: GwProvider): string[] {
 }
 
 export function baseURLFor(p: GwProvider): string {
-  const url = (p.baseURL ?? "").trim();
-  if (url) return url.replace(/\/$/, "");
-  return PROVIDER_BASE[p.key] ?? "";
+  let url = (p.baseURL ?? "").trim().replace(/\/$/, "");
+  if (!url) return PROVIDER_BASE[p.key] ?? "";
+
+  // Auto-normalize standard provider URLs if /v1 path is omitted
+  if (p.key === "openai" && !url.includes("/v1")) {
+    url += "/v1";
+  } else if (p.key === "nvidia" && !url.includes("/v1")) {
+    url += "/v1";
+  } else if (p.key === "anthropic" && !url.includes("/v1")) {
+    url += "/v1";
+  } else if (p.key === "openrouter" && !url.includes("/v1")) {
+    url += "/api/v1";
+  } else if (p.key === "google" && !url.includes("/v1")) {
+    url += "/v1";
+  }
+  return url;
 }
 
 /**

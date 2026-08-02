@@ -507,113 +507,82 @@ function translateGoogleStreamToAnthropic(
   upstream: Response,
   modelId: string
 ): CoreResponse {
-  const reader = upstream.body?.getReader();
-  if (!reader) {
-    return {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-      jsonBody: {
-        id: `msg_${Date.now()}`,
-        type: "message",
-        role: "assistant",
-        model: modelId,
-        content: [{ type: "text", text: "" }],
-        stop_reason: "end_turn",
-        stop_sequence: null,
-        usage: { input_tokens: 0, output_tokens: 0 },
-      },
-    };
-  }
-
-  const msgId = `msg_${Date.now()}`;
   const encoder = new TextEncoder();
-  const decoder = new TextDecoder();
-
-  let buffer = "";
-  let streamDone = false;
+  const msgId = `msg_${Date.now()}`;
+  const ev = (obj: unknown, name: string) =>
+    encoder.encode(`event: ${name}\ndata: ${JSON.stringify(obj)}\n\n`);
 
   const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      const startEvents = [
-        `event: message_start\ndata: ${JSON.stringify({
-          type: "message_start",
-          message: {
-            id: msgId,
-            type: "message",
-            role: "assistant",
-            model: modelId,
-            content: [],
-            stop_reason: null,
-            stop_sequence: null,
-            usage: { input_tokens: 0, output_tokens: 0 },
-          },
-        })}\n\n`,
-        `event: content_block_start\ndata: ${JSON.stringify({
-          type: "content_block_start",
-          index: 0,
-          content_block: { type: "text", text: "" },
-        })}\n\n`,
-      ];
-      controller.enqueue(encoder.encode(startEvents.join("")));
-    },
-
-    async pull(controller) {
-      if (streamDone) {
-        controller.close();
-        return;
-      }
+    async start(controller) {
+      let text = "";
 
       try {
-        const { done, value } = await reader.read();
-        if (done) {
-          streamDone = true;
-          if (buffer.trim()) {
-            processGoogleSSELines(buffer.split("\n"), controller, encoder);
+        const reader = upstream.body?.getReader();
+        if (reader) {
+          const decoder = new TextDecoder();
+          let buffer = "";
+          // eslint-disable-next-line no-constant-condition
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() ?? "";
+            for (const rawLine of lines) {
+              const line = rawLine.trim();
+              if (!line.startsWith("data:")) continue;
+              const payload = line.slice(5).trim();
+              if (!payload || payload === "[DONE]") continue;
+
+              try {
+                const chunk = JSON.parse(payload) as {
+                  candidates?: Array<{
+                    content?: { parts?: Array<{ text?: string }> };
+                  }>;
+                };
+                const t =
+                  chunk.candidates?.[0]?.content?.parts
+                    ?.map((p) => p.text ?? "")
+                    .join("") ?? "";
+                if (t) text += t;
+              } catch { /* skip malformed */ }
+            }
           }
-          const endEvents = [
-            `event: content_block_stop\ndata: ${JSON.stringify({
-              type: "content_block_stop",
-              index: 0,
-            })}\n\n`,
-            `event: message_delta\ndata: ${JSON.stringify({
-              type: "message_delta",
-              delta: { stop_reason: "end_turn", stop_sequence: null },
-              usage: { output_tokens: 0 },
-            })}\n\n`,
-            `event: message_stop\ndata: ${JSON.stringify({
-              type: "message_stop",
-            })}\n\n`,
-          ];
-          controller.enqueue(encoder.encode(endEvents.join("")));
-          controller.close();
-          return;
         }
+      } catch { /* emit whatever we aggregated */ }
 
-        buffer += decoder.decode(value, { stream: true });
+      // Emit complete Anthropic SSE sequence.
+      controller.enqueue(ev({
+        type: "message_start",
+        message: {
+          id: msgId, type: "message", role: "assistant", model: modelId,
+          content: [], stop_reason: null, stop_sequence: null,
+          usage: { input_tokens: 0, output_tokens: 0 },
+        },
+      }, "message_start"));
 
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        processGoogleSSELines(lines, controller, encoder);
-      } catch {
-        streamDone = true;
-        try {
-          const endEvents = [
-            `event: content_block_stop\ndata: ${JSON.stringify({
-              type: "content_block_stop", index: 0,
-            })}\n\n`,
-            `event: message_delta\ndata: ${JSON.stringify({
-              type: "message_delta",
-              delta: { stop_reason: "end_turn", stop_sequence: null },
-              usage: { output_tokens: 0 },
-            })}\n\n`,
-            `event: message_stop\ndata: ${JSON.stringify({
-              type: "message_stop",
-            })}\n\n`,
-          ];
-          controller.enqueue(encoder.encode(endEvents.join("")));
-        } catch { /* controller already closed */ }
-        controller.close();
+      controller.enqueue(ev({
+        type: "content_block_start", index: 0,
+        content_block: { type: "text", text: "" },
+      }, "content_block_start"));
+
+      if (text) {
+        controller.enqueue(ev({
+          type: "content_block_delta", index: 0,
+          delta: { type: "text_delta", text },
+        }, "content_block_delta"));
       }
+
+      controller.enqueue(ev({ type: "content_block_stop", index: 0 }, "content_block_stop"));
+
+      controller.enqueue(ev({
+        type: "message_delta",
+        delta: { stop_reason: "end_turn", stop_sequence: null },
+        usage: { output_tokens: 0 },
+      }, "message_delta"));
+
+      controller.enqueue(ev({ type: "message_stop" }, "message_stop"));
+      controller.close();
     },
   });
 
@@ -627,42 +596,6 @@ function translateGoogleStreamToAnthropic(
     streamBody: stream,
   };
 }
-
-function processGoogleSSELines(
-  lines: string[],
-  controller: ReadableStreamDefaultController<Uint8Array>,
-  encoder: TextEncoder
-): void {
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line.startsWith("data:")) continue;
-    const payload = line.slice(5).trim();
-    if (!payload || payload === "[DONE]") continue;
-
-    try {
-      const chunk = JSON.parse(payload) as {
-        candidates?: Array<{
-          content?: { parts?: Array<{ text?: string }> };
-        }>;
-      };
-      const text =
-        chunk.candidates?.[0]?.content?.parts
-          ?.map((p) => p.text ?? "")
-          .join("") ?? "";
-      if (text) {
-        const evt = `event: content_block_delta\ndata: ${JSON.stringify({
-          type: "content_block_delta",
-          index: 0,
-          delta: { type: "text_delta", text },
-        })}\n\n`;
-        controller.enqueue(encoder.encode(evt));
-      }
-    } catch {
-      // skip malformed chunks
-    }
-  }
-}
-
 async function translateResponseToAnthropic(
   upstream: Response,
   wantsStream: boolean,

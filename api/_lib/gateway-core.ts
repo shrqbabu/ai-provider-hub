@@ -375,21 +375,27 @@ function anthropicToOpenAI(
 
 // ── Anthropic → Google Generative Language API ──────────────────────────────
 
-// Helper: Google Gemini API functionDeclaration parameters schema rejects keys like
-// `$schema`, `additionalProperties`, `$id`, `$comment`, etc. Recursively strip them.
+// Helper: Google Gemini API functionDeclaration parameters schema rejects non-standard
+// JSON schema keys like `propertyNames`, `exclusiveMinimum`, `additionalProperties`, etc.
+// Keep ONLY official Google OpenAPI Schema keys.
+const GOOGLE_ALLOWED_SCHEMA_KEYS = new Set([
+  "type",
+  "format",
+  "description",
+  "nullable",
+  "enum",
+  "items",
+  "properties",
+  "required",
+]);
+
 function cleanSchemaForGoogle(obj: unknown): unknown {
   if (obj === null || typeof obj !== "object") return obj;
   if (Array.isArray(obj)) return obj.map(cleanSchemaForGoogle);
 
   const cleaned: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
-    if (
-      key === "$schema" ||
-      key === "additionalProperties" ||
-      key === "$id" ||
-      key === "$comment" ||
-      (key === "default" && value === undefined)
-    ) {
+    if (!GOOGLE_ALLOWED_SCHEMA_KEYS.has(key)) {
       continue;
     }
     cleaned[key] = cleanSchemaForGoogle(value);

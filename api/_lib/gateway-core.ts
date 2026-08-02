@@ -400,6 +400,18 @@ function cleanSchemaForGoogle(obj: unknown): unknown {
     }
     cleaned[key] = cleanSchemaForGoogle(value);
   }
+
+  // Google Gemini requires that every name in `required` exists in `properties`
+  if (Array.isArray(cleaned.required) && cleaned.properties && typeof cleaned.properties === "object") {
+    const validProps = new Set(Object.keys(cleaned.properties as Record<string, unknown>));
+    cleaned.required = (cleaned.required as unknown[]).filter(
+      (name) => typeof name === "string" && validProps.has(name)
+    );
+    if ((cleaned.required as unknown[]).length === 0) {
+      delete cleaned.required;
+    }
+  }
+
   return cleaned;
 }
 

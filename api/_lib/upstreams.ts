@@ -75,9 +75,19 @@ export function parseModel(model: string): {
   return { modelId: trimmed };
 }
 
-/** Convenience: return just the model id with any known prefix stripped. */
+/** Convenience: return just the model id with any known prefix stripped.
+ *  Use this for MATCHING/comparison only — never for the id sent upstream, since
+ *  it also strips real provider namespaces (e.g. NVIDIA's "nvidia/…"). */
 export function stripKnownPrefix(model: string): string {
   return parseModel(model).modelId;
+}
+
+/** Strip ONLY the virtual "aip/" prefix (the Claude marker). Real provider
+ *  namespaces like "nvidia/llama-…", "google/gemma-…", "meta/llama-…" are part
+ *  of the upstream model id and MUST be preserved. Use this for the id that
+ *  actually goes upstream once the provider is already known. */
+export function stripVirtualPrefix(model: string): string {
+  return (model ?? "").trim().replace(/^aip\//i, "");
 }
 
 /** Ordered list of auth keys for a provider (multi-key fallback). */
@@ -174,7 +184,9 @@ export function resolveRoute(
     models.find((m) => stripKnownPrefix(m.modelId) === modelId);
   if (hit) {
     const provider = byId.get(hit.providerId);
-    if (provider) return finalize(provider, stripKnownPrefix(hit.modelId));
+    // Send the SAVED id minus only the virtual "aip/" marker. Real provider
+    // namespaces in the model id (nvidia/…, google/…, meta/…) belong upstream.
+    if (provider) return finalize(provider, stripVirtualPrefix(hit.modelId));
   }
 
   // 3. Single-provider convenience: no ambiguity possible.
@@ -226,11 +238,11 @@ export function resolveAttempts(
     for (const member of combo.members ?? []) {
       const provider = byId.get(member.providerId);
       if (!provider) continue; // provider deleted since combo was saved — skip
-      // A combo member's modelId may carry the virtual "aip/" (or a real
-      // provider) prefix if it was picked from the prefixed model list. Strip
-      // it so the concrete id goes upstream.
+      // A combo member's modelId may carry the virtual "aip/" prefix if it was
+      // picked from the prefixed model list. Strip ONLY that; real provider
+      // namespaces (nvidia/…, google/…, meta/…) are part of the upstream id.
       const { modelId } = parseModel(member.modelId);
-      attempts.push(finalize(provider, modelId));
+      attempts.push(finalize(provider, stripVirtualPrefix(modelId)));
     }
     if (!attempts.length)
       return {

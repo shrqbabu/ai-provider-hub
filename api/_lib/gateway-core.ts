@@ -156,7 +156,11 @@ export async function handleGateway(
     let targetURL: string;
     let upstreamBody: string;
 
-    const cleanModelId = modelId.replace(/^(aip|nvidia|openai|anthropic|google|openrouter|custom)\//i, "");
+    // The provider is already resolved at this point, so the model id carries
+    // its real upstream namespace (e.g. "nvidia/llama-…", "meta/llama-…"). Strip
+    // ONLY the virtual "aip/" marker — stripping "nvidia/"/"google/" here would
+    // send an unknown id upstream and break NVIDIA/Google combos.
+    const cleanModelId = modelId.replace(/^aip\//i, "");
 
     if (needsTranslation && isGoogleProvider) {
       // Google uses its own API format — translate Anthropic → Google directly.
@@ -339,8 +343,11 @@ function anthropicToOpenAI(
   if (body.stream === true) result.stream = true;
   if (body.max_tokens != null) {
     let maxTokens = Number(body.max_tokens);
-    if (providerKey === "nvidia" && maxTokens > 2048) {
-      maxTokens = 2048;
+    // Claude Desktop often requests very large max_tokens (e.g. 32k–64k) which
+    // some NVIDIA-hosted models reject or which truncates oddly. Cap to a value
+    // wide enough for full responses but within typical NVIDIA output limits.
+    if (providerKey === "nvidia" && maxTokens > 4096) {
+      maxTokens = 4096;
     }
     result.max_tokens = maxTokens;
   }
@@ -629,10 +636,31 @@ function translateGoogleStreamToAnthropic(
   const ev = (obj: unknown, name: string) =>
     encoder.encode(`event: ${name}\ndata: ${JSON.stringify(obj)}\n\n`);
 
+  // TRUE incremental streaming (see translateStreamToAnthropic). Each Google SSE
+  // chunk is translated and flushed as it arrives, so long responses are never
+  // truncated by a serverless timeout and the stream always terminates cleanly.
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      let text = "";
-      const toolCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
+      let nextIndex = 0;
+      let textIndex = -1;
+      let textOpen = false;
+      let toolCount = 0;
+
+      const closeText = () => {
+        if (textOpen) {
+          controller.enqueue(ev({ type: "content_block_stop", index: textIndex }, "content_block_stop"));
+          textOpen = false;
+        }
+      };
+
+      controller.enqueue(ev({
+        type: "message_start",
+        message: {
+          id: msgId, type: "message", role: "assistant", model: modelId,
+          content: [], stop_reason: null, stop_sequence: null,
+          usage: { input_tokens: 0, output_tokens: 0 },
+        },
+      }, "message_start"));
 
       try {
         const reader = upstream.body?.getReader();
@@ -651,85 +679,67 @@ function translateGoogleStreamToAnthropic(
               if (!line.startsWith("data:")) continue;
               const payload = line.slice(5).trim();
               if (!payload || payload === "[DONE]") continue;
-
-              try {
-                const chunk = JSON.parse(payload) as {
-                  candidates?: Array<{
-                    content?: {
-                      parts?: Array<{
-                        text?: string;
-                        functionCall?: { name?: string; args?: Record<string, unknown> };
-                      }>;
-                    };
-                  }>;
-                };
-                const parts = chunk.candidates?.[0]?.content?.parts ?? [];
-                for (const p of parts) {
-                  if (p.text) text += p.text;
-                  if (p.functionCall?.name) {
-                    toolCalls.push({
-                      name: p.functionCall.name,
-                      args: p.functionCall.args ?? {},
-                    });
+              let chunk: {
+                candidates?: Array<{
+                  content?: {
+                    parts?: Array<{
+                      text?: string;
+                      functionCall?: { name?: string; args?: Record<string, unknown> };
+                    }>;
+                  };
+                }>;
+              };
+              try { chunk = JSON.parse(payload); } catch { continue; }
+              const parts = chunk.candidates?.[0]?.content?.parts ?? [];
+              for (const p of parts) {
+                if (p.text) {
+                  if (!textOpen) {
+                    textIndex = nextIndex++;
+                    textOpen = true;
+                    controller.enqueue(ev({
+                      type: "content_block_start", index: textIndex,
+                      content_block: { type: "text", text: "" },
+                    }, "content_block_start"));
                   }
+                  controller.enqueue(ev({
+                    type: "content_block_delta", index: textIndex,
+                    delta: { type: "text_delta", text: p.text },
+                  }, "content_block_delta"));
                 }
-              } catch { /* skip malformed */ }
+                if (p.functionCall?.name) {
+                  // Google delivers each functionCall complete in one part.
+                  closeText();
+                  const anthIndex = nextIndex++;
+                  toolCount += 1;
+                  controller.enqueue(ev({
+                    type: "content_block_start", index: anthIndex,
+                    content_block: {
+                      type: "tool_use",
+                      id: `toolu_g_${msgId}_${anthIndex}`,
+                      name: p.functionCall.name,
+                      input: {},
+                    },
+                  }, "content_block_start"));
+                  controller.enqueue(ev({
+                    type: "content_block_delta", index: anthIndex,
+                    delta: { type: "input_json_delta", partial_json: JSON.stringify(p.functionCall.args ?? {}) },
+                  }, "content_block_delta"));
+                  controller.enqueue(ev({ type: "content_block_stop", index: anthIndex }, "content_block_stop"));
+                }
+              }
             }
           }
         }
-      } catch { /* emit whatever we aggregated */ }
+      } catch { /* terminate cleanly with whatever we sent */ }
 
-      // Emit complete Anthropic SSE sequence.
-      controller.enqueue(ev({
-        type: "message_start",
-        message: {
-          id: msgId, type: "message", role: "assistant", model: modelId,
-          content: [], stop_reason: null, stop_sequence: null,
-          usage: { input_tokens: 0, output_tokens: 0 },
-        },
-      }, "message_start"));
+      closeText();
 
-      let index = 0;
-      controller.enqueue(ev({
-        type: "content_block_start", index,
-        content_block: { type: "text", text: "" },
-      }, "content_block_start"));
-
-      if (text) {
-        controller.enqueue(ev({
-          type: "content_block_delta", index,
-          delta: { type: "text_delta", text },
-        }, "content_block_delta"));
-      }
-
-      controller.enqueue(ev({ type: "content_block_stop", index }, "content_block_stop"));
-
-      for (const tc of toolCalls) {
-        index += 1;
-        const toolId = `toolu_g_${Date.now()}_${index}`;
-        controller.enqueue(ev({
-          type: "content_block_start", index,
-          content_block: {
-            type: "tool_use",
-            id: toolId,
-            name: tc.name,
-            input: {},
-          },
-        }, "content_block_start"));
-        controller.enqueue(ev({
-          type: "content_block_delta", index,
-          delta: { type: "input_json_delta", partial_json: JSON.stringify(tc.args) },
-        }, "content_block_delta"));
-        controller.enqueue(ev({ type: "content_block_stop", index }, "content_block_stop"));
-      }
-
-      const stopReason = toolCalls.length ? "tool_use" : "end_turn";
+      const stopReason = toolCount ? "tool_use" : "end_turn";
       controller.enqueue(ev({
         type: "message_delta",
         delta: { stop_reason: stopReason, stop_sequence: null },
         usage: { output_tokens: 0 },
       }, "message_delta"));
-
       controller.enqueue(ev({ type: "message_stop" }, "message_stop"));
       controller.close();
     },
@@ -840,16 +850,39 @@ function translateStreamToAnthropic(
   const ev = (obj: unknown, name: string) =>
     encoder.encode(`event: ${name}\ndata: ${JSON.stringify(obj)}\n\n`);
 
-  // Buffer-then-emit: read the ENTIRE upstream stream first, aggregate text and
-  // tool calls, then emit one complete, well-formed Anthropic SSE sequence.
-  // This can never hang mid-stream (no pull() backpressure games) and always
-  // terminates with message_stop, so agentic clients (Claude Desktop) advance.
+  // TRUE incremental streaming: translate each OpenAI SSE chunk into an Anthropic
+  // SSE event and flush it immediately as it arrives. Content reaches the client
+  // as it is generated (no buffering the whole response → no serverless-timeout
+  // truncation), and the sequence always terminates with message_stop so the
+  // client's spinner stops.
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      let text = "";
-      // OpenAI streams tool calls incrementally, keyed by their index.
-      const tools = new Map<number, { id: string; name: string; args: string }>();
+      // Anthropic block bookkeeping. Text lives at index 0 (opened lazily on the
+      // first text delta). Each OpenAI tool_call index maps to its own Anthropic
+      // content block after the text block.
+      let nextIndex = 0;
+      let textIndex = -1; // -1 until the text block is opened
+      let textOpen = false;
+      const toolBlocks = new Map<number, { anthIndex: number }>();
       let finishReason: string | null = null;
+      let closed = false;
+
+      const closeText = () => {
+        if (textOpen) {
+          controller.enqueue(ev({ type: "content_block_stop", index: textIndex }, "content_block_stop"));
+          textOpen = false;
+        }
+      };
+
+      // message_start immediately so the client shows activity right away.
+      controller.enqueue(ev({
+        type: "message_start",
+        message: {
+          id: msgId, type: "message", role: "assistant", model: modelId,
+          content: [], stop_reason: null, stop_sequence: null,
+          usage: { input_tokens: 0, output_tokens: 0 },
+        },
+      }, "message_start"));
 
       try {
         const reader = upstream.body?.getReader();
@@ -868,89 +901,82 @@ function translateStreamToAnthropic(
               if (!line.startsWith("data:")) continue;
               const payload = line.slice(5).trim();
               if (!payload || payload === "[DONE]") continue;
-              try {
-                const chunk = JSON.parse(payload) as {
-                  choices?: Array<{
-                    delta?: {
-                      content?: string;
-                      tool_calls?: Array<{
-                        index?: number;
-                        id?: string;
-                        function?: { name?: string; arguments?: string };
-                      }>;
-                    };
-                    text?: string;
-                    finish_reason?: string | null;
-                  }>;
-                };
-                const choice = chunk.choices?.[0];
-                if (!choice) continue;
-                if (choice.finish_reason) finishReason = choice.finish_reason;
-                const td = choice.delta?.content ?? choice.text;
-                if (td) text += td;
-                for (const tc of choice.delta?.tool_calls ?? []) {
-                  const k = tc.index ?? 0;
-                  const cur = tools.get(k) ?? { id: "", name: "", args: "" };
-                  if (tc.id) cur.id = tc.id;
-                  if (tc.function?.name) cur.name = tc.function.name;
-                  if (tc.function?.arguments) cur.args += tc.function.arguments;
-                  tools.set(k, cur);
+              let chunk: {
+                choices?: Array<{
+                  delta?: {
+                    content?: string;
+                    tool_calls?: Array<{
+                      index?: number;
+                      id?: string;
+                      function?: { name?: string; arguments?: string };
+                    }>;
+                  };
+                  text?: string;
+                  finish_reason?: string | null;
+                }>;
+              };
+              try { chunk = JSON.parse(payload); } catch { continue; }
+              const choice = chunk.choices?.[0];
+              if (!choice) continue;
+              if (choice.finish_reason) finishReason = choice.finish_reason;
+
+              // Text delta → open text block on demand, then stream it out.
+              const td = choice.delta?.content ?? choice.text;
+              if (td) {
+                if (!textOpen) {
+                  textIndex = nextIndex++;
+                  textOpen = true;
+                  controller.enqueue(ev({
+                    type: "content_block_start", index: textIndex,
+                    content_block: { type: "text", text: "" },
+                  }, "content_block_start"));
                 }
-              } catch { /* skip malformed chunk */ }
+                controller.enqueue(ev({
+                  type: "content_block_delta", index: textIndex,
+                  delta: { type: "text_delta", text: td },
+                }, "content_block_delta"));
+              }
+
+              // Tool-call deltas → open a tool_use block on first sight of each
+              // OpenAI index, then stream argument fragments as input_json_delta.
+              for (const tc of choice.delta?.tool_calls ?? []) {
+                const k = tc.index ?? 0;
+                let block = toolBlocks.get(k);
+                if (!block) {
+                  // Anthropic wants text before tool_use — close text first.
+                  closeText();
+                  block = { anthIndex: nextIndex++ };
+                  toolBlocks.set(k, block);
+                  controller.enqueue(ev({
+                    type: "content_block_start", index: block.anthIndex,
+                    content_block: {
+                      type: "tool_use",
+                      id: tc.id || `toolu_${msgId}_${k}`,
+                      name: tc.function?.name ?? "",
+                      input: {},
+                    },
+                  }, "content_block_start"));
+                }
+                if (tc.function?.arguments) {
+                  controller.enqueue(ev({
+                    type: "content_block_delta", index: block.anthIndex,
+                    delta: { type: "input_json_delta", partial_json: tc.function.arguments },
+                  }, "content_block_delta"));
+                }
+              }
             }
           }
         }
-      } catch { /* fall through and emit whatever we aggregated */ }
+      } catch { /* fall through and terminate cleanly with whatever we sent */ }
 
-      // ── Emit the assembled Anthropic message as a single SSE sequence ──
-      controller.enqueue(ev({
-        type: "message_start",
-        message: {
-          id: msgId, type: "message", role: "assistant", model: modelId,
-          content: [], stop_reason: null, stop_sequence: null,
-          usage: { input_tokens: 0, output_tokens: 0 },
-        },
-      }, "message_start"));
-
-      let index = 0;
-      // Text block first (Anthropic convention: text precedes tool_use).
-      controller.enqueue(ev({
-        type: "content_block_start", index,
-        content_block: { type: "text", text: "" },
-      }, "content_block_start"));
-      if (text) {
-        controller.enqueue(ev({
-          type: "content_block_delta", index,
-          delta: { type: "text_delta", text },
-        }, "content_block_delta"));
-      }
-      controller.enqueue(ev({ type: "content_block_stop", index }, "content_block_stop"));
-
-      // Tool-use blocks in call order.
-      const orderedKeys = Array.from(tools.keys()).sort((a, b) => a - b);
-      for (const k of orderedKeys) {
-        const t = tools.get(k)!;
-        index += 1;
-        let input: unknown = {};
-        try { input = t.args ? JSON.parse(t.args) : {}; } catch { input = {}; }
-        controller.enqueue(ev({
-          type: "content_block_start", index,
-          content_block: {
-            type: "tool_use",
-            id: t.id || `toolu_${Date.now()}_${index}`,
-            name: t.name,
-            input: {},
-          },
-        }, "content_block_start"));
-        controller.enqueue(ev({
-          type: "content_block_delta", index,
-          delta: { type: "input_json_delta", partial_json: JSON.stringify(input) },
-        }, "content_block_delta"));
-        controller.enqueue(ev({ type: "content_block_stop", index }, "content_block_stop"));
+      // Close any open blocks, in index order.
+      closeText();
+      for (const { anthIndex } of Array.from(toolBlocks.values()).sort((a, b) => a.anthIndex - b.anthIndex)) {
+        controller.enqueue(ev({ type: "content_block_stop", index: anthIndex }, "content_block_stop"));
       }
 
       const stopReason =
-        orderedKeys.length ? "tool_use"
+        toolBlocks.size ? "tool_use"
         : finishReason === "length" ? "max_tokens"
         : "end_turn";
       controller.enqueue(ev({
@@ -959,7 +985,7 @@ function translateStreamToAnthropic(
         usage: { output_tokens: 0 },
       }, "message_delta"));
       controller.enqueue(ev({ type: "message_stop" }, "message_stop"));
-      controller.close();
+      if (!closed) { controller.close(); closed = true; }
     },
   });
 

@@ -41,7 +41,7 @@ const HOP_BY_HOP = new Set([
 // 429 → this key is rate-limited; 5xx → upstream hiccup, another key/region
 // may succeed.
 function shouldFallback(status: number): boolean {
-  return status === 401 || status === 403 || status === 404 || status === 429 || status >= 500;
+  return status === 400 || status === 401 || status === 403 || status === 404 || status === 422 || status === 429 || status >= 500;
 }
 
 export async function handleGateway(
@@ -375,6 +375,28 @@ function anthropicToOpenAI(
 
 // ── Anthropic → Google Generative Language API ──────────────────────────────
 
+// Helper: Google Gemini API functionDeclaration parameters schema rejects keys like
+// `$schema`, `additionalProperties`, `$id`, `$comment`, etc. Recursively strip them.
+function cleanSchemaForGoogle(obj: unknown): unknown {
+  if (obj === null || typeof obj !== "object") return obj;
+  if (Array.isArray(obj)) return obj.map(cleanSchemaForGoogle);
+
+  const cleaned: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+    if (
+      key === "$schema" ||
+      key === "additionalProperties" ||
+      key === "$id" ||
+      key === "$comment" ||
+      (key === "default" && value === undefined)
+    ) {
+      continue;
+    }
+    cleaned[key] = cleanSchemaForGoogle(value);
+  }
+  return cleaned;
+}
+
 // ── Anthropic → Google Generative Language API ──────────────────────────────
 
 function anthropicToGoogle(
@@ -481,7 +503,9 @@ function anthropicToGoogle(
         functionDeclarations: tools.map((t) => ({
           name: t.name,
           description: t.description ?? "",
-          parameters: t.input_schema ?? { type: "object", properties: {} },
+          parameters: cleanSchemaForGoogle(
+            t.input_schema ?? { type: "object", properties: {} }
+          ),
         })),
       },
     ];

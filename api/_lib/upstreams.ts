@@ -93,7 +93,15 @@ export function baseURLFor(p: GwProvider): string {
   let url = (p.baseURL ?? "").trim().replace(/\/$/, "");
   if (!url) return PROVIDER_BASE[p.key] ?? "";
 
-  // Auto-normalize standard provider URLs if /v1 path is omitted
+  // 1. Strip trailing endpoint paths if user saved the full endpoint URL
+  url = url
+    .replace(/\/chat\/completions\/?$/i, "")
+    .replace(/\/messages\/?$/i, "")
+    .replace(/\/completions\/?$/i, "")
+    .replace(/\/embeddings\/?$/i, "")
+    .replace(/\/$/, "");
+
+  // 2. Auto-normalize standard provider URLs if /v1 path is omitted
   if (p.key === "openai" && !url.includes("/v1")) {
     url += "/v1";
   } else if (p.key === "nvidia" && !url.includes("/v1")) {
@@ -104,6 +112,16 @@ export function baseURLFor(p: GwProvider): string {
     url += "/api/v1";
   } else if (p.key === "google" && !url.includes("/v1")) {
     url += "/v1";
+  } else if (p.key === "custom") {
+    if (url.includes("integrate.api.nvidia.com") && !url.includes("/v1")) {
+      url += "/v1";
+    } else if (url.includes("api.openai.com") && !url.includes("/v1")) {
+      url += "/v1";
+    } else if (url.includes("api.anthropic.com") && !url.includes("/v1")) {
+      url += "/v1";
+    } else if (url.includes("openrouter.ai") && !url.includes("/v1")) {
+      url += "/api/v1";
+    }
   }
   return url;
 }

@@ -16,6 +16,7 @@ import {
   X,
   KeyRound,
   LogOut,
+  Activity,
 } from "lucide-react";
 import { useChatStore } from "@/store/chat-store";
 import { useUIStore } from "@/store/ui-store";
@@ -31,6 +32,7 @@ const nav = [
   { to: "/keystore", label: "Key Store", icon: KeyRound },
   { to: "/models", label: "My Models", icon: Layers },
   { to: "/combos", label: "Combos", icon: Boxes },
+  { to: "/combo-logs", label: "Combo Logs", icon: Activity },
   { to: "/prompts", label: "Prompt Library", icon: BookOpen },
   { to: "/usage", label: "Usage", icon: BarChart3 },
   { to: "/settings", label: "Settings", icon: Settings },

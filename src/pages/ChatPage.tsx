@@ -20,6 +20,7 @@ import { useModelStore } from "@/store/model-store";
 import { useProviderStore } from "@/store/provider-store";
 import { useUsageStore } from "@/store/usage-store";
 import { useComboStore } from "@/store/combo-store";
+import { useComboLogStore } from "@/store/combo-log-store";
 import { streamChat } from "@/services/chat-service";
 import type { ChatAttachment, ChatMessage, ConnectedProvider, DiscoveredModel } from "@/types";
 import { ProviderLogo } from "@/components/ProviderLogo";
@@ -185,6 +186,15 @@ export function ChatPage() {
     const getShown = startBufferedFlush(chat.id, assistantId);
 
     let attemptIndex = 0;
+    const comboStart = Date.now();
+    const comboAttempts: Array<{
+      providerId: string;
+      modelId: string;
+      displayName?: string;
+      status: "success" | "failed";
+      error?: string;
+      durationMs?: number;
+    }> = [];
 
     const tryNext = async () => {
       if (attemptIndex >= attempts.length) {
@@ -192,6 +202,7 @@ export function ChatPage() {
       }
 
       const { provider: curProvider, model: curModel } = attempts[attemptIndex];
+      const attemptStart = Date.now();
 
       if (combo) {
         toast.info(`Trying model: ${curModel.displayName}...`);
@@ -227,6 +238,30 @@ export function ChatPage() {
             },
             onDone: ({ tokensIn, tokensOut, durationMs }) => {
               bufferRef.current.done = true;
+              const attemptDuration = Date.now() - attemptStart;
+              comboAttempts.push({
+                providerId: curProvider.id,
+                modelId: curModel.modelId,
+                displayName: curModel.displayName,
+                status: "success",
+                durationMs: attemptDuration,
+              });
+
+              if (combo) {
+                const totalComboDuration = Date.now() - comboStart;
+                useComboLogStore.getState().record({
+                  comboId: combo.id,
+                  comboName: combo.name,
+                  respondingModelId: curModel.modelId,
+                  respondingProviderId: curProvider.id,
+                  respondingModelName: curModel.displayName,
+                  attempts: [...comboAttempts],
+                  tokensIn,
+                  tokensOut,
+                  durationMs: totalComboDuration,
+                });
+              }
+
               // Wait until buffered text has fully flushed before we record usage,
               // so the visible content matches what's stored.
               const finish = () => {
@@ -262,6 +297,16 @@ export function ChatPage() {
             },
             onError: async (err) => {
               console.warn(`Attempt with ${curModel.displayName} failed:`, err);
+              const attemptDuration = Date.now() - attemptStart;
+              comboAttempts.push({
+                providerId: curProvider.id,
+                modelId: curModel.modelId,
+                displayName: curModel.displayName,
+                status: "failed",
+                error: err.message,
+                durationMs: attemptDuration,
+              });
+
               attemptIndex++;
               if (attemptIndex < attempts.length) {
                 // Reset buffering for next attempt
@@ -269,6 +314,19 @@ export function ChatPage() {
                 await tryNext();
               } else {
                 bufferRef.current.done = true;
+                if (combo) {
+                  const totalComboDuration = Date.now() - comboStart;
+                  useComboLogStore.getState().record({
+                    comboId: combo.id,
+                    comboName: combo.name,
+                    respondingModelId: "",
+                    respondingProviderId: "",
+                    attempts: [...comboAttempts],
+                    tokensIn: 0,
+                    tokensOut: 0,
+                    durationMs: totalComboDuration,
+                  });
+                }
                 updateMessage(chat.id, assistantId, {
                   content: getShown() + bufferRef.current.pending,
                   error: err.message,

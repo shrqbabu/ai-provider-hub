@@ -14,6 +14,7 @@ import { TrashPage } from "@/pages/TrashPage";
 import { AuthPage } from "@/pages/AuthPage";
 import { ApiKeysPage } from "@/pages/ApiKeysPage";
 import { KeyStorePage } from "@/pages/KeyStorePage";
+import { ComboLogsPage } from "@/pages/ComboLogsPage";
 import { useAuthStore } from "@/store/auth-store";
 import { useProviderStore } from "@/store/provider-store";
 import { useModelStore } from "@/store/model-store";
@@ -24,6 +25,7 @@ import { usePromptStore } from "@/store/prompt-store";
 import { useUsageStore } from "@/store/usage-store";
 import { useSettingsStore } from "@/store/settings-store";
 import { useKeyStoreStore } from "@/store/keystore-store";
+import { useComboLogStore } from "@/store/combo-log-store";
 import { Sparkles, Loader2 } from "lucide-react";
 
 export default function App() {
@@ -40,6 +42,7 @@ export default function App() {
   const hydrateUsage = useUsageStore((s) => s.hydrate);
   const hydrateSettings = useSettingsStore((s) => s.hydrate);
   const hydrateKeyStore = useKeyStoreStore((s) => s.hydrate);
+  const hydrateComboLogs = useComboLogStore((s) => s.hydrate);
 
   // Initialize Firebase auth listener once on mount.
   useEffect(() => {
@@ -62,6 +65,7 @@ export default function App() {
       hydrateUsage(),
       hydrateSettings(),
       hydrateKeyStore(),
+      hydrateComboLogs(),
     ]).then(() => {
       // Re-run tier inference for ALL models on load. This fixes previously
       // cached models that were mislabeled (e.g. OpenRouter paid models that
@@ -97,6 +101,7 @@ export default function App() {
     hydrateUsage,
     hydrateSettings,
     hydrateKeyStore,
+    hydrateComboLogs,
   ]);
 
   // Firebase env not set → tell the developer how to configure it.
@@ -154,6 +159,7 @@ export default function App() {
           <Route path="/keystore" element={<KeyStorePage />} />
           <Route path="/models" element={<ModelsPage />} />
           <Route path="/combos" element={<CombosPage />} />
+          <Route path="/combo-logs" element={<ComboLogsPage />} />
           <Route path="/chat/:id" element={<ChatPage />} />
           <Route path="/prompts" element={<PromptsPage />} />
           <Route path="/usage" element={<UsagePage />} />

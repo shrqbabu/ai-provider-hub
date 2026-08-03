@@ -156,6 +156,29 @@ export interface UsageEntry {
   createdAt: number;
 }
 
+export interface ComboAttempt {
+  providerId: string;
+  modelId: string;
+  displayName?: string;
+  status: "success" | "failed";
+  error?: string;
+  durationMs?: number;
+}
+
+export interface ComboLogEntry {
+  id: string;
+  comboId: string;
+  comboName: string;
+  respondingModelId: string;
+  respondingProviderId: string;
+  respondingModelName?: string;
+  attempts: ComboAttempt[];
+  tokensIn: number;
+  tokensOut: number;
+  durationMs: number;
+  createdAt: number;
+}
+
 export interface AppSettings {
   theme: "dark" | "light" | "system";
   accent: string;

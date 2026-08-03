@@ -1,5 +1,5 @@
 // Service Worker for PWA Android Installability
-const CACHE_NAME = 'aip-hub-v2';
+const CACHE_NAME = 'aip-hub-v3';
 
 self.addEventListener('install', () => {
   self.skipWaiting();

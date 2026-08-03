@@ -95,15 +95,20 @@ export function resolveRawRequest(
   };
 
   if (proxied) {
-    // The proxy rewrites x-provider-key → Authorization: Bearer (and x-api-key
-    // for Anthropic-native upstreams), x-provider-cookie → Cookie.
     if (authMode === "cookie") headers["x-provider-cookie"] = cookie;
     else headers["x-provider-key"] = key;
-    if (targetHeader) {
-      const u = new URL(url);
-      if (!u.searchParams.has("target")) u.searchParams.set("target", targetHeader);
-      url = u.toString();
+
+    // Rewrite path-based proxy URL to query-param format for Vercel.
+    const u = new URL(url);
+    const proxyMatch = u.pathname.match(/^\/api\/proxy\/(.+)$/);
+    if (proxyMatch) {
+      u.pathname = "/api/proxy";
+      u.searchParams.set("__p", proxyMatch[1]);
     }
+    if (targetHeader && !u.searchParams.has("target")) {
+      u.searchParams.set("target", targetHeader);
+    }
+    url = u.toString();
   } else {
     // Direct (localhost) — set auth headers ourselves. Anthropic uses x-api-key.
     if (authMode !== "cookie" && key) {
@@ -158,25 +163,27 @@ export function createClient(provider: ConnectedProvider): OpenAI {
         } else {
           headers.set("x-provider-key", key);
         }
-        if (targetHeader) {
-          // Append ?target=<upstream-base> so the proxy knows where to route
-          // custom endpoints. Must live on the URL because Edge functions
-          // route by path, not by header.
-          const targetUrl =
-            typeof input === "string" || input instanceof URL
-              ? new URL(input.toString())
-              : new URL(input.url);
-          if (!targetUrl.searchParams.has("target")) {
-            targetUrl.searchParams.set("target", targetHeader);
-          }
-          input = targetUrl.toString();
-          console.log('[Provider Service] Custom fetch request:', {
-            url: targetUrl.toString(),
-            target: targetHeader,
-            hasKey: !!key,
-            hasCookie: !!cookie,
-          });
+
+        // Rewrite path-based proxy URL to query-param format.
+        // SDK builds: /api/proxy/openai/v1/models
+        // Vercel needs: /api/proxy?__p=openai/v1/models
+        const reqUrl =
+          typeof input === "string" || input instanceof URL
+            ? new URL(input.toString())
+            : new URL(input.url);
+
+        const proxyMatch = reqUrl.pathname.match(/^\/api\/proxy\/(.+)$/);
+        if (proxyMatch) {
+          reqUrl.pathname = "/api/proxy";
+          reqUrl.searchParams.set("__p", proxyMatch[1]);
         }
+
+        if (targetHeader && !reqUrl.searchParams.has("target")) {
+          reqUrl.searchParams.set("target", targetHeader);
+        }
+
+        input = reqUrl.toString();
+
         headers.delete("authorization");
         if (provider.extraHeaders) {
           for (const [k, v] of Object.entries(provider.extraHeaders)) {

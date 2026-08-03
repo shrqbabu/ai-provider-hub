@@ -8,9 +8,6 @@
     { "source": "/((?!api/|v1/).*)", "destination": "/index.html" }
   ],
   "functions": {
-    "api/proxy.ts": {
-      "maxDuration": 60
-    },
     "api/proxy/[...path].ts": {
       "maxDuration": 60
     },

@@ -69,13 +69,10 @@ async function createCompletionStream(
       const anyErr = err as any;
       const status = anyErr?.status ?? anyErr?.response?.status;
       const msg = String(anyErr?.message ?? "");
-      // Only fall through on parameter-rejection errors; real failures
-      // (auth, rate limit, network) must surface immediately.
-      const paramRejected =
-        status === 400 &&
-        /max_tokens|max_completion_tokens|unsupported|unexpected|invalid[_ ]?param/i.test(
-          msg
-        );
+      // Fall through on HTTP 400 parameter-rejection / gateway errors (like O‍mniRoute, OpenRouter, vLLM
+      // rejecting max_tokens or returning generic 400 errors); real failures
+      // (401 auth, 429 rate limit, 5xx server error) surface immediately.
+      const paramRejected = status === 400;
       if (!paramRejected) throw err;
       lastErr = err;
     }

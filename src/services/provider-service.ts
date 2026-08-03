@@ -199,7 +199,9 @@ export async function testSingleModel(
 ): Promise<boolean> {
   try {
     const rawId = modelId.replace(/^aip\//, "");
-    if (provider.key === "google" || provider.baseURL.includes("generativelanguage.googleapis.com")) {
+    const candidateIds = Array.from(new Set([rawId, modelId].filter(Boolean)));
+
+    if (provider.key === "google" && provider.baseURL.includes("generativelanguage.googleapis.com")) {
       const key = (provider.apiKey ?? "").trim();
       if (!key) return false;
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(rawId)}:generateContent?key=${encodeURIComponent(key)}`;
@@ -208,7 +210,7 @@ export async function testSingleModel(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ role: "user", parts: [{ text: "hi" }] }],
-          generationConfig: { maxOutputTokens: 1 },
+          generationConfig: { maxOutputTokens: 16 },
         }),
       });
       return res.ok;
@@ -222,20 +224,38 @@ export async function testSingleModel(
         body: JSON.stringify({
           model: rawId,
           messages: [{ role: "user", content: "hi" }],
-          max_tokens: 1,
+          max_tokens: 16,
         }),
       });
       return res.ok;
     }
 
     const client = createClient(provider);
-    const res = await client.chat.completions.create({
-      model: rawId,
-      messages: [{ role: "user", content: "hi" }],
-      max_tokens: 1,
-    });
-    return !!res.choices?.length;
-  } catch {
+
+    for (const mId of candidateIds) {
+      const attempts = [
+        { model: mId, messages: [{ role: "user", content: "hi" }], max_tokens: 16 },
+        { model: mId, messages: [{ role: "user", content: "hi" }], max_completion_tokens: 16 },
+        { model: mId, messages: [{ role: "user", content: "hi" }] },
+      ];
+
+      for (const req of attempts) {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const res = await client.chat.completions.create(req as any);
+          if (res.choices?.length) return true;
+        } catch (err: any) {
+          const status = err?.status ?? err?.response?.status;
+          // If status is 400 or parameter rejection, try next max_tokens attempt
+          if (status === 400) continue;
+          // If it's 404 or auth failure, don't keep trying this candidate ID
+          break;
+        }
+      }
+    }
+    return false;
+  } catch (err) {
+    console.warn("[testSingleModel] Error testing model:", modelId, err);
     return false;
   }
 }

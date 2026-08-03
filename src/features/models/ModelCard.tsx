@@ -49,11 +49,26 @@ export function ModelCard({
       <Card className="h-full">
         <CardContent className="p-4 pt-4 flex flex-col gap-3 h-full">
           <div className="flex items-start gap-3">
-            <ProviderLogo provider={providerKey} className="w-9 h-9" />
+            <ProviderLogo provider={providerKey} className="w-9 h-9 shrink-0" />
             <div className="flex-1 min-w-0">
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                {providerName}
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 flex-wrap">
+                <span className="truncate">{providerName}</span>
                 <TierBadge tier={model.tier} size="xs" />
+                {model.disabled && (
+                  <Badge variant="destructive" className="bg-amber-500/10 text-amber-500 border border-amber-500/20 px-1.5 py-0 text-[10px] font-medium">
+                    Disconnected
+                  </Badge>
+                )}
+                {!model.disabled && passedTest === true && (
+                  <Badge variant="default" className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1.5 py-0 text-[10px] font-medium">
+                    Working
+                  </Badge>
+                )}
+                {!model.disabled && passedTest === false && (
+                  <Badge variant="destructive" className="bg-rose-500/10 text-rose-500 border border-rose-500/20 px-1.5 py-0 text-[10px] font-medium">
+                    Failed
+                  </Badge>
+                )}
               </div>
               <div className="font-semibold text-sm truncate">
                 {model.displayName}
@@ -62,25 +77,6 @@ export function ModelCard({
                 {model.modelId}
               </div>
             </div>
-            {model.disabled && (
-              <Badge variant="destructive" className="bg-amber-500/10 text-amber-500 border-amber-500/20 shrink-0 gap-1 text-[11px]">
-                <Plug className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Disconnected</span>
-                <span className="sm:hidden">Off</span>
-              </Badge>
-            )}
-            {!model.disabled && passedTest === true && (
-              <Badge variant="default" className="bg-emerald-500 hover:bg-emerald-600 text-white shrink-0 gap-1 text-[11px]">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Working</span>
-              </Badge>
-            )}
-            {!model.disabled && passedTest === false && (
-              <Badge variant="destructive" className="bg-rose-500 hover:bg-rose-600 text-white shrink-0 gap-1 text-[11px]">
-                <XCircle className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Failed</span>
-              </Badge>
-            )}
             {onTest && (
               <button
                 type="button"
@@ -96,6 +92,26 @@ export function ModelCard({
                   <Loader2 className="w-4 h-4 animate-spin text-primary" />
                 ) : (
                   <TestTube2 className="w-4 h-4 text-emerald-500" />
+                )}
+              </button>
+            )}
+            {onToggleDisabled && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleDisabled();
+                }}
+                className={cn(
+                  "p-1.5 rounded-lg transition shrink-0 hover:bg-secondary",
+                  model.disabled ? "text-amber-500" : "text-muted-foreground hover:text-foreground"
+                )}
+                title={model.disabled ? "Reconnect model" : "Disconnect model"}
+              >
+                {model.disabled ? (
+                  <Plug className="w-4 h-4 text-amber-500" />
+                ) : (
+                  <PlugZap className="w-4 h-4" />
                 )}
               </button>
             )}
@@ -173,34 +189,6 @@ export function ModelCard({
               <Save className="w-3.5 h-3.5" />
               {model.saved ? "Saved" : "Save"}
             </Button>
-            {onToggleDisabled && (
-              <Button
-                size="sm"
-                variant={model.disabled ? "default" : "outline"}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggleDisabled();
-                }}
-                className={cn(
-                  "px-2 sm:px-3 text-xs gap-1.5",
-                  model.disabled ? "bg-emerald-600 hover:bg-emerald-700 text-white" : ""
-                )}
-                title={model.disabled ? "Connect model" : "Disconnect model"}
-              >
-                {model.disabled ? (
-                  <>
-                    <PlugZap className="w-3.5 h-3.5" />
-                    <span>Connect</span>
-                  </>
-                ) : (
-                  <>
-                    <Plug className="w-3.5 h-3.5" />
-                    <span className="hidden xs:inline">Disconnect</span>
-                    <span className="xs:hidden">Off</span>
-                  </>
-                )}
-              </Button>
-            )}
             {onDelete && (
               <Button
                 size="sm"

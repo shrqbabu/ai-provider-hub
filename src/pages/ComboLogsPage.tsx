@@ -88,9 +88,9 @@ export function ComboLogsPage() {
   };
 
   return (
-    <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6">
+    <div className="h-full flex flex-col p-4 md:p-8 max-w-7xl mx-auto space-y-6 overflow-hidden">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
         <div>
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-xl bg-primary/10 text-primary">
@@ -116,7 +116,7 @@ export function ComboLogsPage() {
       </div>
 
       {/* Metrics Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 shrink-0">
         <Card className="bg-card/40 backdrop-blur-xl border-border/60">
           <CardContent className="p-4 flex items-center justify-between">
             <div>
@@ -184,7 +184,7 @@ export function ComboLogsPage() {
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+      <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between shrink-0">
         <div className="relative flex-1 max-w-md">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -223,7 +223,7 @@ export function ComboLogsPage() {
       </div>
 
       {/* Logs Table / List */}
-      <div className="space-y-3">
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin space-y-3 pr-1">
         {filteredLogs.length === 0 ? (
           <Card className="bg-card/40 backdrop-blur-xl border-border/60 p-12 text-center">
             <div className="w-12 h-12 rounded-2xl bg-secondary flex items-center justify-center mx-auto mb-3">

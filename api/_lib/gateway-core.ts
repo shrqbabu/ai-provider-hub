@@ -37,11 +37,17 @@ const HOP_BY_HOP = new Set([
   "proxy-authenticate",
 ]);
 
-// Status codes worth retrying with the next key. 401/403 → this key is bad;
-// 429 → this key is rate-limited; 5xx → upstream hiccup, another key/region
-// may succeed.
+// Status codes worth retrying with the next key.
 function shouldFallback(status: number): boolean {
-  return status === 400 || status === 401 || status === 403 || status === 404 || status === 422 || status === 429 || status >= 500;
+  return (
+    status === 400 ||
+    status === 401 ||
+    status === 403 ||
+    status === 404 ||
+    status === 422 ||
+    status === 429 ||
+    status >= 500
+  );
 }
 
 export async function handleGateway(
@@ -53,7 +59,11 @@ export async function handleGateway(
   // ── 1. Auth ────────────────────────────────────────────────────────────
   const raw = bearerToken(req);
   if (!raw) {
-    return formatGatewayError(401, "Missing API key. Send `Authorization: Bearer ah-…`.", isAnthropicReq);
+    return formatGatewayError(
+      401,
+      "Missing API key. Send `Authorization: Bearer ah-…`.",
+      isAnthropicReq
+    );
   }
   const uid = await resolveApiKey(raw);
   if (!uid) {
@@ -93,14 +103,22 @@ export async function handleGateway(
   // ── POST inference endpoints ─────────────────────────────────────────────
   const endpoint = matchEndpoint(path);
   if (!endpoint) {
-    return formatGatewayError(400, `Unsupported gateway path "/${path}".`, isAnthropicReq);
+    return formatGatewayError(
+      400,
+      `Unsupported gateway path "/${path}".`,
+      isAnthropicReq
+    );
   }
 
   let body: Record<string, unknown>;
   try {
     body = await req.json<Record<string, unknown>>();
   } catch {
-    return formatGatewayError(400, "Request body must be valid JSON.", isAnthropicReq);
+    return formatGatewayError(
+      400,
+      "Request body must be valid JSON.",
+      isAnthropicReq
+    );
   }
 
   const requestedModel = String(body.model ?? "");
@@ -109,19 +127,12 @@ export async function handleGateway(
     return formatGatewayError(resolved.status, resolved.error, isAnthropicReq);
   }
 
-  // When the caller uses /messages (Anthropic-native, e.g. Claude Desktop) but
-  // the target provider speaks OpenAI format, we auto-translate the request body
-  // and response so combos "just work" regardless of provider format.
-
   const wantsStream = body.stream === true;
 
-  // Flatten the ordered attempts (combo members, or a single model) into a
-  // flat list of concrete (provider, modelId, cred) tries. Combo priority is
-  // the outer order; each member's own multi-key fallback is the inner order.
   type Try = { route: ResolvedRoute; cred: string };
   const tries: Try[] = [];
   for (const route of resolved.attempts) {
-    if (!baseURLFor(route.provider)) continue; // no base URL → unusable
+    if (!baseURLFor(route.provider)) continue;
     const authList =
       route.provider.authMode === "cookie"
         ? [route.provider.cookie ?? ""].filter(Boolean)
@@ -139,52 +150,52 @@ export async function handleGateway(
     );
   }
 
-  // ── Fallback loop over every (member × key) attempt in priority order ─────
+  // ── Fallback loop over attempt(s) ────────────────────────────────────────
   let lastStatus = 502;
   let lastText = "All provider attempts failed.";
   for (let i = 0; i < tries.length; i++) {
     const { route, cred } = tries[i];
     const { provider, modelId } = route;
 
-    // Determine if we need to translate between Anthropic ↔ OpenAI formats.
     const isAnthropicProvider = (provider.apiFormat ?? "openai") === "anthropic";
     const needsTranslation = endpoint === "/messages" && !isAnthropicProvider;
-    const isGoogleProvider = provider.key === "google" ||
+    const isGoogleProvider =
+      provider.key === "google" ||
       (provider.baseURL ?? "").includes("generativelanguage.googleapis.com");
 
     let actualEndpoint: string;
     let targetURL: string;
     let upstreamBody: string;
 
-    // The provider is already resolved at this point, so the model id carries
-    // its real upstream namespace (e.g. "nvidia/llama-…", "meta/llama-…"). Strip
-    // ONLY the virtual "aip/" marker — stripping "nvidia/"/"google/" here would
-    // send an unknown id upstream and break NVIDIA/Google combos.
     const cleanModelId = modelId.replace(/^aip\//i, "");
 
     if (needsTranslation && isGoogleProvider) {
-      // Google uses its own API format — translate Anthropic → Google directly.
       const googleRequest = anthropicToGoogle(body, cleanModelId);
-      const streamEndpoint = wantsStream ? "streamGenerateContent" : "generateContent";
+      const streamEndpoint = wantsStream
+        ? "streamGenerateContent"
+        : "generateContent";
       const sseParam = wantsStream ? "&alt=sse" : "";
-      targetURL = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}?key=${encodeURIComponent(cred)}${sseParam}`;
+      targetURL = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}?key=${encodeURIComponent(
+        cred
+      )}${sseParam}`;
       upstreamBody = JSON.stringify(googleRequest);
-      actualEndpoint = endpoint; // just for header building — we override URL
+      actualEndpoint = endpoint;
     } else if (needsTranslation) {
-      // Standard OpenAI-format provider — translate Anthropic → OpenAI.
       actualEndpoint = "/chat/completions";
       targetURL = baseURLFor(provider).replace(/\/$/, "") + actualEndpoint;
-      upstreamBody = JSON.stringify(anthropicToOpenAI(body, cleanModelId, provider.key));
+      upstreamBody = JSON.stringify(
+        anthropicToOpenAI(body, cleanModelId, provider.key)
+      );
     } else {
       actualEndpoint = endpoint;
       targetURL = baseURLFor(provider).replace(/\/$/, "") + actualEndpoint;
       upstreamBody = JSON.stringify({ ...body, model: cleanModelId });
     }
 
-    // Google uses query-param auth, not headers.
-    const headers = isGoogleProvider && needsTranslation
-      ? new Headers({ "Content-Type": "application/json" })
-      : buildUpstreamHeaders(provider, cred, actualEndpoint);
+    const headers =
+      isGoogleProvider && needsTranslation
+        ? new Headers({ "Content-Type": "application/json" })
+        : buildUpstreamHeaders(provider, cred, actualEndpoint);
 
     let upstream: Response;
     try {
@@ -196,23 +207,21 @@ export async function handleGateway(
     } catch (err) {
       lastStatus = 502;
       lastText = err instanceof Error ? err.message : "Upstream fetch failed.";
-      continue; // network error → try next attempt
+      continue;
     }
 
     if (shouldFallback(upstream.status) && i < tries.length - 1) {
       lastStatus = upstream.status;
       lastText = await safeText(upstream);
-      continue; // try next attempt
+      continue;
     }
 
-    // Success (or final attempt) → relay this response to the caller.
     void recordUsage(uid, provider.id, modelId, nowMs).catch(() => {});
 
     if (needsTranslation && isGoogleProvider) {
       return await translateGoogleResponseToAnthropic(upstream, wantsStream, modelId);
     }
     if (needsTranslation) {
-      // Translate the OpenAI response back to Anthropic Messages format
       return await translateResponseToAnthropic(upstream, wantsStream, modelId);
     }
     return relay(upstream, wantsStream);
@@ -225,10 +234,6 @@ export async function handleGateway(
   );
 }
 
-// Build the auth headers for an upstream request. OpenAI-compatible providers
-// use `Authorization: Bearer`; Anthropic-native ones (apiFormat "anthropic",
-// or when the caller hit the /messages endpoint directly) use `x-api-key` +
-// `anthropic-version`. Cookie-auth providers send a raw Cookie header.
 function buildUpstreamHeaders(
   provider: GwProvider,
   cred: string,
@@ -255,10 +260,6 @@ function buildUpstreamHeaders(
   return headers;
 }
 
-// ── Format translation: Anthropic Messages ↔ OpenAI chat/completions ────────
-// When Claude Desktop calls /v1/messages but the combo member uses an
-// OpenAI-format provider (Google, OpenAI, NVIDIA, etc.), we convert on the fly.
-
 function anthropicToOpenAI(
   body: Record<string, unknown>,
   modelId: string,
@@ -266,7 +267,6 @@ function anthropicToOpenAI(
 ): Record<string, unknown> {
   const messages: Array<{ role: string; content: string | unknown[] }> = [];
 
-  // Anthropic puts system text in a top-level `system` field.
   const sys = body.system;
   if (sys) {
     const sysText =
@@ -278,9 +278,6 @@ function anthropicToOpenAI(
     if (sysText) messages.push({ role: "system", content: sysText });
   }
 
-  // Convert messages, translating Anthropic tool_use / tool_result blocks into
-  // OpenAI tool_calls / tool-role messages so agentic clients (Claude Desktop)
-  // can complete multi-step tasks instead of stopping after one text turn.
   const inMsgs = (body.messages ?? []) as Array<{
     role: string;
     content: string | Array<Record<string, unknown>>;
@@ -304,7 +301,10 @@ function anthropicToOpenAI(
 
     if (msg.role === "assistant") {
       const toolUses = blocks.filter((b) => b.type === "tool_use");
-      const m: Record<string, unknown> = { role: "assistant", content: textParts || null };
+      const m: Record<string, unknown> = {
+        role: "assistant",
+        content: textParts || null,
+      };
       if (toolUses.length) {
         m.tool_calls = toolUses.map((t) => ({
           id: t.id,
@@ -316,7 +316,6 @@ function anthropicToOpenAI(
       continue;
     }
 
-    // user role — extract any tool_result blocks into OpenAI `tool` messages
     const toolResults = blocks.filter((b) => b.type === "tool_result");
     for (const tr of toolResults) {
       let trText = "";
@@ -328,7 +327,11 @@ function anthropicToOpenAI(
           .map((x) => (x.text as string) ?? "")
           .join("\n");
       }
-      messages.push({ role: "tool", tool_call_id: tr.tool_use_id, content: trText } as unknown as { role: string; content: string });
+      messages.push({
+        role: "tool",
+        tool_call_id: tr.tool_use_id,
+        content: trText,
+      } as unknown as { role: string; content: string });
     }
     if (textParts || !toolResults.length) {
       messages.push({ role: "user", content: textParts });
@@ -343,9 +346,6 @@ function anthropicToOpenAI(
   if (body.stream === true) result.stream = true;
   if (body.max_tokens != null) {
     let maxTokens = Number(body.max_tokens);
-    // Claude Desktop often requests very large max_tokens (e.g. 32k–64k) which
-    // some NVIDIA-hosted models reject or which truncates oddly. Cap to a value
-    // wide enough for full responses but within typical NVIDIA output limits.
     if (providerKey === "nvidia" && maxTokens > 4096) {
       maxTokens = 4096;
     }
@@ -355,8 +355,6 @@ function anthropicToOpenAI(
   if (body.top_p != null) result.top_p = body.top_p;
   if (body.stop_sequences != null) result.stop = body.stop_sequences;
 
-  // Forward tool definitions so agentic clients keep working (Anthropic tool
-  // shape → OpenAI function-tool shape).
   const tools = body.tools as Array<Record<string, unknown>> | undefined;
   if (Array.isArray(tools) && tools.length) {
     result.tools = tools.map((t) => ({
@@ -380,11 +378,6 @@ function anthropicToOpenAI(
   return result;
 }
 
-// ── Anthropic → Google Generative Language API ──────────────────────────────
-
-// Helper: Google Gemini API functionDeclaration parameters schema rejects non-standard
-// JSON schema keys like `propertyNames`, `exclusiveMinimum`, `additionalProperties`, etc.
-// Keep ONLY official Google OpenAPI Schema keys.
 const GOOGLE_ALLOWED_SCHEMA_KEYS = new Set([
   "type",
   "format",
@@ -408,9 +401,14 @@ function cleanSchemaForGoogle(obj: unknown): unknown {
     cleaned[key] = cleanSchemaForGoogle(value);
   }
 
-  // Google Gemini requires that every name in `required` exists in `properties`
-  if (Array.isArray(cleaned.required) && cleaned.properties && typeof cleaned.properties === "object") {
-    const validProps = new Set(Object.keys(cleaned.properties as Record<string, unknown>));
+  if (
+    Array.isArray(cleaned.required) &&
+    cleaned.properties &&
+    typeof cleaned.properties === "object"
+  ) {
+    const validProps = new Set(
+      Object.keys(cleaned.properties as Record<string, unknown>)
+    );
     cleaned.required = (cleaned.required as unknown[]).filter(
       (name) => typeof name === "string" && validProps.has(name)
     );
@@ -422,8 +420,6 @@ function cleanSchemaForGoogle(obj: unknown): unknown {
   return cleaned;
 }
 
-// ── Anthropic → Google Generative Language API ──────────────────────────────
-
 function anthropicToGoogle(
   body: Record<string, unknown>,
   _modelId: string
@@ -433,7 +429,7 @@ function anthropicToGoogle(
     parts: Array<Record<string, unknown>>;
   }> = [];
 
-  const toolUseMap = new Map<string, string>(); // tool_use_id -> tool_name
+  const toolUseMap = new Map<string, string>();
 
   const inMsgs = (body.messages ?? []) as Array<{
     role: string;
@@ -450,7 +446,11 @@ function anthropicToGoogle(
       }
     } else if (Array.isArray(msg.content)) {
       for (const block of msg.content) {
-        if (block.type === "text" && typeof block.text === "string" && block.text.trim()) {
+        if (
+          block.type === "text" &&
+          typeof block.text === "string" &&
+          block.text.trim()
+        ) {
           parts.push({ text: block.text });
         } else if (block.type === "tool_use") {
           const id = String(block.id ?? "");
@@ -459,7 +459,10 @@ function anthropicToGoogle(
           parts.push({
             functionCall: {
               name,
-              args: block.input && typeof block.input === "object" ? block.input : {},
+              args:
+                block.input && typeof block.input === "object"
+                  ? block.input
+                  : {},
             },
           });
         } else if (block.type === "tool_result") {
@@ -506,7 +509,6 @@ function anthropicToGoogle(
 
   const googleBody: Record<string, unknown> = { contents };
 
-  // System instruction
   const sys = body.system;
   if (sys) {
     const sysText =
@@ -520,7 +522,6 @@ function anthropicToGoogle(
     }
   }
 
-  // Tools definition
   const tools = body.tools as Array<Record<string, unknown>> | undefined;
   if (Array.isArray(tools) && tools.length) {
     googleBody.tools = [
@@ -536,10 +537,11 @@ function anthropicToGoogle(
     ];
   }
 
-  // Generation config
   const generationConfig: Record<string, unknown> = {};
-  if (body.max_tokens != null) generationConfig.maxOutputTokens = body.max_tokens;
-  if (body.temperature != null) generationConfig.temperature = body.temperature;
+  if (body.max_tokens != null)
+    generationConfig.maxOutputTokens = body.max_tokens;
+  if (body.temperature != null)
+    generationConfig.temperature = body.temperature;
   if (body.top_p != null) generationConfig.topP = body.top_p;
   if (Object.keys(generationConfig).length > 0) {
     googleBody.generationConfig = generationConfig;
@@ -547,8 +549,6 @@ function anthropicToGoogle(
 
   return googleBody;
 }
-
-// ── Google response → Anthropic Messages format ─────────────────────────────
 
 async function translateGoogleResponseToAnthropic(
   upstream: Response,
@@ -561,15 +561,18 @@ async function translateGoogleResponseToAnthropic(
     try {
       const parsed = JSON.parse(errText) as { error?: { message?: string } };
       if (parsed.error?.message) message = parsed.error.message;
-    } catch { /* keep raw text */ }
-    return formatGatewayError(upstream.status, message || `Upstream error ${upstream.status}.`, true);
+    } catch {}
+    return formatGatewayError(
+      upstream.status,
+      message || `Upstream error ${upstream.status}.`,
+      true
+    );
   }
 
   if (wantsStream) {
     return translateGoogleStreamToAnthropic(upstream, modelId);
   }
 
-  // Non-streaming Google response
   const googleResp = (await upstream.json()) as {
     candidates?: Array<{
       content?: {
@@ -636,9 +639,6 @@ function translateGoogleStreamToAnthropic(
   const ev = (obj: unknown, name: string) =>
     encoder.encode(`event: ${name}\ndata: ${JSON.stringify(obj)}\n\n`);
 
-  // TRUE incremental streaming (see translateStreamToAnthropic). Each Google SSE
-  // chunk is translated and flushed as it arrives, so long responses are never
-  // truncated by a serverless timeout and the stream always terminates cleanly.
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       let nextIndex = 0;
@@ -648,26 +648,37 @@ function translateGoogleStreamToAnthropic(
 
       const closeText = () => {
         if (textOpen) {
-          controller.enqueue(ev({ type: "content_block_stop", index: textIndex }, "content_block_stop"));
+          controller.enqueue(
+            ev({ type: "content_block_stop", index: textIndex }, "content_block_stop")
+          );
           textOpen = false;
         }
       };
 
-      controller.enqueue(ev({
-        type: "message_start",
-        message: {
-          id: msgId, type: "message", role: "assistant", model: modelId,
-          content: [], stop_reason: null, stop_sequence: null,
-          usage: { input_tokens: 0, output_tokens: 0 },
-        },
-      }, "message_start"));
+      controller.enqueue(
+        ev(
+          {
+            type: "message_start",
+            message: {
+              id: msgId,
+              type: "message",
+              role: "assistant",
+              model: modelId,
+              content: [],
+              stop_reason: null,
+              stop_sequence: null,
+              usage: { input_tokens: 0, output_tokens: 0 },
+            },
+          },
+          "message_start"
+        )
+      );
 
       try {
         const reader = upstream.body?.getReader();
         if (reader) {
           const decoder = new TextDecoder();
           let buffer = "";
-          // eslint-disable-next-line no-constant-condition
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
@@ -684,62 +695,105 @@ function translateGoogleStreamToAnthropic(
                   content?: {
                     parts?: Array<{
                       text?: string;
-                      functionCall?: { name?: string; args?: Record<string, unknown> };
+                      functionCall?: {
+                        name?: string;
+                        args?: Record<string, unknown>;
+                      };
                     }>;
                   };
                 }>;
               };
-              try { chunk = JSON.parse(payload); } catch { continue; }
+              try {
+                chunk = JSON.parse(payload);
+              } catch {
+                continue;
+              }
               const parts = chunk.candidates?.[0]?.content?.parts ?? [];
               for (const p of parts) {
                 if (p.text) {
                   if (!textOpen) {
                     textIndex = nextIndex++;
                     textOpen = true;
-                    controller.enqueue(ev({
-                      type: "content_block_start", index: textIndex,
-                      content_block: { type: "text", text: "" },
-                    }, "content_block_start"));
+                    controller.enqueue(
+                      ev(
+                        {
+                          type: "content_block_start",
+                          index: textIndex,
+                          content_block: { type: "text", text: "" },
+                        },
+                        "content_block_start"
+                      )
+                    );
                   }
-                  controller.enqueue(ev({
-                    type: "content_block_delta", index: textIndex,
-                    delta: { type: "text_delta", text: p.text },
-                  }, "content_block_delta"));
+                  controller.enqueue(
+                    ev(
+                      {
+                        type: "content_block_delta",
+                        index: textIndex,
+                        delta: { type: "text_delta", text: p.text },
+                      },
+                      "content_block_delta"
+                    )
+                  );
                 }
                 if (p.functionCall?.name) {
-                  // Google delivers each functionCall complete in one part.
                   closeText();
                   const anthIndex = nextIndex++;
                   toolCount += 1;
-                  controller.enqueue(ev({
-                    type: "content_block_start", index: anthIndex,
-                    content_block: {
-                      type: "tool_use",
-                      id: `toolu_g_${msgId}_${anthIndex}`,
-                      name: p.functionCall.name,
-                      input: {},
-                    },
-                  }, "content_block_start"));
-                  controller.enqueue(ev({
-                    type: "content_block_delta", index: anthIndex,
-                    delta: { type: "input_json_delta", partial_json: JSON.stringify(p.functionCall.args ?? {}) },
-                  }, "content_block_delta"));
-                  controller.enqueue(ev({ type: "content_block_stop", index: anthIndex }, "content_block_stop"));
+                  controller.enqueue(
+                    ev(
+                      {
+                        type: "content_block_start",
+                        index: anthIndex,
+                        content_block: {
+                          type: "tool_use",
+                          id: `toolu_g_${msgId}_${anthIndex}`,
+                          name: p.functionCall.name,
+                          input: {},
+                        },
+                      },
+                      "content_block_start"
+                    )
+                  );
+                  controller.enqueue(
+                    ev(
+                      {
+                        type: "content_block_delta",
+                        index: anthIndex,
+                        delta: {
+                          type: "input_json_delta",
+                          partial_json: JSON.stringify(p.functionCall.args ?? {}),
+                        },
+                      },
+                      "content_block_delta"
+                    )
+                  );
+                  controller.enqueue(
+                    ev(
+                      { type: "content_block_stop", index: anthIndex },
+                      "content_block_stop"
+                    )
+                  );
                 }
               }
             }
           }
         }
-      } catch { /* terminate cleanly with whatever we sent */ }
+      } catch {}
 
       closeText();
 
       const stopReason = toolCount ? "tool_use" : "end_turn";
-      controller.enqueue(ev({
-        type: "message_delta",
-        delta: { stop_reason: stopReason, stop_sequence: null },
-        usage: { output_tokens: 0 },
-      }, "message_delta"));
+      controller.enqueue(
+        ev(
+          {
+            type: "message_delta",
+            delta: { stop_reason: stopReason, stop_sequence: null },
+            usage: { output_tokens: 0 },
+          },
+          "message_delta"
+        )
+      );
       controller.enqueue(ev({ type: "message_stop" }, "message_stop"));
       controller.close();
     },
@@ -755,29 +809,33 @@ function translateGoogleStreamToAnthropic(
     streamBody: stream,
   };
 }
+
 async function translateResponseToAnthropic(
   upstream: Response,
   wantsStream: boolean,
   modelId: string
 ): Promise<CoreResponse> {
   if (upstream.status !== 200) {
-    // Convert the upstream (OpenAI-shaped) error into an Anthropic error so
-    // Claude Desktop shows the real message instead of a raw/garbled body.
     const errText = await safeText(upstream);
     let message = errText;
     try {
-      const parsed = JSON.parse(errText) as { error?: { message?: string } | string };
+      const parsed = JSON.parse(errText) as {
+        error?: { message?: string } | string;
+      };
       if (typeof parsed.error === "string") message = parsed.error;
       else if (parsed.error?.message) message = parsed.error.message;
-    } catch { /* keep raw text */ }
-    return formatGatewayError(upstream.status, message || `Upstream error ${upstream.status}.`, true);
+    } catch {}
+    return formatGatewayError(
+      upstream.status,
+      message || `Upstream error ${upstream.status}.`,
+      true
+    );
   }
 
   if (wantsStream) {
     return translateStreamToAnthropic(upstream, modelId);
   }
 
-  // Non-streaming: read the full OpenAI response and convert.
   const openai = (await upstream.json()) as {
     choices?: Array<{
       message?: {
@@ -850,18 +908,10 @@ function translateStreamToAnthropic(
   const ev = (obj: unknown, name: string) =>
     encoder.encode(`event: ${name}\ndata: ${JSON.stringify(obj)}\n\n`);
 
-  // TRUE incremental streaming: translate each OpenAI SSE chunk into an Anthropic
-  // SSE event and flush it immediately as it arrives. Content reaches the client
-  // as it is generated (no buffering the whole response → no serverless-timeout
-  // truncation), and the sequence always terminates with message_stop so the
-  // client's spinner stops.
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      // Anthropic block bookkeeping. Text lives at index 0 (opened lazily on the
-      // first text delta). Each OpenAI tool_call index maps to its own Anthropic
-      // content block after the text block.
       let nextIndex = 0;
-      let textIndex = -1; // -1 until the text block is opened
+      let textIndex = -1;
       let textOpen = false;
       const toolBlocks = new Map<number, { anthIndex: number }>();
       let finishReason: string | null = null;
@@ -869,27 +919,37 @@ function translateStreamToAnthropic(
 
       const closeText = () => {
         if (textOpen) {
-          controller.enqueue(ev({ type: "content_block_stop", index: textIndex }, "content_block_stop"));
+          controller.enqueue(
+            ev({ type: "content_block_stop", index: textIndex }, "content_block_stop")
+          );
           textOpen = false;
         }
       };
 
-      // message_start immediately so the client shows activity right away.
-      controller.enqueue(ev({
-        type: "message_start",
-        message: {
-          id: msgId, type: "message", role: "assistant", model: modelId,
-          content: [], stop_reason: null, stop_sequence: null,
-          usage: { input_tokens: 0, output_tokens: 0 },
-        },
-      }, "message_start"));
+      controller.enqueue(
+        ev(
+          {
+            type: "message_start",
+            message: {
+              id: msgId,
+              type: "message",
+              role: "assistant",
+              model: modelId,
+              content: [],
+              stop_reason: null,
+              stop_sequence: null,
+              usage: { input_tokens: 0, output_tokens: 0 },
+            },
+          },
+          "message_start"
+        )
+      );
 
       try {
         const reader = upstream.body?.getReader();
         if (reader) {
           const decoder = new TextDecoder();
           let buffer = "";
-          // eslint-disable-next-line no-constant-condition
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
@@ -915,77 +975,116 @@ function translateStreamToAnthropic(
                   finish_reason?: string | null;
                 }>;
               };
-              try { chunk = JSON.parse(payload); } catch { continue; }
+              try {
+                chunk = JSON.parse(payload);
+              } catch {
+                continue;
+              }
               const choice = chunk.choices?.[0];
               if (!choice) continue;
               if (choice.finish_reason) finishReason = choice.finish_reason;
 
-              // Text delta → open text block on demand, then stream it out.
               const td = choice.delta?.content ?? choice.text;
               if (td) {
                 if (!textOpen) {
                   textIndex = nextIndex++;
                   textOpen = true;
-                  controller.enqueue(ev({
-                    type: "content_block_start", index: textIndex,
-                    content_block: { type: "text", text: "" },
-                  }, "content_block_start"));
+                  controller.enqueue(
+                    ev(
+                      {
+                        type: "content_block_start",
+                        index: textIndex,
+                        content_block: { type: "text", text: "" },
+                      },
+                      "content_block_start"
+                    )
+                  );
                 }
-                controller.enqueue(ev({
-                  type: "content_block_delta", index: textIndex,
-                  delta: { type: "text_delta", text: td },
-                }, "content_block_delta"));
+                controller.enqueue(
+                  ev(
+                    {
+                      type: "content_block_delta",
+                      index: textIndex,
+                      delta: { type: "text_delta", text: td },
+                    },
+                    "content_block_delta"
+                  )
+                );
               }
 
-              // Tool-call deltas → open a tool_use block on first sight of each
-              // OpenAI index, then stream argument fragments as input_json_delta.
               for (const tc of choice.delta?.tool_calls ?? []) {
                 const k = tc.index ?? 0;
                 let block = toolBlocks.get(k);
                 if (!block) {
-                  // Anthropic wants text before tool_use — close text first.
                   closeText();
                   block = { anthIndex: nextIndex++ };
                   toolBlocks.set(k, block);
-                  controller.enqueue(ev({
-                    type: "content_block_start", index: block.anthIndex,
-                    content_block: {
-                      type: "tool_use",
-                      id: tc.id || `toolu_${msgId}_${k}`,
-                      name: tc.function?.name ?? "",
-                      input: {},
-                    },
-                  }, "content_block_start"));
+                  controller.enqueue(
+                    ev(
+                      {
+                        type: "content_block_start",
+                        index: block.anthIndex,
+                        content_block: {
+                          type: "tool_use",
+                          id: tc.id || `toolu_${msgId}_${k}`,
+                          name: tc.function?.name ?? "",
+                          input: {},
+                        },
+                      },
+                      "content_block_start"
+                    )
+                  );
                 }
                 if (tc.function?.arguments) {
-                  controller.enqueue(ev({
-                    type: "content_block_delta", index: block.anthIndex,
-                    delta: { type: "input_json_delta", partial_json: tc.function.arguments },
-                  }, "content_block_delta"));
+                  controller.enqueue(
+                    ev(
+                      {
+                        type: "content_block_delta",
+                        index: block.anthIndex,
+                        delta: {
+                          type: "input_json_delta",
+                          partial_json: tc.function.arguments,
+                        },
+                      },
+                      "content_block_delta"
+                    )
+                  );
                 }
               }
             }
           }
         }
-      } catch { /* fall through and terminate cleanly with whatever we sent */ }
+      } catch {}
 
-      // Close any open blocks, in index order.
       closeText();
-      for (const { anthIndex } of Array.from(toolBlocks.values()).sort((a, b) => a.anthIndex - b.anthIndex)) {
-        controller.enqueue(ev({ type: "content_block_stop", index: anthIndex }, "content_block_stop"));
+      for (const { anthIndex } of Array.from(toolBlocks.values()).sort(
+        (a, b) => a.anthIndex - b.anthIndex
+      )) {
+        controller.enqueue(
+          ev({ type: "content_block_stop", index: anthIndex }, "content_block_stop")
+        );
       }
 
-      const stopReason =
-        toolBlocks.size ? "tool_use"
-        : finishReason === "length" ? "max_tokens"
+      const stopReason = toolBlocks.size
+        ? "tool_use"
+        : finishReason === "length"
+        ? "max_tokens"
         : "end_turn";
-      controller.enqueue(ev({
-        type: "message_delta",
-        delta: { stop_reason: stopReason, stop_sequence: null },
-        usage: { output_tokens: 0 },
-      }, "message_delta"));
+      controller.enqueue(
+        ev(
+          {
+            type: "message_delta",
+            delta: { stop_reason: stopReason, stop_sequence: null },
+            usage: { output_tokens: 0 },
+          },
+          "message_delta"
+        )
+      );
       controller.enqueue(ev({ type: "message_stop" }, "message_stop"));
-      if (!closed) { controller.close(); closed = true; }
+      if (!closed) {
+        controller.close();
+        closed = true;
+      }
     },
   });
 
@@ -1000,11 +1099,6 @@ function translateStreamToAnthropic(
   };
 }
 
-// Normalize a saved model id for the /v1/models listing so every Claude model
-// shows up as "aip/<bare-id>" regardless of how it was stored (bare, or with an
-// old "anthropic/" prefix). Non-Claude ids pass through unchanged. Routing is
-// unaffected: resolveRoute strips the "aip/"/"anthropic/" prefix before the
-// request goes upstream.
 function formatGatewayError(
   status: number,
   message: string,
@@ -1012,14 +1106,18 @@ function formatGatewayError(
 ): CoreResponse {
   const code = status === 404 ? 400 : status;
   let cleanMsg = message;
-  if (cleanMsg.includes("404 page not found") || cleanMsg.includes("404 Not Found")) {
+  if (
+    cleanMsg.includes("404 page not found") ||
+    cleanMsg.includes("404 Not Found")
+  ) {
     cleanMsg = `Upstream API returned 404 Page Not Found. Check provider Base URL (ensure /v1 is included) and model ID in AI Provider Hub. Details: ${message}`;
   }
   if (isAnthropic) {
     return jsonResponse(code, {
       type: "error",
       error: {
-        type: status === 401 ? "authentication_error" : "invalid_request_error",
+        type:
+          status === 401 ? "authentication_error" : "invalid_request_error",
         message: cleanMsg,
       },
     });
@@ -1072,8 +1170,6 @@ async function safeText(res: Response): Promise<string> {
   }
 }
 
-// Best-effort usage counter. Appends to users/{uid}/kv/gatewayUsage. Never
-// blocks or fails the request.
 async function recordUsage(
   uid: string,
   providerId: string,
@@ -1085,7 +1181,6 @@ async function recordUsage(
     Array<{ providerId: string; modelId: string; at: number }>
   >(uid, KEY, []);
   list.push({ providerId, modelId, at: nowMs });
-  // Keep the last 500 entries to bound document size.
   const trimmed = list.slice(-500);
   await writeKV(uid, KEY, trimmed, nowMs);
 }

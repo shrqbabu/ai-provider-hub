@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes, useNavigate } from "react-router-dom";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppShell } from "@/layouts/AppShell";
 import { LandingPage } from "@/pages/LandingPage";
@@ -13,6 +13,7 @@ import { SettingsPage } from "@/pages/SettingsPage";
 import { TrashPage } from "@/pages/TrashPage";
 import { AuthPage } from "@/pages/AuthPage";
 import { ApiKeysPage } from "@/pages/ApiKeysPage";
+import { KeyStorePage } from "@/pages/KeyStorePage";
 import { useAuthStore } from "@/store/auth-store";
 import { useProviderStore } from "@/store/provider-store";
 import { useModelStore } from "@/store/model-store";
@@ -22,7 +23,8 @@ import { useChatStore } from "@/store/chat-store";
 import { usePromptStore } from "@/store/prompt-store";
 import { useUsageStore } from "@/store/usage-store";
 import { useSettingsStore } from "@/store/settings-store";
-import { Sparkles } from "lucide-react";
+import { useKeyStoreStore } from "@/store/keystore-store";
+import { Sparkles, Loader2 } from "lucide-react";
 
 export default function App() {
   const [ready, setReady] = useState(false);
@@ -37,6 +39,7 @@ export default function App() {
   const hydratePrompts = usePromptStore((s) => s.hydrate);
   const hydrateUsage = useUsageStore((s) => s.hydrate);
   const hydrateSettings = useSettingsStore((s) => s.hydrate);
+  const hydrateKeyStore = useKeyStoreStore((s) => s.hydrate);
 
   // Initialize Firebase auth listener once on mount.
   useEffect(() => {
@@ -58,6 +61,7 @@ export default function App() {
       hydratePrompts(),
       hydrateUsage(),
       hydrateSettings(),
+      hydrateKeyStore(),
     ]).then(() => {
       // Re-run tier inference for ALL models on load. This fixes previously
       // cached models that were mislabeled (e.g. OpenRouter paid models that
@@ -92,6 +96,7 @@ export default function App() {
     hydratePrompts,
     hydrateUsage,
     hydrateSettings,
+    hydrateKeyStore,
   ]);
 
   // Firebase env not set → tell the developer how to configure it.
@@ -142,9 +147,11 @@ export default function App() {
     <TooltipProvider>
       <Routes>
         <Route element={<AppShell />}>
-          <Route path="/" element={<LandingPage />} />
+          <Route path="/" element={<RedirectToChat />} />
+          <Route path="/chat" element={<RedirectToChat />} />
           <Route path="/providers" element={<ProvidersPage />} />
           <Route path="/api-keys" element={<ApiKeysPage />} />
+          <Route path="/keystore" element={<KeyStorePage />} />
           <Route path="/models" element={<ModelsPage />} />
           <Route path="/combos" element={<CombosPage />} />
           <Route path="/chat/:id" element={<ChatPage />} />
@@ -152,9 +159,34 @@ export default function App() {
           <Route path="/usage" element={<UsagePage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/trash" element={<TrashPage />} />
-          <Route path="*" element={<LandingPage />} />
+          <Route path="*" element={<RedirectToChat />} />
         </Route>
       </Routes>
     </TooltipProvider>
+  );
+}
+
+function RedirectToChat() {
+  const chats = useChatStore((s) => s.chats).filter((c) => !c.deleted);
+  const create = useChatStore((s) => s.create);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (chats.length > 0) {
+      const latest = chats.slice().sort((a, b) => b.updatedAt - a.updatedAt)[0];
+      navigate(`/chat/${latest.id}`, { replace: true });
+    } else {
+      const newChat = create();
+      navigate(`/chat/${newChat.id}`, { replace: true });
+    }
+  }, [chats, create, navigate]);
+
+  return (
+    <div className="h-full w-full flex items-center justify-center">
+      <div className="flex flex-col items-center gap-3">
+        <Loader2 className="w-6 h-6 animate-spin text-primary" />
+        <div className="text-sm text-muted-foreground">Redirecting to chat…</div>
+      </div>
+    </div>
   );
 }

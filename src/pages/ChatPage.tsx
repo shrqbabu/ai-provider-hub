@@ -19,12 +19,14 @@ import { useChatStore } from "@/store/chat-store";
 import { useModelStore } from "@/store/model-store";
 import { useProviderStore } from "@/store/provider-store";
 import { useUsageStore } from "@/store/usage-store";
+import { useComboStore } from "@/store/combo-store";
 import { streamChat } from "@/services/chat-service";
-import type { ChatAttachment, ChatMessage } from "@/types";
+import type { ChatAttachment, ChatMessage, ConnectedProvider, DiscoveredModel } from "@/types";
 import { ProviderLogo } from "@/components/ProviderLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { estimateTokens, formatNumber, cn } from "@/utils";
+import { Boxes } from "lucide-react";
 
 export function ChatPage() {
   const { id } = useParams<{ id: string }>();
@@ -73,6 +75,12 @@ export function ChatPage() {
     () => models.find((m) => m.id === chat?.modelId),
     [models, chat?.modelId]
   );
+  const combos = useComboStore((s) => s.combos);
+  const combo = useMemo(
+    () => combos.find((c) => c.id === chat?.modelId),
+    [combos, chat?.modelId]
+  );
+
   // Always route requests through the provider the current MODEL belongs to
   // — not the chat's stored providerId, which can go stale if the model was
   // reassigned. Prevents "sending OpenRouter model to NVIDIA endpoint" bugs.
@@ -108,6 +116,11 @@ export function ChatPage() {
   if (!chat) return null;
 
   const pickModel = (modelPk: string) => {
+    const c = combos.find((x) => x.id === modelPk);
+    if (c) {
+      updateChat(chat.id, { modelId: c.id, providerId: "" });
+      return;
+    }
     const m = models.find((x) => x.id === modelPk);
     if (!m) return;
     updateChat(chat.id, { modelId: m.id, providerId: m.providerId });
@@ -144,83 +157,142 @@ export function ChatPage() {
   };
 
   const runStream = async (allMessages: ChatMessage[], assistantId: string) => {
-    if (!model || !provider) return;
+    // Resolve which list of models to try
+    const attempts: Array<{ provider: ConnectedProvider; model: DiscoveredModel }> = [];
+    if (combo) {
+      for (const member of combo.members) {
+        const p = providers.find((x) => x.id === member.providerId);
+        const m = models.find((x) => x.providerId === member.providerId && x.modelId === member.modelId);
+        if (p && m) {
+          attempts.push({ provider: p, model: m });
+        }
+      }
+    } else if (provider && model) {
+      attempts.push({ provider, model });
+    }
+
+    if (attempts.length === 0) {
+      toast.error("No usable provider/model configuration found.");
+      return;
+    }
+
     abortRef.current = new AbortController();
     setStreamingId(assistantId);
     setThinkingId(assistantId);
 
     const getShown = startBufferedFlush(chat.id, assistantId);
 
-    await streamChat(
-      provider,
-      model,
-      allMessages,
-      {
-        onDelta: (d) => {
-          // First delta arrives → hide "thinking".
-          if (thinkingId) setThinkingId(null);
-          bufferRef.current.pending += d;
-        },
-        onImage: (url) => {
-          if (thinkingId) setThinkingId(null);
-          const current = useChatStore.getState().byId(chat.id);
-          const msg = current?.messages.find((m) => m.id === assistantId);
-          const next = [...(msg?.images ?? []), url];
-          updateMessage(chat.id, assistantId, { images: next });
-        },
-        onDone: ({ tokensIn, tokensOut, durationMs }) => {
-          bufferRef.current.done = true;
-          // Wait until buffered text has fully flushed before we record usage,
-          // so the visible content matches what's stored.
-          const finish = () => {
-            updateMessage(chat.id, assistantId, {
-              tokensIn,
-              tokensOut,
-              durationMs,
-            });
-            const cost =
-              ((model.inputPrice ?? 0) * tokensIn +
-                (model.outputPrice ?? 0) * tokensOut) /
-              1_000_000;
-            recordUsage({
-              providerId: provider.id,
-              providerKey: provider.key,
-              modelId: model.modelId,
-              tokensIn,
-              tokensOut,
-              cost,
-              durationMs,
-            });
-            setStreamingId(null);
-            setThinkingId(null);
-            abortRef.current = null;
-          };
-          const wait = () => {
-            if (bufferRef.current.pending.length === 0) return finish();
-            setTimeout(wait, 40);
-          };
-          wait();
-        },
-        onError: (err) => {
-          bufferRef.current.done = true;
-          updateMessage(chat.id, assistantId, {
-            content: getShown() + bufferRef.current.pending,
-            error: err.message,
-          });
+    let attemptIndex = 0;
+
+    const tryNext = async () => {
+      if (attemptIndex >= attempts.length) {
+        return;
+      }
+
+      const { provider: curProvider, model: curModel } = attempts[attemptIndex];
+
+      if (combo) {
+        toast.info(`Trying model: ${curModel.displayName}...`);
+      }
+
+      try {
+        await streamChat(
+          curProvider,
+          curModel,
+          allMessages,
+          {
+            onDelta: (d) => {
+              // First delta arrives → hide "thinking".
+              if (thinkingId) setThinkingId(null);
+              bufferRef.current.pending += d;
+            },
+            onImage: (url) => {
+              if (thinkingId) setThinkingId(null);
+              const current = useChatStore.getState().byId(chat.id);
+              const msg = current?.messages.find((m) => m.id === assistantId);
+              const next = [...(msg?.images ?? []), url];
+              updateMessage(chat.id, assistantId, { images: next });
+            },
+            onDone: ({ tokensIn, tokensOut, durationMs }) => {
+              bufferRef.current.done = true;
+              // Wait until buffered text has fully flushed before we record usage,
+              // so the visible content matches what's stored.
+              const finish = () => {
+                updateMessage(chat.id, assistantId, {
+                  tokensIn,
+                  tokensOut,
+                  durationMs,
+                  model: curModel.modelId,
+                  providerId: curProvider.id,
+                });
+                const cost =
+                  ((curModel.inputPrice ?? 0) * tokensIn +
+                    (curModel.outputPrice ?? 0) * tokensOut) /
+                  1_000_000;
+                recordUsage({
+                  providerId: curProvider.id,
+                  providerKey: curProvider.key,
+                  modelId: curModel.modelId,
+                  tokensIn,
+                  tokensOut,
+                  cost,
+                  durationMs,
+                });
+                setStreamingId(null);
+                setThinkingId(null);
+                abortRef.current = null;
+              };
+              const wait = () => {
+                if (bufferRef.current.pending.length === 0) return finish();
+                setTimeout(wait, 40);
+              };
+              wait();
+            },
+            onError: async (err) => {
+              console.warn(`Attempt with ${curModel.displayName} failed:`, err);
+              attemptIndex++;
+              if (attemptIndex < attempts.length) {
+                // Reset buffering for next attempt
+                bufferRef.current.pending = "";
+                await tryNext();
+              } else {
+                bufferRef.current.done = true;
+                updateMessage(chat.id, assistantId, {
+                  content: getShown() + bufferRef.current.pending,
+                  error: err.message,
+                });
+                bufferRef.current.pending = "";
+                setStreamingId(null);
+                setThinkingId(null);
+                abortRef.current = null;
+                toast.error(err.message);
+              }
+            },
+            signal: abortRef.current?.signal ?? undefined,
+          },
+          chat.systemPrompt
+        );
+      } catch (err: any) {
+        console.error("Stream catch:", err);
+        attemptIndex++;
+        if (attemptIndex < attempts.length) {
           bufferRef.current.pending = "";
+          await tryNext();
+        } else {
+          bufferRef.current.done = true;
           setStreamingId(null);
           setThinkingId(null);
           abortRef.current = null;
-          toast.error(err.message);
-        },
-        signal: abortRef.current.signal,
-      },
-      chat.systemPrompt
-    );
+          toast.error(err?.message || "Routing failed");
+        }
+      }
+    };
+
+    await tryNext();
   };
 
   const onSend = async (text: string, attachments: ChatAttachment[]) => {
-    if (!model || !provider) {
+    if (!model && !combo) {
       toast.error("Choose a model first.");
       return;
     }
@@ -235,8 +307,8 @@ export function ChatPage() {
     const assistant = addMessage(chat.id, {
       role: "assistant",
       content: "",
-      model: model.modelId,
-      providerId: provider.id,
+      model: model?.modelId || combo?.name || "combo",
+      providerId: provider?.id || "combo",
     });
     await runStream([...chat.messages, user], assistant.id);
   };
@@ -268,19 +340,21 @@ export function ChatPage() {
   };
 
   const noProvider = providers.length === 0;
-  const noModel = !model;
+  const noModel = !model && !combo;
 
   return (
     <div className="h-full flex flex-col">
       {/* Header — compact on mobile */}
       <div className="border-b border-border/60 bg-card/40 backdrop-blur-xl px-3 md:px-6 py-1.5 md:py-3 flex items-center gap-2 md:gap-3 shrink-0">
-        {provider && (
+        {provider ? (
           <ProviderLogo
             provider={provider.key}
             customUrl={provider.customLogo}
             className="hidden md:block w-8 h-8 shrink-0"
           />
-        )}
+        ) : combo ? (
+          <Boxes className="w-8 h-8 text-primary hidden md:block shrink-0" />
+        ) : null}
         <div className="flex-1 min-w-0">
           {editingTitle ? (
             <Input
@@ -312,6 +386,7 @@ export function ChatPage() {
           <div className="hidden md:flex text-[10px] text-muted-foreground items-center gap-2 mt-0.5">
             {provider && <span>{provider.displayName}</span>}
             {model && <span>· {model.displayName}</span>}
+            {combo && <span>· Combo ({combo.name})</span>}
             {model?.contextWindow && (
               <span>
                 · {formatNumber(contextTokens)} / {formatNumber(model.contextWindow)} tok

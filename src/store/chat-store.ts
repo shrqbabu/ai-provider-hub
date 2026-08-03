@@ -2,6 +2,8 @@ import { create } from "zustand";
 import { v4 as uuid } from "uuid";
 import type { Chat, ChatMessage } from "@/types";
 import { storage } from "@/services/storage";
+import { useSettingsStore } from "./settings-store";
+import { useModelStore } from "./model-store";
 
 const KEY = "chats";
 
@@ -41,12 +43,17 @@ export const useChatStore = create<State & Actions>((set, get) => ({
     set({ chats: list, hydrated: true });
   },
   create: (init = {}) => {
+    const defaultModelId = useSettingsStore.getState().settings.defaultModelId;
+    const model = useModelStore.getState().models.find(
+      (m) => m.id === defaultModelId || m.modelId === defaultModelId
+    );
+
     const chat: Chat = {
       id: uuid(),
       title: init.title ?? "New chat",
       messages: init.messages ?? [],
-      providerId: init.providerId,
-      modelId: init.modelId,
+      providerId: init.providerId ?? model?.providerId,
+      modelId: init.modelId ?? model?.id,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       systemPrompt: init.systemPrompt,

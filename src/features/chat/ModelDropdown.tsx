@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
-import { Check, ChevronDown, Search, Star, Eye, Brain } from "lucide-react";
+import { Check, ChevronDown, Search, Star, Eye, Brain, Boxes } from "lucide-react";
 import { useModelStore } from "@/store/model-store";
 import { useProviderStore } from "@/store/provider-store";
+import { useComboStore } from "@/store/combo-store";
 import { ProviderLogo } from "@/components/ProviderLogo";
 import { formatNumber, cn } from "@/utils";
 import { Input } from "@/components/ui/input";
@@ -29,11 +30,46 @@ export function ModelDropdown({ modelId, onChange }: Props) {
   const [q, setQ] = useState("");
   const models = useModelStore((s) => s.models);
   const providers = useProviderStore((s) => s.providers);
+  const combos = useComboStore((s) => s.combos);
 
   const providerMap = useMemo(
     () => Object.fromEntries(providers.map((p) => [p.id, p])),
     [providers]
   );
+
+  const activeCombo = useMemo(
+    () => combos.find((c) => c.id === modelId),
+    [combos, modelId]
+  );
+
+  const favorites = useMemo(() => {
+    return models.filter((m) => {
+      const provider = providerMap[m.providerId];
+      if (!provider || !hasCredentials(provider)) return false;
+      if (!m.favorite) return false;
+      if (!q) return true;
+      const s = q.toLowerCase();
+      return (
+        m.modelId.toLowerCase().includes(s) ||
+        m.displayName.toLowerCase().includes(s) ||
+        provider.displayName.toLowerCase().includes(s)
+      );
+    });
+  }, [models, providerMap, q]);
+
+  const activeComboMembersMap = useMemo(() => {
+    if (!activeCombo) return new Map();
+    const map = new Map();
+    for (const member of activeCombo.members) {
+      const found = models.find(
+        (m) => m.providerId === member.providerId && m.modelId === member.modelId
+      );
+      if (found) {
+        map.set(`${member.providerId}::${member.modelId}`, found);
+      }
+    }
+    return map;
+  }, [activeCombo, models]);
 
   const grouped = useMemo(() => {
     const filtered = models.filter((m) => {
@@ -42,6 +78,7 @@ export function ModelDropdown({ modelId, onChange }: Props) {
       // Otherwise the model can be selected but the chat request fails with a
       // 404/401 because the provider was never configured properly.
       if (!provider || !hasCredentials(provider)) return false;
+      if (m.favorite) return false; // Show in favorites only
       if (!q) return true;
       const s = q.toLowerCase();
       return (
@@ -58,6 +95,16 @@ export function ModelDropdown({ modelId, onChange }: Props) {
     return groups;
   }, [models, providerMap, q]);
 
+  const filteredCombos = useMemo(() => {
+    if (!q) return combos;
+    const s = q.toLowerCase();
+    return combos.filter(
+      (c) =>
+        c.name.toLowerCase().includes(s) ||
+        (c.description ?? "").toLowerCase().includes(s)
+    );
+  }, [combos, q]);
+
   const active = models.find((m) => m.id === modelId);
   const activeProvider = active ? providerMap[active.providerId] : undefined;
 
@@ -65,7 +112,19 @@ export function ModelDropdown({ modelId, onChange }: Props) {
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
         <button className="w-full md:w-auto flex items-center gap-2 rounded-xl px-3 py-2 bg-secondary/70 hover:bg-secondary transition text-sm border border-border/60 min-w-0">
-          {active && activeProvider ? (
+          {activeCombo ? (
+            <>
+              <Boxes className="w-5 h-5 shrink-0 text-primary" />
+              <div className="flex flex-col items-start leading-tight min-w-0 flex-1">
+                <span className="font-medium truncate max-w-full">
+                  {activeCombo.name}
+                </span>
+                <span className="text-[10px] text-muted-foreground truncate max-w-full">
+                  Combo ({activeCombo.members.length} members)
+                </span>
+              </div>
+            </>
+          ) : active && activeProvider ? (
             <>
               <ProviderLogo
                 provider={activeProvider.key}
@@ -101,7 +160,7 @@ export function ModelDropdown({ modelId, onChange }: Props) {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 autoFocus
-                placeholder="Search models..."
+                placeholder="Search models or combos..."
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 className="pl-9 h-9"
@@ -109,11 +168,113 @@ export function ModelDropdown({ modelId, onChange }: Props) {
             </div>
           </div>
           <div className="overflow-y-auto scrollbar-thin flex-1">
-            {Object.keys(grouped).length === 0 && (
+            {Object.keys(grouped).length === 0 && filteredCombos.length === 0 && (
               <div className="p-6 text-center text-sm text-muted-foreground">
-                No models found. Connect a provider first.
+                No models or combos found.
               </div>
             )}
+
+            {/* Combos list */}
+            {filteredCombos.length > 0 && (
+              <div className="border-b border-border/40 pb-2 mb-2">
+                <div className="px-3 pt-3 pb-1 flex items-center gap-2">
+                  <Boxes className="w-4 h-4 text-primary" />
+                  <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
+                    Combos (Auto Fallback)
+                  </span>
+                </div>
+                {filteredCombos.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => {
+                      onChange(c.id);
+                      setOpen(false);
+                    }}
+                    className={cn(
+                      "w-full flex items-center gap-2 px-3 py-2 hover:bg-accent transition text-left",
+                      c.id === modelId && "bg-accent"
+                    )}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-sm truncate">
+                          {c.name}
+                        </span>
+                        <Badge variant="outline" className="text-[9px] py-0">
+                          {c.members.length} model{c.members.length === 1 ? "" : "s"}
+                        </Badge>
+                      </div>
+                      {c.description && (
+                        <div className="text-[10px] text-muted-foreground truncate">
+                          {c.description}
+                        </div>
+                      )}
+                    </div>
+                    {c.id === modelId && <Check className="w-4 h-4 text-primary" />}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Favorites List */}
+            {favorites.length > 0 && (
+              <div className="border-b border-border/40 pb-2 mb-2">
+                <div className="px-3 pt-2 pb-1 flex items-center gap-2">
+                  <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
+                  <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
+                    Favorites
+                  </span>
+                </div>
+                {favorites.map((m) => {
+                  const p = providerMap[m.providerId];
+                  return (
+                    <button
+                      key={m.id}
+                      onClick={() => {
+                        onChange(m.id);
+                        setOpen(false);
+                      }}
+                      className={cn(
+                        "w-full flex items-center gap-2 px-3 py-2 hover:bg-accent transition text-left",
+                        m.id === modelId && "bg-accent"
+                      )}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-sm truncate">
+                            {m.displayName}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground truncate">
+                            ({p?.displayName})
+                          </span>
+                          <TierBadge tier={m.tier} size="xs" />
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          {m.contextWindow && (
+                            <Badge variant="outline" className="text-[9px] py-0">
+                              {formatNumber(m.contextWindow)}
+                            </Badge>
+                          )}
+                          {m.vision && (
+                            <Badge variant="secondary" className="text-[9px] py-0">
+                              <Eye className="w-2.5 h-2.5" /> V
+                            </Badge>
+                          )}
+                          {m.reasoning && (
+                            <Badge variant="default" className="text-[9px] py-0">
+                              <Brain className="w-2.5 h-2.5" /> R
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                      {m.id === modelId && <Check className="w-4 h-4 text-primary" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Normal provider-grouped models */}
             {Object.entries(grouped).map(([pid, list]) => {
               const p = providerMap[pid];
               return (
@@ -142,9 +303,6 @@ export function ModelDropdown({ modelId, onChange }: Props) {
                             {m.displayName}
                           </span>
                           <TierBadge tier={m.tier} size="xs" />
-                          {m.favorite && (
-                            <Star className="w-3 h-3 text-amber-400 fill-amber-400 shrink-0" />
-                          )}
                         </div>
                         <div className="flex items-center gap-1.5 mt-0.5">
                           {m.contextWindow && (

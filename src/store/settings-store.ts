@@ -12,6 +12,7 @@ const defaults: AppSettings = {
   streamingSpeed: 1,
   autoScroll: true,
   maxTokens: 0, // 0 = auto
+  defaultModelId: "",
 };
 
 interface State {

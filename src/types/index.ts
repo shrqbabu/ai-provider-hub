@@ -165,4 +165,5 @@ export interface AppSettings {
   // Max output tokens per request. 0 / undefined = auto (16K normal,
   // 32K reasoning models).
   maxTokens?: number;
+  defaultModelId?: string;
 }

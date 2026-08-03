@@ -19,12 +19,15 @@ import { useModelStore } from "@/store/model-store";
 import { useChatStore } from "@/store/chat-store";
 import { usePromptStore } from "@/store/prompt-store";
 import { useUsageStore } from "@/store/usage-store";
+import { useComboStore } from "@/store/combo-store";
 
 export function SettingsPage() {
   const settings = useSettingsStore((s) => s.settings);
   const update = useSettingsStore((s) => s.update);
   const reset = useSettingsStore((s) => s.reset);
   const fileRef = useRef<HTMLInputElement>(null);
+  const models = useModelStore((s) => s.models);
+  const combos = useComboStore((s) => s.combos);
 
   const exportAll = async () => {
     const data = {
@@ -141,6 +144,41 @@ export function SettingsPage() {
               <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Chat
               </div>
+              <Row label="Default Model / Combo">
+                <Select
+                  value={settings.defaultModelId || "none_selected_value"}
+                  onValueChange={(v) =>
+                    update({ defaultModelId: v === "none_selected_value" ? "" : v })
+                  }
+                >
+                  <SelectTrigger className="w-[200px]">
+                    <SelectValue placeholder="No default model" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none_selected_value">None</SelectItem>
+                    {combos.length > 0 && (
+                      <>
+                        <div className="px-2 py-1 text-[10px] uppercase font-bold text-muted-foreground tracking-wider border-b border-border/30 pb-0.5">
+                          Combos
+                        </div>
+                        {combos.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </>
+                    )}
+                    <div className="px-2 py-1 text-[10px] uppercase font-bold text-muted-foreground tracking-wider border-b border-border/30 pb-0.5 mt-2">
+                      Models
+                    </div>
+                    {models.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>
+                        {m.displayName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Row>
               <Row label="Max output tokens">
                 <div className="flex items-center gap-2">
                   <Input

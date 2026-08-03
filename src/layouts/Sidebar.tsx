@@ -28,6 +28,7 @@ import { SearchDialog } from "@/features/search/SearchDialog";
 const nav = [
   { to: "/providers", label: "Providers", icon: Plug2 },
   { to: "/api-keys", label: "Gateway Keys", icon: KeyRound },
+  { to: "/keystore", label: "Key Store", icon: KeyRound },
   { to: "/models", label: "My Models", icon: Layers },
   { to: "/combos", label: "Combos", icon: Boxes },
   { to: "/prompts", label: "Prompt Library", icon: BookOpen },

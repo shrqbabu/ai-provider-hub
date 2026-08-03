@@ -83,9 +83,10 @@ export default async function handler(req: Request): Promise<Response> {
     const k = key.toLowerCase();
     if (HOP_BY_HOP.has(k)) return;
     if (k === "host" || k === "origin" || k === "referer") return;
+    if (k === "cookie") return; // Do not forward client browser session cookies to upstream provider
     if (k === "x-provider-key") return;
     if (k === "x-provider-cookie") return;
-    if (k.startsWith("x-vercel-") || k.startsWith("cf-")) return;
+    if (k.startsWith("x-vercel-") || k.startsWith("cf-") || k.startsWith("sec-")) return;
     outHeaders.set(key, value);
   });
 

@@ -61,12 +61,12 @@ function resolveBaseURL(url: string): Resolved {
         cleanUrl,
         baseHost,
         remainingPath,
-        proxyPath: `${origin}/api/proxy/custom${remainingPath}`
+        proxyPath: `${origin}/api/proxy/custom`
       });
       return {
-        baseURL: `${origin}/api/proxy/custom${remainingPath}`,
+        baseURL: `${origin}/api/proxy/custom`,
         proxied: true,
-        targetHeader: baseHost,
+        targetHeader: cleanUrl,
       };
     } catch (err) {
       console.error('[Provider Service] Failed to parse custom URL:', url, err);

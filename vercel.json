@@ -1,14 +1,14 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
-    { "source": "/api/proxy/:path*", "destination": "/api/proxy/[...path]?__p=:path*" },
+    { "source": "/api/proxy/:path*", "destination": "/api/proxy?__p=:path*" },
     { "source": "/api/v1/:path*", "destination": "/api/v1?__p=:path*" },
     { "source": "/v1/:path*/", "destination": "/api/v1?__p=:path*" },
     { "source": "/v1/:path*", "destination": "/api/v1?__p=:path*" },
     { "source": "/((?!api/|v1/).*)", "destination": "/index.html" }
   ],
   "functions": {
-    "api/proxy/[...path].ts": {
+    "api/proxy.ts": {
       "maxDuration": 60
     },
     "api/v1.ts": {

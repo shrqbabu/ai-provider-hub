@@ -1,7 +1,3 @@
-// Vercel Edge Function — proxies browser requests to the target AI provider.
-// Injects Authorization from the client's `x-provider-key` header, and passes
-// SSE streaming responses back unchanged so OpenAI SDK streaming works.
-
 export const config = { runtime: "edge" };
 
 const TARGETS: Record<string, string> = {
@@ -26,7 +22,6 @@ const HOP_BY_HOP = new Set([
 export default async function handler(req: Request): Promise<Response> {
   const url = new URL(req.url);
 
-  // Path can come from either the rewrite (__p query) or the original pathname.
   let rawPath = url.searchParams.get("__p") ?? "";
   if (!rawPath) {
     const m = url.pathname.match(/^\/api\/proxy\/?(.*)$/);
@@ -60,14 +55,12 @@ export default async function handler(req: Request): Promise<Response> {
 
   const providerToken = req.headers.get("x-provider-key");
 
-  // Google's Generative Language API uses query parameter auth
   if (providerKey === "google" && providerToken) {
     forwardedParams.set("key", providerToken);
   }
 
   const qs = forwardedParams.toString();
   let targetURL = upstreamBase + upstreamPath + (qs ? "?" + qs : "");
-  // Failsafe: if the base URL and upstream path both included /v1, resolve duplicate "/v1/v1/"
   targetURL = targetURL.replace(/\/v1\/v1\//g, "/v1/");
 
   const outHeaders = new Headers();
@@ -98,7 +91,6 @@ export default async function handler(req: Request): Promise<Response> {
   const method = req.method.toUpperCase();
   const hasBody = method !== "GET" && method !== "HEAD";
 
-  // Google Gemini requires special translation from OpenAI format
   if (providerKey === "google" && upstreamPath.includes("/chat/completions")) {
     if (!providerToken) {
       return json({ error: "Missing API key for Google provider" }, 401);
@@ -200,34 +192,20 @@ async function handleGoogleChatCompletion(
   }
 
   if (contents.length === 0) {
-    contents.push({
-      role: "user",
-      parts: [{ text: "Hello" }],
-    });
+    contents.push({ role: "user", parts: [{ text: "Hello" }] });
   }
 
-  const googleBody: any = {
-    contents,
-  };
+  const googleBody: any = { contents };
 
   const generationConfig: any = {};
-  if (openaiBody.temperature !== undefined) {
-    generationConfig.temperature = openaiBody.temperature;
-  }
+  if (openaiBody.temperature !== undefined) generationConfig.temperature = openaiBody.temperature;
   if (openaiBody.max_tokens || openaiBody.max_completion_tokens) {
     generationConfig.maxOutputTokens = openaiBody.max_tokens || openaiBody.max_completion_tokens;
   }
-  if (openaiBody.top_p !== undefined) {
-    generationConfig.topP = openaiBody.top_p;
-  }
+  if (openaiBody.top_p !== undefined) generationConfig.topP = openaiBody.top_p;
 
-  if (Object.keys(generationConfig).length > 0) {
-    googleBody.generationConfig = generationConfig;
-  }
-
-  if (systemInstruction) {
-    googleBody.systemInstruction = { parts: [{ text: systemInstruction }] };
-  }
+  if (Object.keys(generationConfig).length > 0) googleBody.generationConfig = generationConfig;
+  if (systemInstruction) googleBody.systemInstruction = { parts: [{ text: systemInstruction }] };
 
   const endpoint = stream ? "streamGenerateContent" : "generateContent";
   const googleUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}?key=${encodeURIComponent(apiKey)}`;
@@ -244,66 +222,36 @@ async function handleGoogleChatCompletion(
       try {
         const errorJson = JSON.parse(errorText);
         const errorMsg = errorJson.error?.message || errorText;
-        return json({
-          error: {
-            message: errorMsg,
-            type: "google_api_error",
-            code: errorJson.error?.code || upstream.status,
-          }
-        }, upstream.status);
+        return json({ error: { message: errorMsg, type: "google_api_error", code: errorJson.error?.code || upstream.status } }, upstream.status);
       } catch {
-        return json({
-          error: {
-            message: errorText,
-            type: "google_api_error",
-            code: upstream.status,
-          }
-        }, upstream.status);
+        return json({ error: { message: errorText, type: "google_api_error", code: upstream.status } }, upstream.status);
       }
     }
 
-    if (stream) {
-      return streamGoogleResponse(upstream);
-    } else {
-      return convertGoogleResponse(await upstream.json());
-    }
+    if (stream) return streamGoogleResponse(upstream);
+    else return convertGoogleResponse(await upstream.json());
   } catch (err) {
-    return json(
-      { error: err instanceof Error ? err.message : "Google API request failed" },
-      502
-    );
+    return json({ error: err instanceof Error ? err.message : "Google API request failed" }, 502);
   }
 }
 
 function convertGoogleResponse(googleResp: any): Response {
   const candidate = googleResp.candidates?.[0];
-  const content = candidate?.content;
-  const parts = content?.parts || [];
+  const parts = candidate?.content?.parts || [];
   const text = parts.map((p: any) => p.text || "").join("");
 
-  const openaiResp = {
+  return json({
     id: `chatcmpl-${Date.now()}`,
     object: "chat.completion",
     created: Math.floor(Date.now() / 1000),
     model: googleResp.modelVersion || "gemini-pro",
-    choices: [
-      {
-        index: 0,
-        message: {
-          role: "assistant",
-          content: text,
-        },
-        finish_reason: candidate?.finishReason?.toLowerCase() || "stop",
-      },
-    ],
+    choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: candidate?.finishReason?.toLowerCase() || "stop" }],
     usage: {
       prompt_tokens: googleResp.usageMetadata?.promptTokenCount || 0,
       completion_tokens: googleResp.usageMetadata?.candidatesTokenCount || 0,
       total_tokens: googleResp.usageMetadata?.totalTokenCount || 0,
     },
-  };
-
-  return json(openaiResp, 200);
+  }, 200);
 }
 
 function streamGoogleResponse(upstream: Response): Response {
@@ -315,10 +263,7 @@ function streamGoogleResponse(upstream: Response): Response {
   (async () => {
     try {
       const reader = upstream.body?.getReader();
-      if (!reader) {
-        await writer.close();
-        return;
-      }
+      if (!reader) { await writer.close(); return; }
 
       let buffer = "";
       const chatId = `chatcmpl-${Date.now()}`;
@@ -326,7 +271,6 @@ function streamGoogleResponse(upstream: Response): Response {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
         buffer += decoder.decode(value, { stream: true });
 
         let startIdx = 0;
@@ -338,13 +282,7 @@ function streamGoogleResponse(upstream: Response): Response {
           let objEnd = -1;
           for (let i = objStart; i < buffer.length; i++) {
             if (buffer[i] === "{") braceCount++;
-            if (buffer[i] === "}") {
-              braceCount--;
-              if (braceCount === 0) {
-                objEnd = i + 1;
-                break;
-              }
-            }
+            if (buffer[i] === "}") { braceCount--; if (braceCount === 0) { objEnd = i + 1; break; } }
           }
 
           if (objEnd !== -1) {
@@ -352,99 +290,49 @@ function streamGoogleResponse(upstream: Response): Response {
             try {
               const googleChunk = JSON.parse(chunk);
               const candidate = googleChunk.candidates?.[0];
-
               if (candidate) {
                 const parts = candidate?.content?.parts || [];
                 const text = parts.map((p: any) => p.text || "").join("");
-
                 if (text) {
-                  const openaiChunk = {
-                    id: chatId,
-                    object: "chat.completion.chunk",
-                    created: Math.floor(Date.now() / 1000),
-                    model: "gemini-pro",
-                    choices: [
-                      {
-                        index: 0,
-                        delta: { content: text },
-                        finish_reason: null,
-                      },
-                    ],
-                  };
-
-                  await writer.write(
-                    encoder.encode(`data: ${JSON.stringify(openaiChunk)}\n\n`)
-                  );
+                  await writer.write(encoder.encode(`data: ${JSON.stringify({
+                    id: chatId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: "gemini-pro",
+                    choices: [{ index: 0, delta: { content: text }, finish_reason: null }],
+                  })}\n\n`));
                 }
-
                 if (candidate?.finishReason) {
-                  const finalChunk = {
-                    id: chatId,
-                    object: "chat.completion.chunk",
-                    created: Math.floor(Date.now() / 1000),
-                    model: "gemini-pro",
-                    choices: [
-                      {
-                        index: 0,
-                        delta: {},
-                        finish_reason: "stop",
-                      },
-                    ],
-                  };
-                  await writer.write(
-                    encoder.encode(`data: ${JSON.stringify(finalChunk)}\n\n`)
-                  );
+                  await writer.write(encoder.encode(`data: ${JSON.stringify({
+                    id: chatId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: "gemini-pro",
+                    choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+                  })}\n\n`));
                 }
-
                 if (googleChunk.usageMetadata) {
-                  const usageChunk = {
-                    id: chatId,
-                    object: "chat.completion.chunk",
-                    created: Math.floor(Date.now() / 1000),
-                    model: "gemini-pro",
+                  await writer.write(encoder.encode(`data: ${JSON.stringify({
+                    id: chatId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: "gemini-pro",
                     choices: [],
                     usage: {
                       prompt_tokens: googleChunk.usageMetadata.promptTokenCount || 0,
                       completion_tokens: googleChunk.usageMetadata.candidatesTokenCount || 0,
                       total_tokens: googleChunk.usageMetadata.totalTokenCount || 0,
                     },
-                  };
-                  await writer.write(
-                    encoder.encode(`data: ${JSON.stringify(usageChunk)}\n\n`)
-                  );
+                  })}\n\n`));
                 }
               }
-            } catch (e) {
-              // Skip malformed JSON
-            }
-
+            } catch (e) { /* skip malformed */ }
             startIdx = objEnd;
-          } else {
-            break;
-          }
+          } else { break; }
         }
-
         buffer = buffer.substring(startIdx);
       }
 
       await writer.write(encoder.encode("data: [DONE]\n\n"));
       await writer.close();
     } catch (err) {
-      console.error("Stream error:", err);
-      try {
-        await writer.abort(err);
-      } catch (abortErr) {
-        // Writer already closed
-      }
+      try { await writer.abort(err); } catch { /* already closed */ }
     }
   })();
 
   return new Response(readable, {
     status: 200,
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    },
+    headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
   });
 }

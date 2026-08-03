@@ -76,7 +76,9 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   const qs = forwardedParams.toString();
-  const targetURL = upstreamBase + upstreamPath + (qs ? "?" + qs : "");
+  let targetURL = upstreamBase + upstreamPath + (qs ? "?" + qs : "");
+  // Failsafe: if the base URL and upstream path both included /v1, resolve the duplicate "/v1/v1/"
+  targetURL = targetURL.replace(/\/v1\/v1\//g, "/v1/");
 
   const outHeaders = new Headers();
   req.headers.forEach((value, key) => {

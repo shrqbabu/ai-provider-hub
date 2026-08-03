@@ -1,1 +1,1 @@
-export { default, config } from "../proxy";
+export { default, config } from "../_lib/proxy-handler";

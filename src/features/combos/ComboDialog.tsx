@@ -58,7 +58,7 @@ export function ComboDialog({ open, onOpenChange, editing }: Props) {
       const ok = await testSingleModel(p, mId);
       setTestingMap((prev) => ({ ...prev, [key]: ok ? "pass" : "fail" }));
       if (modelDbId) {
-        useModelStore.getState().update(modelDbId, { working: ok });
+        useModelStore.getState().update(modelDbId, { working: ok, disabled: !ok });
       }
       if (ok) {
         toast.success(`Model "${mId}" passed test! (Working)`);
@@ -67,6 +67,9 @@ export function ComboDialog({ open, onOpenChange, editing }: Props) {
       }
     } catch {
       setTestingMap((prev) => ({ ...prev, [key]: "fail" }));
+      if (modelDbId) {
+        useModelStore.getState().update(modelDbId, { working: false, disabled: true });
+      }
       toast.error(`Model "${mId}" test failed.`);
     }
   };

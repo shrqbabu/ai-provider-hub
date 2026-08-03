@@ -99,7 +99,7 @@ export function ModelsPage() {
           const provider = providerMap[m.providerId];
           const ok = provider ? await testSingleModel(provider, m.modelId) : false;
           results[m.id] = ok;
-          updateModel(m.id, { working: ok });
+          updateModel(m.id, { working: ok, disabled: !ok });
           if (ok) passed++;
           finished++;
           setTestedCount(finished);
@@ -121,12 +121,12 @@ export function ModelsPage() {
     }
     setTestingSingleId(m.id);
     const ok = await testSingleModel(p, m.modelId);
-    updateModel(m.id, { working: ok });
+    updateModel(m.id, { working: ok, disabled: !ok });
     setTestingSingleId(null);
     if (ok) {
       toast.success(`Model "${m.displayName}" passed test (Working)`);
     } else {
-      toast.error(`Model "${m.displayName}" test failed.`);
+      toast.error(`Model "${m.displayName}" test failed and was auto-disconnected.`);
     }
   };
 

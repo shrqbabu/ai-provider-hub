@@ -292,23 +292,23 @@ export function ComboLogsPage() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-6 text-xs justify-between md:justify-end">
+                  <div className="flex flex-wrap items-center gap-3 sm:gap-6 text-xs justify-between md:justify-end w-full md:w-auto mt-2 md:mt-0 border-t border-border/20 pt-3 md:border-0 md:pt-0">
                     {/* Responding Model */}
-                    <div className="text-right">
+                    <div className="text-left md:text-right min-w-[100px] flex-1 sm:flex-initial">
                       <div className="text-muted-foreground font-medium text-[11px]">Responding Model</div>
-                      <div className="font-medium text-foreground mt-0.5 flex items-center gap-1.5 justify-end">
-                        <Layers className="w-3.5 h-3.5 text-primary" />
-                        <span>
-                          {log.respondingModelName || log.respondingModelId || "None (All Failed)"}
+                      <div className="font-medium text-foreground mt-0.5 flex items-center gap-1.5 justify-start md:justify-end">
+                        <Layers className="w-3.5 h-3.5 text-primary shrink-0" />
+                        <span className="truncate max-w-[140px] sm:max-w-none">
+                          {log.respondingModelName || log.respondingModelId || "None (Failed)"}
                         </span>
                       </div>
                     </div>
 
                     {/* Latency */}
-                    <div className="text-right">
+                    <div className="text-left md:text-right shrink-0">
                       <div className="text-muted-foreground font-medium text-[11px]">Latency</div>
-                      <div className="font-medium text-foreground mt-0.5 flex items-center gap-1 justify-end">
-                        <Clock className="w-3.5 h-3.5 text-amber-500" />
+                      <div className="font-medium text-foreground mt-0.5 flex items-center gap-1 justify-start md:justify-end">
+                        <Clock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                         <span>
                           {log.durationMs >= 1000
                             ? `${(log.durationMs / 1000).toFixed(2)}s`
@@ -318,10 +318,10 @@ export function ComboLogsPage() {
                     </div>
 
                     {/* Tokens */}
-                    <div className="text-right">
+                    <div className="text-left md:text-right shrink-0">
                       <div className="text-muted-foreground font-medium text-[11px]">Tokens</div>
-                      <div className="font-medium text-foreground mt-0.5 flex items-center gap-1 justify-end">
-                        <Zap className="w-3.5 h-3.5 text-emerald-500" />
+                      <div className="font-medium text-foreground mt-0.5 flex items-center gap-1 justify-start md:justify-end">
+                        <Zap className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                         <span>{formatNumber(totalTokens)}</span>
                       </div>
                     </div>
@@ -338,32 +338,32 @@ export function ComboLogsPage() {
                       {log.attempts.map((attempt, i) => (
                         <div
                           key={i}
-                          className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 rounded-lg bg-card/60 border border-border/40 text-xs"
+                          className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 rounded-lg bg-card/60 border border-border/40 text-xs overflow-hidden"
                         >
-                          <div className="flex items-center gap-2">
-                            <span className="w-5 h-5 rounded-full bg-secondary flex items-center justify-center text-[10px] font-bold">
+                          <div className="flex items-center gap-2 flex-wrap min-w-0">
+                            <span className="w-5 h-5 rounded-full bg-secondary flex items-center justify-center text-[10px] font-bold shrink-0">
                               #{i + 1}
                             </span>
-                            <span className="font-medium">
+                            <span className="font-medium truncate max-w-[200px] sm:max-w-none">
                               {attempt.displayName || attempt.modelId}
                             </span>
                             {attempt.status === "success" ? (
-                              <span className="text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded text-[10px] font-semibold">
+                              <span className="text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded text-[10px] font-semibold shrink-0">
                                 Responded
                               </span>
                             ) : (
-                              <span className="text-rose-500 bg-rose-500/10 px-1.5 py-0.5 rounded text-[10px] font-semibold">
+                              <span className="text-rose-500 bg-rose-500/10 px-1.5 py-0.5 rounded text-[10px] font-semibold shrink-0">
                                 Failed
                               </span>
                             )}
                           </div>
 
-                          <div className="flex items-center gap-4 text-muted-foreground self-end sm:self-auto">
+                          <div className="flex flex-wrap items-center gap-3 text-muted-foreground self-start sm:self-auto min-w-0">
                             {attempt.durationMs !== undefined && (
-                              <span>Latency: {attempt.durationMs}ms</span>
+                              <span className="shrink-0">Latency: {attempt.durationMs}ms</span>
                             )}
                             {attempt.error && (
-                              <span className="text-rose-400 font-mono text-[11px] truncate max-w-xs" title={attempt.error}>
+                              <span className="text-rose-400 font-mono text-[11px] truncate max-w-full sm:max-w-xs" title={attempt.error}>
                                 Error: {attempt.error}
                               </span>
                             )}

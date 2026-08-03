@@ -64,17 +64,21 @@ export function ModelCard({
             </div>
             {model.disabled && (
               <Badge variant="destructive" className="bg-amber-500/10 text-amber-500 border-amber-500/20 shrink-0 gap-1 text-[11px]">
-                <Plug className="w-3.5 h-3.5" /> Disconnected
+                <Plug className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Disconnected</span>
+                <span className="sm:hidden">Off</span>
               </Badge>
             )}
             {!model.disabled && passedTest === true && (
               <Badge variant="default" className="bg-emerald-500 hover:bg-emerald-600 text-white shrink-0 gap-1 text-[11px]">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Working
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Working</span>
               </Badge>
             )}
             {!model.disabled && passedTest === false && (
               <Badge variant="destructive" className="bg-rose-500 hover:bg-rose-600 text-white shrink-0 gap-1 text-[11px]">
-                <XCircle className="w-3.5 h-3.5" /> Failed
+                <XCircle className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Failed</span>
               </Badge>
             )}
             {onTest && (
@@ -177,13 +181,23 @@ export function ModelCard({
                   e.stopPropagation();
                   onToggleDisabled();
                 }}
-                className={model.disabled ? "bg-emerald-600 hover:bg-emerald-700 text-white" : ""}
+                className={cn(
+                  "px-2 sm:px-3 text-xs gap-1.5",
+                  model.disabled ? "bg-emerald-600 hover:bg-emerald-700 text-white" : ""
+                )}
                 title={model.disabled ? "Connect model" : "Disconnect model"}
               >
                 {model.disabled ? (
-                  <PlugZap className="w-3.5 h-3.5" />
+                  <>
+                    <PlugZap className="w-3.5 h-3.5" />
+                    <span>Connect</span>
+                  </>
                 ) : (
-                  <Plug className="w-3.5 h-3.5" />
+                  <>
+                    <Plug className="w-3.5 h-3.5" />
+                    <span className="hidden xs:inline">Disconnect</span>
+                    <span className="xs:hidden">Off</span>
+                  </>
                 )}
               </Button>
             )}

@@ -59,12 +59,13 @@ export function ProviderCard({
                   {provider.displayName || def.name}
                 </h3>
                 {provider.disabled ? (
-                  <Badge variant="destructive" className="bg-amber-500/10 text-amber-500 border-amber-500/20">
+                  <Badge variant="destructive" className="bg-amber-500/10 text-amber-500 border-amber-500/20 text-[11px]">
                     <Plug className="w-3 h-3 mr-1" />
-                    Disconnected
+                    <span className="hidden xs:inline">Disconnected</span>
+                    <span className="xs:inline sm:hidden">Off</span>
                   </Badge>
                 ) : (
-                  <Badge variant="success">
+                  <Badge variant="success" className="text-[11px]">
                     <PlugZap className="w-3 h-3 mr-1" />
                     Connected
                   </Badge>

@@ -19,6 +19,7 @@ interface Actions {
   removeByProvider: (providerId: string) => void;
   toggleFavorite: (id: string) => void;
   toggleSaved: (id: string) => void;
+  toggleDisabled: (id: string) => void;
   byProvider: (providerId: string) => DiscoveredModel[];
 }
 
@@ -78,6 +79,10 @@ export const useModelStore = create<State & Actions>((set, get) => ({
   toggleSaved: (id) => {
     const m = get().models.find((x) => x.id === id);
     if (m) get().update(id, { saved: !m.saved });
+  },
+  toggleDisabled: (id) => {
+    const m = get().models.find((x) => x.id === id);
+    if (m) get().update(id, { disabled: !m.disabled });
   },
   byProvider: (providerId) =>
     get().models.filter((m) => m.providerId === providerId),

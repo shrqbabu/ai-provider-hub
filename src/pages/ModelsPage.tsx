@@ -24,6 +24,7 @@ export function ModelsPage() {
   const providers = useProviderStore((s) => s.providers);
   const toggleFav = useModelStore((s) => s.toggleFavorite);
   const toggleSaved = useModelStore((s) => s.toggleSaved);
+  const toggleDisabledModel = useModelStore((s) => s.toggleDisabled);
   const remove = useModelStore((s) => s.remove);
   const create = useChatStore((s) => s.create);
   const navigate = useNavigate();
@@ -271,6 +272,7 @@ export function ModelsPage() {
                   passedTest={m.working}
                   onToggleFavorite={() => toggleFav(m.id)}
                   onToggleSaved={() => toggleSaved(m.id)}
+                  onToggleDisabled={() => toggleDisabledModel(m.id)}
                   onDelete={m.manual ? () => remove(m.id) : undefined}
                   onClick={() => startChat(m.id)}
                   onTest={() => testOneModel(m)}

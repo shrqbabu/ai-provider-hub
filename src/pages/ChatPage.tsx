@@ -165,11 +165,11 @@ export function ChatPage() {
       for (const member of combo.members) {
         const p = providers.find((x) => x.id === member.providerId);
         const m = models.find((x) => x.providerId === member.providerId && x.modelId === member.modelId);
-        if (p && m) {
+        if (p && !p.disabled && m && !m.disabled) {
           attempts.push({ provider: p, model: m });
         }
       }
-    } else if (provider && model) {
+    } else if (provider && !provider.disabled && model && !model.disabled) {
       attempts.push({ provider, model });
     }
 

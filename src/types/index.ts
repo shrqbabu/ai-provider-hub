@@ -49,6 +49,7 @@ export interface ConnectedProvider {
   vision: boolean;
   fileUpload: boolean;
   defaultModel?: string;
+  disabled?: boolean;
 }
 
 export interface DiscoveredModel {
@@ -71,6 +72,7 @@ export interface DiscoveredModel {
   manual?: boolean;
   working?: boolean;
   tier?: "free" | "paid" | "unknown";
+  disabled?: boolean;
 }
 
 // A named group of models with a user-defined fallback priority order. When

@@ -125,32 +125,32 @@ export function Sidebar() {
         </button>
       </div>
 
-      <nav className="px-2 space-y-0.5">
-        {nav.map((n) => (
-          <NavLink
-            key={n.to}
-            to={n.to}
-            onClick={closeOnNav}
-            className={({ isActive }) =>
-              cn(
-                "flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm transition",
-                isActive
-                  ? "bg-accent text-accent-foreground font-medium"
-                  : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-              )
-            }
-          >
-            <n.icon className="w-4 h-4" />
-            {n.label}
-          </NavLink>
-        ))}
-      </nav>
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
+        <nav className="px-2 space-y-0.5">
+          {nav.map((n) => (
+            <NavLink
+              key={n.to}
+              to={n.to}
+              onClick={closeOnNav}
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm transition",
+                  isActive
+                    ? "bg-accent text-accent-foreground font-medium"
+                    : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+                )
+              }
+            >
+              <n.icon className="w-4 h-4" />
+              {n.label}
+            </NavLink>
+          ))}
+        </nav>
 
-      <div className="mt-3 px-2 flex-1 min-h-0 flex flex-col">
-        <div className="px-3 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">
-          Recent
-        </div>
-        <div className="flex-1 overflow-y-auto scrollbar-thin space-y-0.5 pr-1">
+        <div className="mt-3 px-2 space-y-0.5">
+          <div className="px-3 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">
+            Recent
+          </div>
           {activeChats.length === 0 && (
             <div className="text-xs text-muted-foreground px-3 py-2">
               No chats yet.

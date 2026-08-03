@@ -20,6 +20,7 @@ interface Props {
 // cookie mode → a cookie string; apiKey mode → at least one non-empty key
 // (either the primary `apiKey` or one of the fallback `apiKeys`).
 function hasCredentials(p: ConnectedProvider): boolean {
+  if (p.disabled) return false;
   if (p.authMode === "cookie") return !!p.cookie?.trim();
   if (p.apiKey?.trim()) return true;
   return (p.apiKeys ?? []).some((k) => k.trim());
@@ -44,6 +45,7 @@ export function ModelDropdown({ modelId, onChange }: Props) {
 
   const favorites = useMemo(() => {
     return models.filter((m) => {
+      if (m.disabled) return false;
       const provider = providerMap[m.providerId];
       if (!provider || !hasCredentials(provider)) return false;
       if (!m.favorite) return false;
@@ -73,6 +75,7 @@ export function ModelDropdown({ modelId, onChange }: Props) {
 
   const grouped = useMemo(() => {
     const filtered = models.filter((m) => {
+      if (m.disabled) return false;
       const provider = providerMap[m.providerId];
       // Only show models whose provider still exists AND has usable credentials.
       // Otherwise the model can be selected but the chat request fails with a

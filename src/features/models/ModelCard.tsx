@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Star, Trash2, Save, Eye, FileText, Zap, Brain, Wrench, CheckCircle2, XCircle, TestTube2, Loader2 } from "lucide-react";
+import { Star, Trash2, Save, Eye, FileText, Zap, Brain, Wrench, CheckCircle2, XCircle, TestTube2, Loader2, Plug, PlugZap } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ interface Props {
   providerKey: ProviderKey;
   onToggleFavorite: () => void;
   onToggleSaved: () => void;
+  onToggleDisabled?: () => void;
   onDelete?: () => void;
   onClick?: () => void;
   onTest?: () => void;
@@ -28,6 +29,7 @@ export function ModelCard({
   providerKey,
   onToggleFavorite,
   onToggleSaved,
+  onToggleDisabled,
   onDelete,
   onClick,
   onTest,
@@ -60,12 +62,17 @@ export function ModelCard({
                 {model.modelId}
               </div>
             </div>
-            {passedTest === true && (
+            {model.disabled && (
+              <Badge variant="destructive" className="bg-amber-500/10 text-amber-500 border-amber-500/20 shrink-0 gap-1 text-[11px]">
+                <Plug className="w-3.5 h-3.5" /> Disconnected
+              </Badge>
+            )}
+            {!model.disabled && passedTest === true && (
               <Badge variant="default" className="bg-emerald-500 hover:bg-emerald-600 text-white shrink-0 gap-1 text-[11px]">
                 <CheckCircle2 className="w-3.5 h-3.5" /> Working
               </Badge>
             )}
-            {passedTest === false && (
+            {!model.disabled && passedTest === false && (
               <Badge variant="destructive" className="bg-rose-500 hover:bg-rose-600 text-white shrink-0 gap-1 text-[11px]">
                 <XCircle className="w-3.5 h-3.5" /> Failed
               </Badge>
@@ -162,6 +169,24 @@ export function ModelCard({
               <Save className="w-3.5 h-3.5" />
               {model.saved ? "Saved" : "Save"}
             </Button>
+            {onToggleDisabled && (
+              <Button
+                size="sm"
+                variant={model.disabled ? "default" : "outline"}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleDisabled();
+                }}
+                className={model.disabled ? "bg-emerald-600 hover:bg-emerald-700 text-white" : ""}
+                title={model.disabled ? "Connect model" : "Disconnect model"}
+              >
+                {model.disabled ? (
+                  <PlugZap className="w-3.5 h-3.5" />
+                ) : (
+                  <Plug className="w-3.5 h-3.5" />
+                )}
+              </Button>
+            )}
             {onDelete && (
               <Button
                 size="sm"

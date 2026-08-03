@@ -15,6 +15,7 @@ import { AddModelDialog } from "@/features/models/AddModelDialog";
 export function ProvidersPage() {
   const providers = useProviderStore((s) => s.providers);
   const removeProvider = useProviderStore((s) => s.remove);
+  const toggleDisabledProvider = useProviderStore((s) => s.toggleDisabled);
   const markChecked = useProviderStore((s) => s.markChecked);
   const models = useModelStore((s) => s.models);
   const upsertModels = useModelStore((s) => s.upsertMany);
@@ -67,8 +68,19 @@ export function ProvidersPage() {
     }
   };
 
-  const remove = (p: ConnectedProvider) => {
-    if (!confirm(`Disconnect ${p.displayName}? Models will be removed.`)) return;
+  const handleDisconnect = (p: ConnectedProvider) => {
+    if (!p.disabled) {
+      if (!confirm(`Disconnect ${p.displayName}? Models under this provider will temporarily not be fetched.`)) return;
+      toggleDisabledProvider(p.id);
+      toast.success("Provider disconnected.");
+    } else {
+      toggleDisabledProvider(p.id);
+      toast.success("Provider reconnected.");
+    }
+  };
+
+  const handleDelete = (p: ConnectedProvider) => {
+    if (!confirm(`Permanently delete ${p.displayName}? All models will be removed.`)) return;
     removeByProvider(p.id);
     removeProvider(p.id);
     toast.success("Provider removed.");
@@ -134,8 +146,8 @@ export function ProvidersPage() {
                     setEditing(p);
                     setDialogOpen(true);
                   }}
-                  onDisconnect={() => remove(p)}
-                  onDelete={() => remove(p)}
+                  onDisconnect={() => handleDisconnect(p)}
+                  onDelete={() => handleDelete(p)}
                 />
                 {models.filter((m) => m.providerId === p.id).length === 0 && (
                   <Button

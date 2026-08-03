@@ -58,10 +58,17 @@ export function ProviderCard({
                 <h3 className="font-semibold truncate">
                   {provider.displayName || def.name}
                 </h3>
-                <Badge variant="success">
-                  <PlugZap className="w-3 h-3" />
-                  Connected
-                </Badge>
+                {provider.disabled ? (
+                  <Badge variant="destructive" className="bg-amber-500/10 text-amber-500 border-amber-500/20">
+                    <Plug className="w-3 h-3 mr-1" />
+                    Disconnected
+                  </Badge>
+                ) : (
+                  <Badge variant="success">
+                    <PlugZap className="w-3 h-3 mr-1" />
+                    Connected
+                  </Badge>
+                )}
               </div>
               <p className="text-xs text-muted-foreground mt-1">
                 {truncate(def.description, 80)}
@@ -87,7 +94,7 @@ export function ProviderCard({
           </div>
 
           <div className="flex flex-wrap gap-2 mt-4">
-            <Button size="sm" variant="outline" onClick={onRefresh}>
+            <Button size="sm" variant="outline" onClick={onRefresh} disabled={provider.disabled}>
               <RefreshCw className="w-3.5 h-3.5" />
               Refresh
             </Button>
@@ -95,15 +102,30 @@ export function ProviderCard({
               <Pencil className="w-3.5 h-3.5" />
               Edit
             </Button>
-            <Button size="sm" variant="outline" onClick={onDisconnect}>
-              <Plug className="w-3.5 h-3.5" />
-              Disconnect
+            <Button
+              size="sm"
+              variant={provider.disabled ? "default" : "outline"}
+              onClick={onDisconnect}
+              className={provider.disabled ? "bg-emerald-600 hover:bg-emerald-700 text-white" : ""}
+            >
+              {provider.disabled ? (
+                <>
+                  <PlugZap className="w-3.5 h-3.5" />
+                  Connect
+                </>
+              ) : (
+                <>
+                  <Plug className="w-3.5 h-3.5" />
+                  Disconnect
+                </>
+              )}
             </Button>
             <Button
               size="sm"
               variant="ghost"
               className="ml-auto text-destructive hover:bg-destructive/10"
               onClick={onDelete}
+              title="Delete provider permanently"
             >
               <Trash2 className="w-3.5 h-3.5" />
             </Button>

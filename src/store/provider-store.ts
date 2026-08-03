@@ -17,6 +17,7 @@ interface Actions {
   update: (id: string, patch: Partial<ConnectedProvider>) => void;
   remove: (id: string) => void;
   markChecked: (id: string) => void;
+  toggleDisabled: (id: string) => void;
   getById: (id: string) => ConnectedProvider | undefined;
 }
 
@@ -58,6 +59,10 @@ export const useProviderStore = create<State & Actions>((set, get) => ({
   },
   markChecked: (id) => {
     get().update(id, { lastCheckedAt: Date.now() });
+  },
+  toggleDisabled: (id) => {
+    const p = get().providers.find((x) => x.id === id);
+    if (p) get().update(id, { disabled: !p.disabled });
   },
   getById: (id) => get().providers.find((p) => p.id === id),
 }));

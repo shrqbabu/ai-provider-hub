@@ -87,8 +87,9 @@ export function ComboDialog({ open, onOpenChange, editing }: Props) {
     const byId = new Map(providers.map((p) => [p.id, p]));
     return models
       .filter((m) => {
+        if (m.disabled) return false;
         const p = byId.get(m.providerId);
-        return p && (p.apiFormat ?? "openai") === "openai";
+        return p && !p.disabled && (p.apiFormat ?? "openai") === "openai";
       })
       .map((m) => {
         const p = byId.get(m.providerId)!;

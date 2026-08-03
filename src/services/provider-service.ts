@@ -39,19 +39,34 @@ function resolveBaseURL(url: string): Resolved {
   // Target is passed via query param because Edge functions route by path.
   if (/^https:\/\//i.test(url)) {
     try {
-      const parsed = new URL(url);
-      const base = `${parsed.protocol}//${parsed.host}`;
+      let cleanUrl = url.trim().replace(/\/$/, "");
+      cleanUrl = cleanUrl
+        .replace(/\/chat\/completions\/?$/i, "")
+        .replace(/\/models\/?$/i, "")
+        .replace(/\/messages\/?$/i, "")
+        .replace(/\/$/, "");
+
+      let parsed = new URL(cleanUrl);
+      // Auto-append /v1 for custom OpenAI-compatible gateways if path is empty or root
+      if (!parsed.pathname || parsed.pathname === "/") {
+        cleanUrl += "/v1";
+        parsed = new URL(cleanUrl);
+      }
+
       const remainingPath = parsed.pathname.replace(/\/$/, "");
+      const baseHost = `${parsed.protocol}//${parsed.host}`;
+
       console.log('[Provider Service] Custom provider detected:', {
         original: url,
-        base,
+        cleanUrl,
+        baseHost,
         remainingPath,
         proxyPath: `${origin}/api/proxy/custom${remainingPath}`
       });
       return {
         baseURL: `${origin}/api/proxy/custom${remainingPath}`,
         proxied: true,
-        targetHeader: base,
+        targetHeader: baseHost,
       };
     } catch (err) {
       console.error('[Provider Service] Failed to parse custom URL:', url, err);

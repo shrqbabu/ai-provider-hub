@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Star, Trash2, Save, Eye, FileText, Zap, Brain, Wrench, CheckCircle2 } from "lucide-react";
+import { Star, Trash2, Save, Eye, FileText, Zap, Brain, Wrench, CheckCircle2, XCircle, TestTube2, Loader2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,8 @@ interface Props {
   onToggleSaved: () => void;
   onDelete?: () => void;
   onClick?: () => void;
+  onTest?: () => void;
+  isTesting?: boolean;
   passedTest?: boolean;
 }
 
@@ -28,7 +30,9 @@ export function ModelCard({
   onToggleSaved,
   onDelete,
   onClick,
-  passedTest,
+  onTest,
+  isTesting,
+  passedTest = model.working,
 }: Props) {
   return (
     <motion.div
@@ -56,17 +60,41 @@ export function ModelCard({
                 {model.modelId}
               </div>
             </div>
-            {passedTest && (
+            {passedTest === true && (
               <Badge variant="default" className="bg-emerald-500 hover:bg-emerald-600 text-white shrink-0 gap-1 text-[11px]">
                 <CheckCircle2 className="w-3.5 h-3.5" /> Working
               </Badge>
+            )}
+            {passedTest === false && (
+              <Badge variant="destructive" className="bg-rose-500 hover:bg-rose-600 text-white shrink-0 gap-1 text-[11px]">
+                <XCircle className="w-3.5 h-3.5" /> Failed
+              </Badge>
+            )}
+            {onTest && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onTest();
+                }}
+                disabled={isTesting}
+                className="p-1.5 rounded-lg hover:bg-primary/20 hover:text-primary transition shrink-0"
+                title="Test this model"
+              >
+                {isTesting ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                ) : (
+                  <TestTube2 className="w-4 h-4 text-emerald-500" />
+                )}
+              </button>
             )}
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 onToggleFavorite();
               }}
-              className="p-1 rounded-lg hover:bg-secondary transition"
+              className="p-1.5 rounded-lg hover:bg-secondary transition shrink-0"
+              title="Favorite"
             >
               <Star
                 className={cn(

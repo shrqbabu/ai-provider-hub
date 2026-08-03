@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
-import { Plus, ArrowUp, ArrowDown, Trash2, Boxes, CheckCircle2 } from "lucide-react";
+import { Plus, ArrowUp, ArrowDown, Trash2, Boxes, CheckCircle2, XCircle, TestTube2, Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -23,6 +23,7 @@ import { useProviderStore } from "@/store/provider-store";
 import type { Combo, ComboMember } from "@/types";
 import { toast } from "sonner";
 import { withClaudePrefix, isClaudeModel } from "@/utils/model-prefix";
+import { testSingleModel } from "@/services/provider-service";
 
 interface Props {
   open: boolean;
@@ -42,6 +43,33 @@ export function ComboDialog({ open, onOpenChange, editing }: Props) {
   const [members, setMembers] = useState<ComboMember[]>([]);
   const [selectedProviderFilter, setSelectedProviderFilter] = useState<string>("all");
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
+  const [testingMap, setTestingMap] = useState<Record<string, "testing" | "pass" | "fail">>({});
+
+  const handleTestSingleModel = async (pId: string, mId: string, modelDbId?: string) => {
+    const key = `${pId}::${mId}`;
+    setTestingMap((prev) => ({ ...prev, [key]: "testing" }));
+    const p = providers.find((x) => x.id === pId);
+    if (!p) {
+      setTestingMap((prev) => ({ ...prev, [key]: "fail" }));
+      toast.error("Provider configuration not found.");
+      return;
+    }
+    try {
+      const ok = await testSingleModel(p, mId);
+      setTestingMap((prev) => ({ ...prev, [key]: ok ? "pass" : "fail" }));
+      if (modelDbId) {
+        useModelStore.getState().update(modelDbId, { working: ok });
+      }
+      if (ok) {
+        toast.success(`Model "${mId}" passed test! (Working)`);
+      } else {
+        toast.error(`Model "${mId}" test failed.`);
+      }
+    } catch {
+      setTestingMap((prev) => ({ ...prev, [key]: "fail" }));
+      toast.error(`Model "${mId}" test failed.`);
+    }
+  };
 
   // Reset the form whenever the dialog opens (fresh for create, prefilled for edit).
   useEffect(() => {
@@ -246,6 +274,27 @@ export function ComboDialog({ open, onOpenChange, editing }: Props) {
                     </div>
                     <div className="flex items-center gap-0.5 shrink-0">
                       <button
+                        type="button"
+                        onClick={() =>
+                          handleTestSingleModel(
+                            m.providerId,
+                            m.modelId,
+                            models.find(
+                              (x) => x.providerId === m.providerId && x.modelId === m.modelId
+                            )?.id
+                          )
+                        }
+                        disabled={testingMap[`${m.providerId}::${m.modelId}`] === "testing"}
+                        className="p-1.5 rounded-lg hover:bg-primary/20 hover:text-primary transition"
+                        title="Test model"
+                      >
+                        {testingMap[`${m.providerId}::${m.modelId}`] === "testing" ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                        ) : (
+                          <TestTube2 className="w-3.5 h-3.5 text-emerald-500" />
+                        )}
+                      </button>
+                      <button
                         onClick={() => move(i, -1)}
                         disabled={i === 0}
                         className="p-1.5 rounded-lg hover:bg-secondary disabled:opacity-30 transition"
@@ -336,6 +385,14 @@ export function ComboDialog({ open, onOpenChange, editing }: Props) {
                   {filteredEligible.map(({ model, providerName }) => {
                     const val = `${model.providerId}::${model.modelId}`;
                     const isChecked = selectedModels.includes(val);
+                    const statusState =
+                      testingMap[val] ??
+                      (model.working === true
+                        ? "pass"
+                        : model.working === false
+                        ? "fail"
+                        : undefined);
+
                     return (
                       <div
                         key={val}
@@ -346,7 +403,7 @@ export function ComboDialog({ open, onOpenChange, editing }: Props) {
                             setSelectedModels([...selectedModels, val]);
                           }
                         }}
-                        className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-secondary/60 cursor-pointer transition select-none text-xs"
+                        className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-secondary/60 cursor-pointer transition select-none text-xs group"
                       >
                         <input
                           type="checkbox"
@@ -356,15 +413,35 @@ export function ComboDialog({ open, onOpenChange, editing }: Props) {
                         />
                         <div className="min-w-0 flex-1">
                           <div className="font-medium truncate text-foreground flex items-center gap-1.5">
-                            {model.displayName}
-                            {model.working && (
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                            )}
+                            <span>{model.displayName}</span>
+                            {statusState === "testing" ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-primary shrink-0" />
+                            ) : statusState === "pass" ? (
+                              <Badge variant="outline" className="border-emerald-500/40 bg-emerald-500/10 text-emerald-500 text-[10px] gap-1 px-1.5 py-0 font-medium shrink-0">
+                                <CheckCircle2 className="w-3 h-3" /> Working
+                              </Badge>
+                            ) : statusState === "fail" ? (
+                              <Badge variant="outline" className="border-rose-500/40 bg-rose-500/10 text-rose-500 text-[10px] gap-1 px-1.5 py-0 font-medium shrink-0">
+                                <XCircle className="w-3 h-3" /> Failed
+                              </Badge>
+                            ) : null}
                           </div>
                           <div className="text-[10px] text-muted-foreground truncate">
                             {isClaudeModel(model.modelId) ? withClaudePrefix(model.modelId) : model.modelId} · {providerName}
                           </div>
                         </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleTestSingleModel(model.providerId, model.modelId, model.id);
+                          }}
+                          disabled={statusState === "testing"}
+                          className="p-1 rounded-md hover:bg-primary/20 hover:text-primary text-muted-foreground transition shrink-0"
+                          title="Test this model"
+                        >
+                          <TestTube2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     );
                   })}

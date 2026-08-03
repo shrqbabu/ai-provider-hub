@@ -36,6 +36,7 @@ export function ModelsPage() {
   const [addFor, setAddFor] = useState<string | undefined>();
   const [testResults, setTestResults] = useState<Record<string, boolean>>({});
   const [isTesting, setIsTesting] = useState(false);
+  const [testingSingleId, setTestingSingleId] = useState<string | null>(null);
   const [showOnlyWorking, setShowOnlyWorking] = useState(false);
   const [testedCount, setTestedCount] = useState(0);
 
@@ -109,6 +110,23 @@ export function ModelsPage() {
     setIsTesting(false);
     setShowOnlyWorking(true);
     toast.success(`Testing complete! ${passed} of ${targetModels.length} models working.`);
+  };
+
+  const testOneModel = async (m: (typeof models)[0]) => {
+    const p = providerMap[m.providerId];
+    if (!p) {
+      toast.error("Provider configuration not found.");
+      return;
+    }
+    setTestingSingleId(m.id);
+    const ok = await testSingleModel(p, m.modelId);
+    updateModel(m.id, { working: ok });
+    setTestingSingleId(null);
+    if (ok) {
+      toast.success(`Model "${m.displayName}" passed test (Working)`);
+    } else {
+      toast.error(`Model "${m.displayName}" test failed.`);
+    }
   };
 
   return (
@@ -250,11 +268,13 @@ export function ModelsPage() {
                   model={m}
                   providerName={p.displayName}
                   providerKey={p.key}
-                  passedTest={m.working === true}
+                  passedTest={m.working}
                   onToggleFavorite={() => toggleFav(m.id)}
                   onToggleSaved={() => toggleSaved(m.id)}
                   onDelete={m.manual ? () => remove(m.id) : undefined}
                   onClick={() => startChat(m.id)}
+                  onTest={() => testOneModel(m)}
+                  isTesting={testingSingleId === m.id}
                 />
               );
             })}

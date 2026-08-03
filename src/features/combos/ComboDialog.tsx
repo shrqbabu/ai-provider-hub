@@ -203,6 +203,22 @@ export function ComboDialog({ open, onOpenChange, editing }: Props) {
               and so on. OpenAI-format models only.
             </p>
 
+            {members.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 p-2.5 rounded-xl border border-primary/20 bg-primary/5 mb-2">
+                <span className="text-[10px] font-semibold text-primary uppercase tracking-wider mr-1">Tags Flow:</span>
+                {members.map((m, i) => (
+                  <div key={`${m.providerId}::${m.modelId}`} className="flex items-center gap-1">
+                    <Badge variant="default" className="text-xs px-2 py-0.5 font-normal flex items-center gap-1 bg-primary/20 text-foreground border border-primary/30">
+                      <span className="font-bold text-[9px] bg-primary text-primary-foreground px-1 rounded">#{i + 1}</span>
+                      <span className="font-medium">{modelLabel(m)}</span>
+                      <span className="opacity-60 text-[10px]">({providerName(m.providerId)})</span>
+                    </Badge>
+                    {i < members.length - 1 && <span className="text-muted-foreground text-xs font-bold">➔</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+
             {members.length === 0 ? (
               <div className="rounded-xl border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
                 No models yet. Add one below.
@@ -212,21 +228,21 @@ export function ComboDialog({ open, onOpenChange, editing }: Props) {
                 {members.map((m, i) => (
                   <div
                     key={`${m.providerId}::${m.modelId}`}
-                    className="flex items-center gap-2 rounded-xl border border-border bg-background/40 p-2"
+                    className="flex items-center gap-2 rounded-xl border border-border/80 bg-card/60 p-2 shadow-xs hover:border-primary/40 transition"
                   >
-                    <Badge variant="secondary" className="shrink-0">
-                      #{i + 1}
+                    <Badge variant="outline" className="bg-primary/10 text-primary font-bold border-primary/30 shrink-0">
+                      Tag #{i + 1}
                     </Badge>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm truncate flex items-center gap-1.5">
+                    <div className="min-w-0 flex-1 flex flex-wrap items-center gap-1.5">
+                      <Badge variant="secondary" className="font-medium text-xs truncate max-w-[200px] py-0.5">
                         {modelLabel(m)}
                         {models.find((x) => x.providerId === m.providerId && x.modelId === m.modelId)?.working && (
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                          <CheckCircle2 className="w-3 h-3 text-emerald-500 ml-1 inline shrink-0" />
                         )}
-                      </div>
-                      <div className="text-[11px] text-muted-foreground truncate">
-                        {isClaudeModel(m.modelId) ? withClaudePrefix(m.modelId) : m.modelId} · {providerName(m.providerId)}
-                      </div>
+                      </Badge>
+                      <Badge variant="outline" className="text-[10px] text-muted-foreground truncate py-0">
+                        {providerName(m.providerId)}
+                      </Badge>
                     </div>
                     <div className="flex items-center gap-0.5 shrink-0">
                       <button
@@ -285,6 +301,29 @@ export function ComboDialog({ open, onOpenChange, editing }: Props) {
                   </Select>
                 </div>
               </div>
+
+              {selectedModels.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 p-2 rounded-lg bg-secondary/40 border border-border">
+                  <span className="text-[10px] text-muted-foreground font-medium w-full">Selected tags to add (click to remove):</span>
+                  {selectedModels.map((val) => {
+                    const [pId, ...rest] = val.split("::");
+                    const mId = rest.join("::");
+                    const found = models.find((x) => x.providerId === pId && x.modelId === mId);
+                    const label = found?.displayName || mId;
+                    return (
+                      <Badge
+                        key={val}
+                        variant="default"
+                        className="text-xs cursor-pointer hover:bg-destructive/80 transition flex items-center gap-1 py-0.5"
+                        onClick={() => setSelectedModels(selectedModels.filter((x) => x !== val))}
+                      >
+                        <span>{label}</span>
+                        <span className="text-[10px] opacity-70">✕</span>
+                      </Badge>
+                    );
+                  })}
+                </div>
+              )}
 
               {filteredEligible.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-border p-4 text-center text-xs text-muted-foreground">

@@ -127,23 +127,28 @@ export function CombosPage() {
                   </div>
                 </div>
 
-                <div className="space-y-1.5">
+                <div className="flex flex-wrap items-center gap-1.5 mt-2 pt-2.5 border-t border-border/40">
                   {c.members.map((m, i) => (
                     <div
                       key={`${m.providerId}::${m.modelId}`}
-                      className="flex items-center gap-2 text-sm"
+                      className="flex items-center gap-1"
                     >
-                      <span className="w-5 text-[11px] text-muted-foreground shrink-0">
-                        {i + 1}.
-                      </span>
-                      <span className="truncate">
-                        {modelLabel(m.providerId, m.modelId)}
-                      </span>
-                      <span className="text-[11px] text-muted-foreground truncate">
-                        · {providerName(m.providerId)}
-                      </span>
+                      <Badge
+                        variant="secondary"
+                        className="text-[11px] font-normal tracking-wide px-2 py-0.5 flex items-center gap-1 border border-border/80"
+                      >
+                        <span className="bg-primary/20 text-primary font-bold px-1 rounded-sm text-[9.5px]">
+                          #{i + 1}
+                        </span>
+                        <span className="truncate max-w-[120px]">
+                          {modelLabel(m.providerId, m.modelId)}
+                        </span>
+                        <span className="text-[9px] text-muted-foreground opacity-60">
+                          ({providerName(m.providerId)})
+                        </span>
+                      </Badge>
                       {i < c.members.length - 1 && (
-                        <ArrowRight className="w-3 h-3 text-muted-foreground/50 ml-auto shrink-0" />
+                        <ArrowRight className="w-3.5 h-3.5 text-muted-foreground/45 shrink-0" />
                       )}
                     </div>
                   ))}

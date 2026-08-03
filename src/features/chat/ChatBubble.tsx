@@ -98,6 +98,17 @@ export function ChatBubble({ message, streaming, thinking, onRetry, onDelete }: 
             <ThinkingIndicator />
           ) : (
             <>
+              {message.thinkingTimeMs != null && !isUser && (
+                <div className="flex items-center justify-between rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-1.5 text-xs mb-2.5">
+                  <div className="flex items-center gap-1.5 text-emerald-500 font-medium">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Thinking almost done</span>
+                  </div>
+                  <span className="font-mono text-[11px] text-muted-foreground">
+                    {(message.thinkingTimeMs / 1000).toFixed(1)}s
+                  </span>
+                </div>
+              )}
               <MarkdownRenderer content={message.content || " "} streaming={streaming} />
               {message.images && message.images.length > 0 && (
                 <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -247,27 +258,40 @@ function ImageLightbox({
 }
 
 function ThinkingIndicator() {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    const start = Date.now();
+    const timer = setInterval(() => {
+      setElapsed(Date.now() - start);
+    }, 100);
+    return () => clearInterval(timer);
+  }, []);
+
   return (
-    <div className="flex flex-col gap-1.5 py-0.5">
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Sparkles className="w-3 h-3 text-primary" />
-        <span className="font-medium">Thinking</span>
+    <div className="flex items-center justify-between rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs w-full max-w-sm">
+      <div className="flex items-center gap-1.5 font-medium text-foreground">
+        <Sparkles className="w-3.5 h-3.5 text-primary animate-pulse" />
+        <span>Thinking</span>
+        <div className="flex items-center gap-0.5 ml-1">
+          {[0, 1, 2].map((i) => (
+            <motion.span
+              key={i}
+              className="w-1 h-1 rounded-full bg-primary"
+              animate={{ y: [0, -2, 0], opacity: [0.3, 1, 0.3] }}
+              transition={{
+                duration: 0.8,
+                repeat: Infinity,
+                delay: i * 0.15,
+                ease: "easeInOut",
+              }}
+            />
+          ))}
+        </div>
       </div>
-      <div className="flex items-center gap-1">
-        {[0, 1, 2].map((i) => (
-          <motion.span
-            key={i}
-            className="w-1.5 h-1.5 rounded-full bg-primary/70"
-            animate={{ y: [0, -4, 0], opacity: [0.4, 1, 0.4] }}
-            transition={{
-              duration: 0.9,
-              repeat: Infinity,
-              delay: i * 0.15,
-              ease: "easeInOut",
-            }}
-          />
-        ))}
-      </div>
+      <span className="font-mono text-[11px] text-muted-foreground font-semibold">
+        {(elapsed / 1000).toFixed(1)}s
+      </span>
     </div>
   );
 }

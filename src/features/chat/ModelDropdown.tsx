@@ -209,6 +209,28 @@ export function ModelDropdown({ modelId, onChange }: Props) {
                           {c.description}
                         </div>
                       )}
+                      <div className="flex flex-wrap items-center gap-1 mt-1">
+                        {c.members.slice(0, 3).map((m, i) => {
+                          const found = models.find(
+                            (x) => x.providerId === m.providerId && x.modelId === m.modelId
+                          );
+                          const label = found?.displayName || m.modelId;
+                          return (
+                            <Badge
+                              key={i}
+                              variant="secondary"
+                              className="text-[9px] py-0 px-1 font-normal opacity-85"
+                            >
+                              #{i + 1} {label}
+                            </Badge>
+                          );
+                        })}
+                        {c.members.length > 3 && (
+                          <span className="text-[9px] text-muted-foreground font-semibold">
+                            +{c.members.length - 3} more
+                          </span>
+                        )}
+                      </div>
                     </div>
                     {c.id === modelId && <Check className="w-4 h-4 text-primary" />}
                   </button>

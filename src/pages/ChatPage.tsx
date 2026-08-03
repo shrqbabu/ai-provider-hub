@@ -42,6 +42,7 @@ export function ChatPage() {
   const recordUsage = useUsageStore((s) => s.record);
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [thinkingId, setThinkingId] = useState<string | null>(null);
+  const thinkingStartRef = useRef<number>(0);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(chat?.title ?? "");
   const abortRef = useRef<AbortController | null>(null);
@@ -179,6 +180,7 @@ export function ChatPage() {
     abortRef.current = new AbortController();
     setStreamingId(assistantId);
     setThinkingId(assistantId);
+    thinkingStartRef.current = Date.now();
 
     const getShown = startBufferedFlush(chat.id, assistantId);
 
@@ -202,12 +204,22 @@ export function ChatPage() {
           allMessages,
           {
             onDelta: (d) => {
-              // First delta arrives → hide "thinking".
-              if (thinkingId) setThinkingId(null);
+              // First delta arrives → record thinking duration and hide thinking state.
+              if (thinkingStartRef.current > 0) {
+                const elapsed = Date.now() - thinkingStartRef.current;
+                thinkingStartRef.current = 0;
+                setThinkingId(null);
+                updateMessage(chat.id, assistantId, { thinkingTimeMs: elapsed });
+              }
               bufferRef.current.pending += d;
             },
             onImage: (url) => {
-              if (thinkingId) setThinkingId(null);
+              if (thinkingStartRef.current > 0) {
+                const elapsed = Date.now() - thinkingStartRef.current;
+                thinkingStartRef.current = 0;
+                setThinkingId(null);
+                updateMessage(chat.id, assistantId, { thinkingTimeMs: elapsed });
+              }
               const current = useChatStore.getState().byId(chat.id);
               const msg = current?.messages.find((m) => m.id === assistantId);
               const next = [...(msg?.images ?? []), url];

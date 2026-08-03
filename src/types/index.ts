@@ -115,6 +115,7 @@ export interface ChatMessage {
   tokensIn?: number;
   tokensOut?: number;
   durationMs?: number;
+  thinkingTimeMs?: number;
   error?: string;
 }
 

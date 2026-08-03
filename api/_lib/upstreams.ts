@@ -218,7 +218,7 @@ export function resolveAttempts(
   providers: GwProvider[],
   models: GwModel[],
   combos: GwCombo[]
-): { attempts: ResolvedRoute[] } | { error: string; status: number } {
+): { attempts: ResolvedRoute[]; combo?: GwCombo } | { error: string; status: number } {
   if (!model) return { error: "Request is missing `model`.", status: 400 };
   if (!providers.length)
     return {
@@ -249,7 +249,7 @@ export function resolveAttempts(
         error: `Combo "${combo.name}" has no usable members. Its providers may have been removed — edit the combo in the app.`,
         status: 400,
       };
-    return { attempts };
+    return { attempts, combo };
   }
 
   const route = resolveRoute(model, providers, models);

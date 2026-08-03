@@ -153,9 +153,21 @@ export async function handleGateway(
   // ── Fallback loop over attempt(s) ────────────────────────────────────────
   let lastStatus = 502;
   let lastText = "All provider attempts failed.";
+  const isCombo = resolved && "combo" in resolved && !!resolved.combo;
+  const comboStart = Date.now();
+  const comboAttempts: Array<{
+    providerId: string;
+    modelId: string;
+    displayName?: string;
+    status: "success" | "failed";
+    error?: string;
+    durationMs?: number;
+  }> = [];
+
   for (let i = 0; i < tries.length; i++) {
     const { route, cred } = tries[i];
     const { provider, modelId } = route;
+    const attemptStart = Date.now();
 
     const isAnthropicProvider = (provider.apiFormat ?? "openai") === "anthropic";
     const needsTranslation = endpoint === "/messages" && !isAnthropicProvider;
@@ -207,16 +219,59 @@ export async function handleGateway(
     } catch (err) {
       lastStatus = 502;
       lastText = err instanceof Error ? err.message : "Upstream fetch failed.";
+      if (isCombo) {
+        comboAttempts.push({
+          providerId: provider.id,
+          modelId: modelId,
+          displayName: modelId,
+          status: "failed",
+          error: lastText,
+          durationMs: Date.now() - attemptStart,
+        });
+      }
       continue;
     }
 
     if (shouldFallback(upstream.status) && i < tries.length - 1) {
       lastStatus = upstream.status;
       lastText = await safeText(upstream);
+      if (isCombo) {
+        comboAttempts.push({
+          providerId: provider.id,
+          modelId: modelId,
+          displayName: modelId,
+          status: "failed",
+          error: lastText,
+          durationMs: Date.now() - attemptStart,
+        });
+      }
       continue;
     }
 
     void recordUsage(uid, provider.id, modelId, nowMs).catch(() => {});
+
+    if (isCombo && resolved.combo) {
+      comboAttempts.push({
+        providerId: provider.id,
+        modelId: modelId,
+        displayName: modelId,
+        status: "success",
+        durationMs: Date.now() - attemptStart,
+      });
+      void recordComboLog(uid, {
+        id: `glog_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        comboId: resolved.combo.id,
+        comboName: resolved.combo.name,
+        respondingModelId: modelId,
+        respondingProviderId: provider.id,
+        respondingModelName: modelId,
+        attempts: [...comboAttempts],
+        tokensIn: 0,
+        tokensOut: 0,
+        durationMs: Date.now() - comboStart,
+        createdAt: Date.now(),
+      }).catch(() => {});
+    }
 
     if (needsTranslation && isGoogleProvider) {
       return await translateGoogleResponseToAnthropic(upstream, wantsStream, modelId);
@@ -225,6 +280,21 @@ export async function handleGateway(
       return await translateResponseToAnthropic(upstream, wantsStream, modelId);
     }
     return relay(upstream, wantsStream);
+  }
+
+  if (isCombo && resolved.combo) {
+    void recordComboLog(uid, {
+      id: `glog_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      comboId: resolved.combo.id,
+      comboName: resolved.combo.name,
+      respondingModelId: "",
+      respondingProviderId: "",
+      attempts: [...comboAttempts],
+      tokensIn: 0,
+      tokensOut: 0,
+      durationMs: Date.now() - comboStart,
+      createdAt: Date.now(),
+    }).catch(() => {});
   }
 
   return formatGatewayError(
@@ -1183,4 +1253,33 @@ async function recordUsage(
   list.push({ providerId, modelId, at: nowMs });
   const trimmed = list.slice(-500);
   await writeKV(uid, KEY, trimmed, nowMs);
+}
+
+async function recordComboLog(
+  uid: string,
+  entry: {
+    id: string;
+    comboId: string;
+    comboName: string;
+    respondingModelId: string;
+    respondingProviderId: string;
+    respondingModelName?: string;
+    attempts: Array<{
+      providerId: string;
+      modelId: string;
+      displayName?: string;
+      status: "success" | "failed";
+      error?: string;
+      durationMs?: number;
+    }>;
+    tokensIn: number;
+    tokensOut: number;
+    durationMs: number;
+    createdAt: number;
+  }
+): Promise<void> {
+  const KEY = "combo_logs";
+  const list = await readKV<any[]>(uid, KEY, []);
+  const nextList = [entry, ...list].slice(0, 1000);
+  await writeKV(uid, KEY, nextList, entry.createdAt);
 }

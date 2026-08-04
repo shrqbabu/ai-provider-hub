@@ -8,6 +8,8 @@ import {
   Trash2,
   Loader2,
   ShieldAlert,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +27,7 @@ export function KeyStorePage() {
   const [adding, setAdding] = useState(false);
   const [label, setLabel] = useState("");
   const [keyValue, setKeyValue] = useState("");
+  const [showKeyValue, setShowKeyValue] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -102,13 +105,28 @@ export function KeyStorePage() {
               placeholder="Label (e.g. My OpenAI Key, Anthropic Dev)"
               className="flex-1"
             />
-            <Input
-              value={keyValue}
-              type="password"
-              onChange={(e) => setKeyValue(e.target.value)}
-              placeholder="Key value (sk-...)"
-              className="flex-1"
-            />
+            <div className="relative flex-1">
+              <Input
+                value={keyValue}
+                type={showKeyValue ? "text" : "password"}
+                onChange={(e) => setKeyValue(e.target.value)}
+                placeholder="Key value (sk-...)"
+                className="w-full pr-9"
+              />
+              <button
+                type="button"
+                onClick={() => setShowKeyValue(!showKeyValue)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground hover:bg-secondary/50 rounded-md transition-colors"
+                title={showKeyValue ? "Hide key value" : "Show key value"}
+                tabIndex={-1}
+              >
+                {showKeyValue ? (
+                  <EyeOff className="w-3.5 h-3.5" />
+                ) : (
+                  <Eye className="w-3.5 h-3.5" />
+                )}
+              </button>
+            </div>
           </div>
           <div className="flex justify-end">
             <Button onClick={handleAdd} disabled={adding}>

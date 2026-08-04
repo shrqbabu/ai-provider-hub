@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import { Loader2, PlugZap, TestTube2, Plus, Trash2 } from "lucide-react";
+import { Loader2, PlugZap, TestTube2, Plus, Trash2, Eye, EyeOff } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -91,14 +91,20 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
   const [form, setForm] = useState<FormState>(initial(existing));
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [visibleKeys, setVisibleKeys] = useState<Record<number, boolean>>({});
   const providerStore = useProviderStore();
   const modelStore = useModelStore();
 
   useEffect(() => {
     if (open) {
       setForm(initial(existing));
+      setVisibleKeys({});
     }
   }, [open, existing]);
+
+  const toggleKeyVisibility = (index: number) => {
+    setVisibleKeys((prev) => ({ ...prev, [index]: !prev[index] }));
+  };
 
   const isCustom = form.key === "custom";
   const isCookie = form.authMode === "cookie";
@@ -410,7 +416,7 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
                   <div key={i} className="flex items-center gap-2">
                     <div className="relative flex-1">
                       <Input
-                        type="password"
+                        type={visibleKeys[i] ? "text" : "password"}
                         value={k}
                         onChange={(e) => setKeyAt(i, e.target.value)}
                         placeholder={
@@ -420,13 +426,29 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
                               : "sk-..."
                             : "Fallback key"
                         }
+                        className={form.apiKeys.length > 1 ? "pr-20" : "pr-9"}
                         autoComplete="off"
                       />
-                      {form.apiKeys.length > 1 && (
-                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">
-                          {i === 0 ? "primary" : `#${i + 1}`}
-                        </span>
-                      )}
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+                        {form.apiKeys.length > 1 && (
+                          <span className="text-[10px] text-muted-foreground pointer-events-none select-none">
+                            {i === 0 ? "primary" : `#${i + 1}`}
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => toggleKeyVisibility(i)}
+                          className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
+                          title={visibleKeys[i] ? "Hide API key" : "Show API key"}
+                          tabIndex={-1}
+                        >
+                          {visibleKeys[i] ? (
+                            <EyeOff className="w-3.5 h-3.5" />
+                          ) : (
+                            <Eye className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      </div>
                     </div>
                     {form.apiKeys.length > 1 && (
                       <button

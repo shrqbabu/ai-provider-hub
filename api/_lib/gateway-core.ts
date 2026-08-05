@@ -206,7 +206,13 @@ export async function handleGateway(
 
     const headers =
       isGoogleProvider && needsTranslation
-        ? new Headers({ "Content-Type": "application/json" })
+        ? new Headers({
+            "Content-Type": "application/json",
+            // Ask upstream for uncompressed bytes. We relay the body straight
+            // through while stripping content-encoding, so a gzip/br body would
+            // reach the client mislabeled and render as garbage.
+            "Accept-Encoding": "identity",
+          })
         : buildUpstreamHeaders(provider, cred, actualEndpoint);
 
     let upstream: Response;
@@ -311,6 +317,10 @@ function buildUpstreamHeaders(
 ): Headers {
   const headers = new Headers();
   headers.set("Content-Type", "application/json");
+  // Ask upstream for uncompressed bytes. We relay the body straight through
+  // while stripping content-encoding, so a gzip/br body would reach the
+  // client mislabeled and render as garbage.
+  headers.set("Accept-Encoding", "identity");
   const isAnthropic =
     provider.apiFormat === "anthropic" || endpoint === "/messages";
   if (provider.authMode === "cookie") {

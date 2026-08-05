@@ -88,17 +88,17 @@ export function ComboLogsPage() {
   };
 
   return (
-    <div className="h-full flex flex-col p-4 sm:p-6 xl:p-8 max-w-7xl mx-auto space-y-6 overflow-hidden">
+    <div className="h-full flex flex-col p-3 sm:p-6 xl:p-8 max-w-7xl mx-auto space-y-4 sm:space-y-6 overflow-hidden">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
         <div>
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-primary/10 text-primary">
-              <Activity className="w-6 h-6" />
+            <div className="p-1.5 sm:p-2 rounded-xl bg-primary/10 text-primary">
+              <Activity className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
-            <h1 className="text-2xl font-bold tracking-tight">Combo Logs</h1>
+            <h1 className="text-lg sm:text-2xl font-bold tracking-tight">Combo Logs</h1>
           </div>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="hidden sm:block text-sm text-muted-foreground mt-1">
             Monitor AI Combo fallback executions, latency, token consumption, and responding models.
           </p>
         </div>
@@ -116,85 +116,85 @@ export function ComboLogsPage() {
       </div>
 
       {/* Metrics Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 shrink-0">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 shrink-0">
         <Card className="bg-card/40 backdrop-blur-xl border-border/60">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-xs text-muted-foreground font-medium">Total Combo Calls</p>
-              <h3 className="text-2xl font-bold mt-1">{formatNumber(stats.totalCount)}</h3>
-              <p className="text-[11px] text-muted-foreground mt-0.5">
-                {stats.successCount} succeeded ({stats.successRate}%)
+          <CardContent className="p-2.5 sm:p-4 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[10px] sm:text-xs text-muted-foreground font-medium truncate">Total Combo Calls</p>
+              <h3 className="text-lg sm:text-2xl font-bold mt-0.5 sm:mt-1">{formatNumber(stats.totalCount)}</h3>
+              <p className="text-[10px] sm:text-[11px] text-muted-foreground mt-0.5 truncate">
+                {stats.successCount} ok ({stats.successRate}%)
               </p>
             </div>
-            <div className="p-3 rounded-xl bg-primary/10 text-primary">
-              <Boxes className="w-5 h-5" />
+            <div className="p-2 sm:p-3 rounded-xl bg-primary/10 text-primary shrink-0">
+              <Boxes className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
           </CardContent>
         </Card>
 
         <Card className="bg-card/40 backdrop-blur-xl border-border/60">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-xs text-muted-foreground font-medium">Avg Latency</p>
-              <h3 className="text-2xl font-bold mt-1">
+          <CardContent className="p-2.5 sm:p-4 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[10px] sm:text-xs text-muted-foreground font-medium truncate">Avg Latency</p>
+              <h3 className="text-lg sm:text-2xl font-bold mt-0.5 sm:mt-1">
                 {stats.avgLatency >= 1000
                   ? `${(stats.avgLatency / 1000).toFixed(2)}s`
                   : `${stats.avgLatency}ms`}
               </h3>
-              <p className="text-[11px] text-muted-foreground mt-0.5">Per combo request</p>
+              <p className="text-[10px] sm:text-[11px] text-muted-foreground mt-0.5 truncate">Per combo request</p>
             </div>
-            <div className="p-3 rounded-xl bg-amber-500/10 text-amber-500">
-              <Clock className="w-5 h-5" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-card/40 backdrop-blur-xl border-border/60">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-xs text-muted-foreground font-medium">Total Tokens Consumed</p>
-              <h3 className="text-2xl font-bold mt-1">{formatNumber(stats.totalTokens)}</h3>
-              <p className="text-[11px] text-muted-foreground mt-0.5">Prompt & completion</p>
-            </div>
-            <div className="p-3 rounded-xl bg-emerald-500/10 text-emerald-500">
-              <Zap className="w-5 h-5" />
+            <div className="p-2 sm:p-3 rounded-xl bg-amber-500/10 text-amber-500 shrink-0">
+              <Clock className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
           </CardContent>
         </Card>
 
         <Card className="bg-card/40 backdrop-blur-xl border-border/60">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-xs text-muted-foreground font-medium">Success Rate</p>
-              <h3 className="text-2xl font-bold mt-1">{stats.successRate}%</h3>
-              <p className="text-[11px] text-muted-foreground mt-0.5">Fallback success</p>
+          <CardContent className="p-2.5 sm:p-4 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[10px] sm:text-xs text-muted-foreground font-medium truncate">Total Tokens</p>
+              <h3 className="text-lg sm:text-2xl font-bold mt-0.5 sm:mt-1">{formatNumber(stats.totalTokens)}</h3>
+              <p className="text-[10px] sm:text-[11px] text-muted-foreground mt-0.5 truncate">Prompt & completion</p>
+            </div>
+            <div className="p-2 sm:p-3 rounded-xl bg-emerald-500/10 text-emerald-500 shrink-0">
+              <Zap className="w-4 h-4 sm:w-5 sm:h-5" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-card/40 backdrop-blur-xl border-border/60">
+          <CardContent className="p-2.5 sm:p-4 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[10px] sm:text-xs text-muted-foreground font-medium truncate">Success Rate</p>
+              <h3 className="text-lg sm:text-2xl font-bold mt-0.5 sm:mt-1">{stats.successRate}%</h3>
+              <p className="text-[10px] sm:text-[11px] text-muted-foreground mt-0.5 truncate">Fallback success</p>
             </div>
             <div
               className={cn(
-                "p-3 rounded-xl",
+                "p-2 sm:p-3 rounded-xl shrink-0",
                 stats.successRate > 80
                   ? "bg-emerald-500/10 text-emerald-500"
                   : "bg-rose-500/10 text-rose-500"
               )}
             >
-              <CheckCircle2 className="w-5 h-5" />
+              <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
           </CardContent>
         </Card>
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between shrink-0">
+      <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 items-stretch sm:items-center justify-between shrink-0">
         <div className="relative flex-1 max-w-md">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search combo, model, or error..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 bg-card/40 border-border/60"
+            className="pl-9 bg-card/40 border-border/60 h-9 sm:h-10"
           />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 self-start sm:self-auto">
           <Button
             variant={statusFilter === "all" ? "secondary" : "ghost"}
             size="sm"

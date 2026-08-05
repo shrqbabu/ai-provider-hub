@@ -340,16 +340,28 @@ export async function testConnection(
   }
 }
 
+// If the error body is actually an HTML page (proxy/web 404, wrong base URL,
+// captive portal), never show raw markup — replace it with a readable message.
+function cleanBodyMsg(msg: unknown): string {
+  if (typeof msg !== "string") return msg == null ? "" : String(msg);
+  if (/<\/?[a-z][\s\S]*>/i.test(msg)) {
+    const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(msg);
+    return title?.[1]?.trim() || "Upstream returned an HTML page instead of an API response. Check the Base URL (include /v1).";
+  }
+  return msg;
+}
+
 export function extractErrorMessage(err: unknown): string {
   if (!err) return "Unknown error.";
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const anyErr = err as any;
   const status = anyErr?.status ?? anyErr?.response?.status;
-  const bodyMsg =
+  const bodyMsg = cleanBodyMsg(
     anyErr?.error?.message ??
-    anyErr?.response?.data?.error?.message ??
-    anyErr?.response?.data?.message ??
-    anyErr?.message;
+      anyErr?.response?.data?.error?.message ??
+      anyErr?.response?.data?.message ??
+      anyErr?.message
+  );
   if (status === 401) {
     return `401 Unauthorized — API key rejected. Check that the key is copied fully (no spaces) and is active. ${
       bodyMsg && bodyMsg !== "401 status code (no body)" ? `Detail: ${bodyMsg}` : ""

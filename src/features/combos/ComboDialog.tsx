@@ -84,15 +84,15 @@ export function ComboDialog({ open, onOpenChange, editing }: Props) {
     setSelectedModels([]);
   }, [open, editing]);
 
-  // Combos accept OpenAI-format models only — exclude any model whose provider
-  // speaks the Anthropic wire format (no translation happens at the gateway).
+  // Combos accept OpenAI- and Anthropic-format models alike — the gateway
+  // translates /chat/completions ↔ /messages either way.
   const eligible = useMemo(() => {
     const byId = new Map(providers.map((p) => [p.id, p]));
     return models
       .filter((m) => {
         if (m.disabled) return false;
         const p = byId.get(m.providerId);
-        return p && !p.disabled && (p.apiFormat ?? "openai") === "openai";
+        return p && !p.disabled;
       })
       .map((m) => {
         const p = byId.get(m.providerId)!;
@@ -232,7 +232,8 @@ export function ComboDialog({ open, onOpenChange, editing }: Props) {
             <Label>Models — fallback priority</Label>
             <p className="text-[11px] text-muted-foreground -mt-1">
               Tried top to bottom. If #1 fails, the gateway falls through to #2,
-              and so on. OpenAI-format models only.
+              and so on. OpenAI- and Anthropic-format models both work — the
+              gateway translates automatically.
             </p>
 
             {members.length > 0 && (
@@ -343,13 +344,11 @@ export function ComboDialog({ open, onOpenChange, editing }: Props) {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Providers</SelectItem>
-                      {providers
-                        .filter((p) => (p.apiFormat ?? "openai") === "openai")
-                        .map((p) => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {p.displayName}
-                          </SelectItem>
-                        ))}
+                      {providers.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.displayName}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -381,8 +380,8 @@ export function ComboDialog({ open, onOpenChange, editing }: Props) {
               {filteredEligible.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
                   {selectedProviderFilter !== "all"
-                    ? "No remaining OpenAI-format models for this provider."
-                    : "No remaining OpenAI-format models available."}
+                    ? "No remaining models for this provider."
+                    : "No remaining models available."}
                 </div>
               ) : (
                 <div className="border border-border rounded-xl max-h-[160px] overflow-y-auto p-1.5 space-y-0.5 scrollbar-thin bg-background/20">

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -9,6 +9,7 @@ import {
   Image as ImageIcon,
   FileText,
   FolderOpen,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ChatAttachment, DiscoveredModel } from "@/types";
@@ -18,11 +19,17 @@ import { v4 as uuid } from "uuid";
 import { cn } from "@/utils";
 
 interface Props {
-  onSend: (text: string, attachments: ChatAttachment[]) => void;
+  onSend: (
+    text: string,
+    attachments: ChatAttachment[],
+    options?: { imageMode?: boolean }
+  ) => void;
   onStop?: () => void;
   streaming?: boolean;
   disabled?: boolean;
   model?: DiscoveredModel;
+  /** Whether the current model/provider can generate images. */
+  canGenerateImages?: boolean;
 }
 
 // Directories that are never useful as chat context — skipped during
@@ -42,9 +49,10 @@ function relPath(f: File): string {
   return f.name;
 }
 
-export function MessageInput({ onSend, onStop, streaming, disabled, model }: Props) {
+export function MessageInput({ onSend, onStop, streaming, disabled, model, canGenerateImages }: Props) {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [imageMode, setImageMode] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
@@ -136,11 +144,21 @@ export function MessageInput({ onSend, onStop, streaming, disabled, model }: Pro
     if (streaming) return;
     const value = text.trim();
     if (!value && attachments.length === 0) return;
-    onSend(value, attachments);
+    // Image generation needs a prompt, not attachments.
+    if (imageMode && !value) {
+      toast.error("Describe the image you want to generate.");
+      return;
+    }
+    onSend(value, attachments, { imageMode });
     setText("");
     setAttachments([]);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
   };
+
+  // Drop image mode if the model can no longer generate images.
+  useEffect(() => {
+    if (imageMode && !canGenerateImages) setImageMode(false);
+  }, [imageMode, canGenerateImages]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -156,6 +174,8 @@ export function MessageInput({ onSend, onStop, streaming, disabled, model }: Pro
         "relative rounded-2xl border transition-all",
         isDragActive
           ? "border-primary bg-primary/5 ring-2 ring-primary/30"
+          : imageMode
+          ? "border-primary/50 bg-card/70 backdrop-blur-xl ring-1 ring-primary/20"
           : "border-border bg-card/70 backdrop-blur-xl",
         "shadow-lg"
       )}
@@ -216,7 +236,7 @@ export function MessageInput({ onSend, onStop, streaming, disabled, model }: Pro
           e.target.style.height = Math.min(e.target.scrollHeight, 240) + "px";
         }}
         onKeyDown={onKeyDown}
-        placeholder="Ask anything..."
+        placeholder={imageMode ? "Describe an image to create..." : "Ask anything..."}
         disabled={disabled}
         rows={1}
         className="w-full bg-transparent px-4 pt-4 pb-2 resize-none outline-none text-sm placeholder:text-muted-foreground"
@@ -266,6 +286,22 @@ export function MessageInput({ onSend, onStop, streaming, disabled, model }: Pro
           >
             <FileText className="w-3.5 h-3.5" />
             PDF
+          </Button>
+        )}
+        {canGenerateImages && (
+          <Button
+            size="sm"
+            variant={imageMode ? "default" : "ghost"}
+            className={cn(
+              "h-8 text-xs",
+              imageMode && "bg-primary text-primary-foreground"
+            )}
+            onClick={() => setImageMode((v) => !v)}
+            type="button"
+            title="Generate an image from your prompt"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            Create image
           </Button>
         )}
         <div className="flex-1" />

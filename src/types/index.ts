@@ -111,6 +111,11 @@ export interface ChatMessage {
   // Image URLs the assistant returned (e.g. from image-gen or vision models
   // that echo back images). Rendered inline in the bubble.
   images?: string[];
+  // True while an image-generation request is in flight — the bubble shows a
+  // shimmer placeholder card until the real images arrive.
+  generating?: boolean;
+  // How many image placeholders to show while generating (matches the request's n).
+  generatingCount?: number;
   createdAt: number;
   model?: string;
   providerId?: string;

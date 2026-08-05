@@ -147,9 +147,19 @@ export default defineConfig(({ mode }) => {
               }
               const providerToken = req.headers["x-provider-key"];
               if (providerToken) {
-                outHeaders["Authorization"] = `Bearer ${
-                  Array.isArray(providerToken) ? providerToken[0] : providerToken
-                }`;
+                const token = Array.isArray(providerToken)
+                  ? providerToken[0]
+                  : providerToken;
+                // Anthropic Messages uses x-api-key; everything else Bearer.
+                // Mirror api/proxy.ts (prod) so dev behaves identically.
+                if (
+                  providerKey === "anthropic" ||
+                  upstreamPath.includes("/messages")
+                ) {
+                  outHeaders["x-api-key"] = token;
+                } else {
+                  outHeaders["Authorization"] = `Bearer ${token}`;
+                }
               }
               // Cookie-based auth (see api/proxy.ts): rewrite x-provider-cookie
               // into a real Cookie header on the upstream request.
@@ -185,6 +195,21 @@ export default defineConfig(({ mode }) => {
                   return;
                 res.setHeader(k, v);
               });
+
+              // Don't stream HTML error pages back — return a readable JSON
+              // error instead (same guard as api/proxy.ts in prod).
+              const ctype = upstream.headers.get("content-type") ?? "";
+              if (ctype.includes("text/html")) {
+                const htmlText = await upstream
+                  .text()
+                  .catch(() => "");
+                send(res, upstream.status, {
+                  error: `Upstream returned an HTML page instead of an API response (${upstream.status}). Check the Base URL (include /v1) and that it's an API endpoint, not a website.${
+                    htmlText ? ` HTML: ${htmlText.slice(0, 200)}` : ""
+                  }`,
+                });
+                return;
+              }
 
               if (!upstream.body) {
                 res.end();

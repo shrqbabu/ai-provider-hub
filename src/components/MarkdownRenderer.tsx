@@ -11,7 +11,22 @@ interface Props {
   streaming?: boolean;
 }
 
+// Some text models hallucinate image "tags" they can't actually produce, e.g.
+//   <Image src="image_agent_tag_0">  or  [image: ...]  or  ![](image_agent_tag_1)
+// These reference no real file, so rendering them as text/broken images is
+// noise. Strip the placeholder forms so the prose stays clean. Real image URLs
+// (http/https/data:) are left untouched and render via the `img` renderer.
+function stripPlaceholderImages(text: string): string {
+  return text
+    // <Image src="image_agent_tag_..."> / <img src="sandbox:..."> style
+    .replace(/<Image\b[^>]*>/gi, "")
+    .replace(/<img\b[^>]*\bsrc=["'](?:image_agent_tag|sandbox:|attachment:)[^"']*["'][^>]*>/gi, "")
+    // Markdown image whose URL is a fake placeholder, not a real link.
+    .replace(/!\[[^\]]*\]\((?:image_agent_tag|sandbox:|attachment:)[^)]*\)/gi, "");
+}
+
 export function MarkdownRenderer({ content, streaming }: Props) {
+  const clean = stripPlaceholderImages(content);
   return (
     <div className={cn("markdown text-sm", streaming && "streaming-cursor")}>
       <ReactMarkdown
@@ -20,11 +35,28 @@ export function MarkdownRenderer({ content, streaming }: Props) {
         components={{
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           pre: ({ children }: any) => <PremiumCodeBlock>{children}</PremiumCodeBlock>,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          img: ({ src, alt }: any) => <MarkdownImage src={src} alt={alt} />,
         }}
       >
-        {content}
+        {clean}
       </ReactMarkdown>
     </div>
+  );
+}
+
+// Real inline images from markdown (![alt](url)). Only render http(s)/data
+// URLs — anything else is a placeholder that slipped through the strip pass.
+function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {
+  if (!src || !/^(https?:|data:)/i.test(src)) return null;
+  return (
+    <img
+      src={src}
+      alt={alt ?? ""}
+      loading="lazy"
+      decoding="async"
+      className="my-3 max-h-[420px] w-auto max-w-full rounded-xl border border-border object-contain bg-secondary/40"
+    />
   );
 }
 

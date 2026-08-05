@@ -114,6 +114,20 @@ export default async function handler(req: Request): Promise<Response> {
       respHeaders.set(k, v);
     });
 
+    // Don't stream HTML error pages (wrong base URL, provider web 404, etc.)
+    // back to the client — return a readable JSON error instead.
+    if ((respHeaders.get("content-type") ?? "").includes("text/html")) {
+      const text = await upstream.text().catch(() => "");
+      return json(
+        {
+          error: `Upstream returned an HTML page instead of an API response (${upstream.status}). Check the Base URL (include /v1) and that it's an API endpoint, not a website.${
+            text ? ` HTML: ${text.slice(0, 200)}` : ""
+          }`,
+        },
+        upstream.status
+      );
+    }
+
     return new Response(upstream.body, {
       status: upstream.status,
       statusText: upstream.statusText,

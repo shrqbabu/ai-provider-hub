@@ -170,7 +170,15 @@ export async function handleGateway(
     const attemptStart = Date.now();
 
     const isAnthropicProvider = (provider.apiFormat ?? "openai") === "anthropic";
+    // Two translation directions are possible, depending on what format the
+    // CALLER speaks vs what the PROVIDER speaks:
+    //   - /messages request → OpenAI provider: translate request → OpenAI,
+    //     response → Anthropic (needsTranslation).
+    //   - /chat/completions request → Anthropic provider (e.g. a combo member):
+    //     translate request → Anthropic, response → OpenAI (toAnthropicProvider).
     const needsTranslation = endpoint === "/messages" && !isAnthropicProvider;
+    const toAnthropicProvider =
+      endpoint === "/chat/completions" && isAnthropicProvider;
     const isGoogleProvider =
       provider.key === "google" ||
       (provider.baseURL ?? "").includes("generativelanguage.googleapis.com");
@@ -198,6 +206,10 @@ export async function handleGateway(
       upstreamBody = JSON.stringify(
         anthropicToOpenAI(body, cleanModelId, provider.key)
       );
+    } else if (toAnthropicProvider) {
+      actualEndpoint = "/messages";
+      targetURL = baseURLFor(provider).replace(/\/$/, "") + actualEndpoint;
+      upstreamBody = JSON.stringify(openAIToAnthropic(body, cleanModelId));
     } else {
       actualEndpoint = endpoint;
       targetURL = baseURLFor(provider).replace(/\/$/, "") + actualEndpoint;
@@ -285,6 +297,13 @@ export async function handleGateway(
     if (needsTranslation) {
       return await translateResponseToAnthropic(upstream, wantsStream, modelId);
     }
+    if (toAnthropicProvider) {
+      return await translateAnthropicResponseToOpenAI(
+        upstream,
+        wantsStream,
+        cleanModelId
+      );
+    }
     return relay(upstream, wantsStream);
   }
 
@@ -338,6 +357,144 @@ function buildUpstreamHeaders(
       headers.set(k, v);
   }
   return headers;
+}
+
+// Translate an OpenAI /chat/completions request into the Anthropic Messages
+// wire format. Used when a caller speaks OpenAI (e.g. Claude Desktop through a
+// combo, or the app's own chat) but the serving provider is Anthropic-native.
+function openAIToAnthropic(
+  body: Record<string, unknown>,
+  modelId: string
+): Record<string, unknown> {
+  const messages: Array<{ role: string; content: string | unknown[] }> = [];
+
+  const inMsgs = (body.messages ?? []) as Array<{
+    role: string;
+    content: string | Array<Record<string, unknown>>;
+  }>;
+
+  for (const msg of inMsgs) {
+    // Anthropic has no system message role — system content is collected into
+    // the top-level `system` field at the end, so skip it here.
+    if (msg.role === "system") continue;
+    const role = msg.role === "assistant" ? "assistant" : "user";
+    if (typeof msg.content === "string") {
+      messages.push({ role, content: msg.content });
+      continue;
+    }
+    if (!Array.isArray(msg.content)) {
+      messages.push({ role, content: String(msg.content ?? "") });
+      continue;
+    }
+
+    // Multimodal blocks: text, image_url, file. tool_calls / tool results are
+    // represented as text (no tool wiring in this path).
+    const parts: unknown[] = [];
+    for (const b of msg.content) {
+      const block = b as Record<string, unknown>;
+      if (block.type === "text" && typeof block.text === "string") {
+        parts.push({ type: "text", text: block.text });
+      } else if (block.type === "image_url") {
+        const url =
+          (block.image_url as Record<string, unknown>)?.url ?? "";
+        if (typeof url === "string" && url) {
+          // data:image/...;base64,... → Anthropic inline image block.
+          const m = /^data:(image\/[\w.+-]+);base64,(.+)$/.exec(url);
+          if (m) {
+            parts.push({
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: m[1],
+                data: m[2],
+              },
+            });
+          } else {
+            parts.push({ type: "text", text: `[image: ${url}]` });
+          }
+        }
+      } else if (block.type === "file") {
+        const file = block.file as Record<string, unknown> | undefined;
+        const filename = String(file?.filename ?? "file");
+        const fileData = String(file?.file_data ?? "");
+        const m = /^data:(application\/[\w.+-]+);base64,(.+)$/.exec(fileData);
+        if (m) {
+          parts.push({
+            type: "document",
+            source: { type: "base64", media_type: m[1], data: m[2] },
+            title: filename,
+          });
+        } else {
+          parts.push({ type: "text", text: `[attached file: ${filename}]` });
+        }
+      }
+    }
+    if (parts.length === 0) parts.push({ type: "text", text: "" });
+    messages.push({ role, content: parts });
+  }
+
+  const result: Record<string, unknown> = {
+    model: modelId,
+    messages,
+  };
+
+  if (body.stream === true) result.stream = true;
+  if (body.max_tokens != null) result.max_tokens = body.max_tokens;
+  else if (body.max_completion_tokens != null) {
+    result.max_tokens = body.max_completion_tokens;
+  }
+  if (body.temperature != null) result.temperature = body.temperature;
+  if (body.top_p != null) result.top_p = body.top_p;
+
+  // OpenAI tool_calls → Anthropic tools. The first system message in the
+  // conversation is lifted into systemInstruction (Anthropic requires it
+  // outside the messages array).
+  const systemParts: string[] = [];
+  for (const msg of inMsgs) {
+    if (msg.role === "system") {
+      if (typeof msg.content === "string") systemParts.push(msg.content);
+      else if (Array.isArray(msg.content)) {
+        for (const b of msg.content) {
+          if ((b as Record<string, unknown>).type === "text") {
+            systemParts.push(String((b as Record<string, unknown>).text ?? ""));
+          }
+        }
+      }
+    }
+  }
+  if (systemParts.length) {
+    result.system = systemParts.join("\n");
+  }
+
+  const tools = body.tools as Array<{
+    type?: string;
+    function?: { name?: string; description?: string; parameters?: unknown };
+  }> | undefined;
+  if (Array.isArray(tools) && tools.length) {
+    result.tools = tools.map((t) => ({
+      name: t.function?.name ?? "",
+      description: t.function?.description ?? "",
+      input_schema:
+        t.function?.parameters ?? { type: "object", properties: {} },
+    }));
+    const tc = body.tool_choice as
+      | string
+      | { type?: string; function?: { name?: string } }
+      | undefined;
+    if (typeof tc === "string") {
+      if (tc === "required") result.tool_choice = { type: "any" };
+      else if (tc === "auto") result.tool_choice = { type: "auto" };
+      else result.tool_choice = { type: "auto" };
+    } else if (tc?.type === "function" && tc.function?.name) {
+      result.tool_choice = { type: "tool", name: tc.function.name };
+    } else if (tc?.type === "required") {
+      result.tool_choice = { type: "any" };
+    } else if (tc?.type === "auto") {
+      result.tool_choice = { type: "auto" };
+    }
+  }
+
+  return result;
 }
 
 function anthropicToOpenAI(
@@ -979,6 +1136,247 @@ async function translateResponseToAnthropic(
   };
 }
 
+// Translate an Anthropic Messages response into an OpenAI /chat/completions
+// response. The inverse of openAIToAnthropic — used when a caller that speaks
+// OpenAI (Claude Desktop, SDKs, combos) is served by an Anthropic provider.
+async function translateAnthropicResponseToOpenAI(
+  upstream: Response,
+  wantsStream: boolean,
+  modelId: string
+): Promise<CoreResponse> {
+  if (upstream.status !== 200) {
+    const errText = await safeText(upstream);
+    let message = errText;
+    try {
+      const parsed = JSON.parse(errText) as { error?: { message?: string } };
+      if (parsed.error?.message) message = parsed.error.message;
+    } catch {}
+    return formatGatewayError(
+      upstream.status,
+      message || `Upstream error ${upstream.status}.`,
+      false
+    );
+  }
+
+  if (wantsStream) {
+    return translateAnthropicStreamToOpenAI(upstream, modelId);
+  }
+
+  const anth = (await upstream.json()) as {
+    content?: Array<{
+      type: string;
+      id?: string;
+      text?: string;
+      name?: string;
+      input?: unknown;
+    }>;
+    stop_reason?: string;
+    usage?: { input_tokens?: number; output_tokens?: number };
+  };
+
+  const text = (anth.content ?? [])
+    .filter((b) => b.type === "text" && b.text)
+    .map((b) => b.text ?? "")
+    .join("");
+  const toolUses = (anth.content ?? []).filter((b) => b.type === "tool_use");
+
+  const message: Record<string, unknown> = { role: "assistant", content: text };
+  if (toolUses.length) {
+    message.tool_calls = toolUses.map((t) => ({
+      id: t.id ?? `call_${Date.now()}`,
+      type: "function",
+      function: {
+        name: t.name ?? "",
+        arguments: JSON.stringify(t.input ?? {}),
+      },
+    }));
+  }
+
+  let finishReason: string;
+  switch (anth.stop_reason) {
+    case "tool_use":
+      finishReason = "tool_calls";
+      break;
+    case "max_tokens":
+      finishReason = "length";
+      break;
+    default:
+      finishReason = "stop";
+  }
+
+  return {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+    jsonBody: {
+      id: `chatcmpl-${Date.now()}`,
+      object: "chat.completion",
+      created: Math.floor(Date.now() / 1000),
+      model: modelId,
+      choices: [
+        {
+          index: 0,
+          message,
+          finish_reason: finishReason,
+        },
+      ],
+      usage: {
+        prompt_tokens: anth.usage?.input_tokens ?? 0,
+        completion_tokens: anth.usage?.output_tokens ?? 0,
+        total_tokens:
+          (anth.usage?.input_tokens ?? 0) + (anth.usage?.output_tokens ?? 0),
+      },
+    },
+  };
+}
+
+// SSE bridge: Anthropic event stream → OpenAI chat.completion.chunk stream.
+// Consumes the upstream Anthropic stream and re-emits OpenAI chunks so an
+// OpenAI-shaped client (Claude Desktop app chat, combos) parses it natively.
+function translateAnthropicStreamToOpenAI(
+  upstream: Response,
+  modelId: string
+): CoreResponse {
+  const encoder = new TextEncoder();
+  const chatId = `chatcmpl-${Date.now()}`;
+  const sse = (obj: unknown) =>
+    encoder.encode(`data: ${JSON.stringify(obj)}\n\n`);
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        const reader = upstream.body?.getReader();
+        if (!reader) {
+          controller.enqueue(sse({ id: chatId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: modelId, choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }));
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+          return;
+        }
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let textOpen = false;
+        let stopReason = "stop";
+        let usageIn = 0;
+        let usageOut = 0;
+
+        const closeText = () => {
+          if (textOpen) {
+            controller.enqueue(
+              sse({
+                id: chatId,
+                object: "chat.completion.chunk",
+                created: Math.floor(Date.now() / 1000),
+                model: modelId,
+                choices: [{ index: 0, delta: {}, finish_reason: null }],
+              })
+            );
+            textOpen = false;
+          }
+        };
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const rawLine of lines) {
+            const line = rawLine.trim();
+            if (!line.startsWith("data:")) continue;
+            const payload = line.slice(5).trim();
+            if (!payload) continue;
+            let evt: {
+              type?: string;
+              delta?: { type?: string; text?: string; stop_reason?: string };
+              message?: {
+                usage?: { input_tokens?: number; output_tokens?: number };
+              };
+              usage?: { output_tokens?: number };
+            };
+            try {
+              evt = JSON.parse(payload);
+            } catch {
+              continue;
+            }
+            if (evt.type === "content_block_delta" && evt.delta?.text) {
+              if (!textOpen) {
+                textOpen = true;
+                controller.enqueue(
+                  sse({
+                    id: chatId,
+                    object: "chat.completion.chunk",
+                    created: Math.floor(Date.now() / 1000),
+                    model: modelId,
+                    choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }],
+                  })
+                );
+              }
+              controller.enqueue(
+                sse({
+                  id: chatId,
+                  object: "chat.completion.chunk",
+                  created: Math.floor(Date.now() / 1000),
+                  model: modelId,
+                  choices: [{ index: 0, delta: { content: evt.delta.text }, finish_reason: null }],
+                })
+              );
+            } else if (evt.type === "message_delta") {
+              // Carry the Anthropic stop reason + output usage forward.
+              if (evt.delta?.stop_reason) {
+                stopReason =
+                  evt.delta.stop_reason === "tool_use"
+                    ? "tool_calls"
+                    : evt.delta.stop_reason === "max_tokens"
+                    ? "length"
+                    : "stop";
+              }
+              usageOut = evt.usage?.output_tokens ?? usageOut;
+            } else if (evt.type === "message_start") {
+              usageIn = evt.message?.usage?.input_tokens ?? usageIn;
+            } else if (evt.type === "message_stop") {
+              closeText();
+            }
+          }
+        }
+
+        // Final chunk + usage.
+        controller.enqueue(
+          sse({
+            id: chatId,
+            object: "chat.completion.chunk",
+            created: Math.floor(Date.now() / 1000),
+            model: modelId,
+            choices: [],
+            usage: {
+              prompt_tokens: usageIn,
+              completion_tokens: usageOut,
+              total_tokens: usageIn + usageOut,
+            },
+          })
+        );
+        controller.enqueue(sse({ id: chatId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: modelId, choices: [{ index: 0, delta: {}, finish_reason: stopReason }] }));
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+      } catch {
+        try {
+          controller.enqueue(sse({ id: chatId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: modelId, choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }));
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        } catch {}
+      }
+    },
+  });
+
+  return {
+    status: 200,
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+    streamBody: stream,
+  };
+}
+
 function translateStreamToAnthropic(
   upstream: Response,
   modelId: string
@@ -1191,6 +1589,12 @@ function formatGatewayError(
     cleanMsg.includes("404 Not Found")
   ) {
     cleanMsg = `Upstream API returned 404 Page Not Found. Check provider Base URL (ensure /v1 is included) and model ID in AI Provider Hub. Details: ${message}`;
+  } else if (/<\/?[a-z][\s\S]*>/i.test(cleanMsg)) {
+    // Never surface raw HTML from an upstream error body.
+    const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(cleanMsg);
+    cleanMsg = title?.[1]?.trim()
+      ? `Upstream returned an HTML page (${title[1].trim()}). Check the provider Base URL (include /v1).`
+      : "Upstream returned an HTML page instead of an API response. Check the provider Base URL (include /v1).";
   }
   if (isAnthropic) {
     return jsonResponse(code, {
@@ -1233,6 +1637,16 @@ function relay(upstream: Response, _wantsStream: boolean): CoreResponse {
     if (lk === "content-encoding" || lk === "content-length") return;
     headers[k] = v;
   });
+  // An upstream HTML response means we hit a web page, not an API — usually a
+  // wrong base URL (missing /v1), a captive portal, or the provider's own 404
+  // page. Streaming raw HTML to an OpenAI/Anthropic client shows garbage.
+  if ((headers["content-type"] ?? "").toLowerCase().includes("text/html")) {
+    return formatGatewayError(
+      upstream.status,
+      `Upstream returned an HTML page instead of an API response (${upstream.status}). Check the provider Base URL (include /v1) and that it's an API endpoint, not a website.`,
+      false
+    );
+  }
   return {
     status: upstream.status,
     statusText: upstream.statusText,

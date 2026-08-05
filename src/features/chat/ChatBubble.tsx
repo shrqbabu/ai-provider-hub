@@ -94,6 +94,8 @@ export function ChatBubble({ message, streaming, thinking, onRetry, onDelete }: 
           )}
           {message.error ? (
             <div className="text-sm text-destructive">{message.error}</div>
+          ) : message.generating ? (
+            <ImageGeneratingCard count={message.generatingCount ?? 1} />
           ) : thinking && !message.content && !message.images?.length ? (
             <ThinkingIndicator />
           ) : (
@@ -113,8 +115,11 @@ export function ChatBubble({ message, streaming, thinking, onRetry, onDelete }: 
               {message.images && message.images.length > 0 && (
                 <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {message.images.map((url, i) => (
-                    <div
+                    <motion.div
                       key={i}
+                      initial={{ opacity: 0, scale: 0.96 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.35, delay: i * 0.05 }}
                       className="relative rounded-xl overflow-hidden border border-border group"
                     >
                       <img
@@ -141,7 +146,7 @@ export function ChatBubble({ message, streaming, thinking, onRetry, onDelete }: 
                           <Download className="w-3.5 h-3.5" />
                         </button>
                       </div>
-                    </div>
+                    </motion.div>
                   ))}
                 </div>
               )}
@@ -254,6 +259,70 @@ function ImageLightbox({
       )}
     </AnimatePresence>,
     document.body
+  );
+}
+
+function ImageGeneratingCard({ count }: { count: number }) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const start = Date.now();
+    const timer = setInterval(() => setElapsed(Date.now() - start), 100);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-primary">
+        <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+        <span>Creating image{count > 1 ? "s" : ""}</span>
+        <div className="flex items-center gap-0.5 ml-1">
+          {[0, 1, 2].map((i) => (
+            <motion.span
+              key={i}
+              className="w-1 h-1 rounded-full bg-primary"
+              animate={{ y: [0, -2, 0], opacity: [0.3, 1, 0.3] }}
+              transition={{
+                duration: 0.8,
+                repeat: Infinity,
+                delay: i * 0.15,
+                ease: "easeInOut",
+              }}
+            />
+          ))}
+        </div>
+        <span className="font-mono text-[11px] text-muted-foreground ml-auto">
+          {(elapsed / 1000).toFixed(1)}s
+        </span>
+      </div>
+      <div className={cn("grid gap-2", count > 1 ? "grid-cols-2" : "grid-cols-1")}>
+        {Array.from({ length: count }).map((_, i) => (
+          <div
+            key={i}
+            className="relative aspect-square w-full max-w-[320px] overflow-hidden rounded-xl border border-border bg-secondary/40"
+          >
+            {/* Shimmer sweep */}
+            <motion.div
+              className="absolute inset-0 bg-gradient-to-r from-transparent via-primary/15 to-transparent"
+              animate={{ x: ["-100%", "100%"] }}
+              transition={{
+                duration: 1.4,
+                repeat: Infinity,
+                ease: "easeInOut",
+                delay: i * 0.2,
+              }}
+            />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <motion.div
+                animate={{ scale: [1, 1.15, 1], opacity: [0.4, 0.8, 0.4] }}
+                transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
+              >
+                <Sparkles className="w-7 h-7 text-primary/60" />
+              </motion.div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

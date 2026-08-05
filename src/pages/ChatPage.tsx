@@ -22,12 +22,11 @@ import { useUsageStore } from "@/store/usage-store";
 import { useComboStore } from "@/store/combo-store";
 import { useComboLogStore } from "@/store/combo-log-store";
 import { streamChat } from "@/services/chat-service";
+import { generateImages, isImageModel } from "@/services/image-service";
 import type { ChatAttachment, ChatMessage, ConnectedProvider, DiscoveredModel } from "@/types";
-import { ProviderLogo } from "@/components/ProviderLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { estimateTokens, formatNumber, cn } from "@/utils";
-import { Boxes } from "lucide-react";
 
 export function ChatPage() {
   const { id } = useParams<{ id: string }>();
@@ -92,6 +91,13 @@ export function ChatPage() {
         (p) => p.id === (model?.providerId ?? chat?.providerId)
       ),
     [providers, chat?.providerId, model?.providerId]
+  );
+
+  // The composer shows a "Create image" toggle only when the selected model
+  // looks like a text-to-image model (dall-e, flux, sdxl, imagen, …).
+  const canGenerateImages = useMemo(
+    () => !!model && !combo && isImageModel(model.modelId),
+    [model, combo]
   );
 
   const contextTokens = useMemo(() => {
@@ -361,7 +367,64 @@ export function ChatPage() {
     await tryNext();
   };
 
-  const onSend = async (text: string, attachments: ChatAttachment[]) => {
+  const runImageGeneration = async (prompt: string, assistantId: string) => {
+    if (!provider || !model) {
+      toast.error("No usable provider/model configuration found.");
+      return;
+    }
+    abortRef.current = new AbortController();
+    setStreamingId(assistantId);
+    updateMessage(chat.id, assistantId, {
+      generating: true,
+      generatingCount: 1,
+    });
+
+    await generateImages(
+      provider,
+      model,
+      prompt,
+      {
+        onDone: (images, durationMs) => {
+          updateMessage(chat.id, assistantId, {
+            generating: false,
+            images,
+            content: images.length ? "" : "No image was generated.",
+            durationMs,
+            model: model.modelId,
+            providerId: provider.id,
+          });
+          recordUsage({
+            providerId: provider.id,
+            providerKey: provider.key,
+            modelId: model.modelId,
+            tokensIn: 0,
+            tokensOut: 0,
+            cost: 0,
+            durationMs,
+          });
+          setStreamingId(null);
+          abortRef.current = null;
+        },
+        onError: (err) => {
+          updateMessage(chat.id, assistantId, {
+            generating: false,
+            error: err.message,
+          });
+          setStreamingId(null);
+          abortRef.current = null;
+          toast.error(err.message);
+        },
+        signal: abortRef.current.signal,
+      },
+      { n: 1 }
+    );
+  };
+
+  const onSend = async (
+    text: string,
+    attachments: ChatAttachment[],
+    options?: { imageMode?: boolean }
+  ) => {
     if (!model && !combo) {
       toast.error("Choose a model first.");
       return;
@@ -380,6 +443,12 @@ export function ChatPage() {
       model: model?.modelId || combo?.name || "combo",
       providerId: provider?.id || "combo",
     });
+
+    if (options?.imageMode && canGenerateImages) {
+      await runImageGeneration(text, assistant.id);
+      return;
+    }
+
     await runStream([...chat.messages, user], assistant.id);
   };
 
@@ -414,17 +483,8 @@ export function ChatPage() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Header — compact on mobile */}
-      <div className="border-b border-border/60 bg-card/40 backdrop-blur-xl px-3 md:px-6 py-1.5 md:py-3 flex items-center gap-2 md:gap-3 shrink-0">
-        {provider ? (
-          <ProviderLogo
-            provider={provider.key}
-            customUrl={provider.customLogo}
-            className="hidden md:block w-8 h-8 shrink-0"
-          />
-        ) : combo ? (
-          <Boxes className="w-8 h-8 text-primary hidden md:block shrink-0" />
-        ) : null}
+      {/* Header — compact */}
+      <div className="border-b border-border/60 bg-card/40 backdrop-blur-xl px-3 md:px-6 py-1.5 md:py-2.5 flex items-center gap-2 md:gap-3 shrink-0">
         <div className="flex-1 min-w-0">
           {editingTitle ? (
             <Input
@@ -559,6 +619,7 @@ export function ChatPage() {
             streaming={!!streamingId}
             disabled={noProvider || noModel}
             model={model}
+            canGenerateImages={canGenerateImages}
           />
 
           {/* Token meter */}

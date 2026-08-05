@@ -190,7 +190,10 @@ export async function streamChat(
       const stream = await createCompletionStream(
         client,
         {
-          model: model.modelId,
+          // Strip the virtual "aip/" prefix before it goes upstream — it's a
+          // display-only tag (see utils/model-prefix). A provider would 404 on
+          // "aip/claude-…" since that's not a real upstream model id.
+          model: model.modelId.replace(/^aip\//i, ""),
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           messages: requestMessages as any,
           stream: true,

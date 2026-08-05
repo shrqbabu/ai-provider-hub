@@ -266,23 +266,39 @@ export async function handleGateway(
       continue;
     }
 
-    void recordUsage(uid, provider.id, modelId, nowMs).catch(() => {});
+    // We're here on either a genuine success OR the LAST attempt (which may
+    // still be an error, e.g. every combo member is rate-limited). Only treat
+    // a 2xx as success — otherwise the combo log would show "responded" while
+    // the client actually receives the upstream error.
+    const succeeded = upstream.ok;
+
+    if (succeeded) {
+      void recordUsage(uid, provider.id, modelId, nowMs).catch(() => {});
+    } else {
+      lastStatus = upstream.status;
+    }
 
     if (isCombo && resolved.combo) {
+      // Read the error body from a clone so the original stream still relays
+      // to the client intact.
+      const attemptError = succeeded
+        ? undefined
+        : await safeText(upstream.clone()).catch(() => `HTTP ${upstream.status}`);
       comboAttempts.push({
         providerId: provider.id,
         modelId: modelId,
         displayName: modelId,
-        status: "success",
+        status: succeeded ? "success" : "failed",
+        error: attemptError,
         durationMs: Date.now() - attemptStart,
       });
       void recordComboLog(uid, {
         id: `glog_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         comboId: resolved.combo.id,
         comboName: resolved.combo.name,
-        respondingModelId: modelId,
-        respondingProviderId: provider.id,
-        respondingModelName: modelId,
+        respondingModelId: succeeded ? modelId : "",
+        respondingProviderId: succeeded ? provider.id : "",
+        respondingModelName: succeeded ? modelId : undefined,
         attempts: [...comboAttempts],
         tokensIn: 0,
         tokensOut: 0,

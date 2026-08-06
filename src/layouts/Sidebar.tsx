@@ -17,6 +17,7 @@ import {
   KeyRound,
   LogOut,
   Activity,
+  Cookie,
 } from "lucide-react";
 import { useChatStore } from "@/store/chat-store";
 import { useUIStore } from "@/store/ui-store";
@@ -28,6 +29,7 @@ import { SearchDialog } from "@/features/search/SearchDialog";
 
 const nav = [
   { to: "/providers", label: "Providers", icon: Plug2 },
+  { to: "/cookies", label: "Cookie Manager", icon: Cookie },
   { to: "/api-keys", label: "Gateway Keys", icon: KeyRound },
   { to: "/keystore", label: "Key Store", icon: KeyRound },
   { to: "/models", label: "My Models", icon: Layers },

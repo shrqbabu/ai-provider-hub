@@ -15,6 +15,7 @@ import { AuthPage } from "@/pages/AuthPage";
 import { ApiKeysPage } from "@/pages/ApiKeysPage";
 import { KeyStorePage } from "@/pages/KeyStorePage";
 import { ComboLogsPage } from "@/pages/ComboLogsPage";
+import { CookieManagerPage } from "@/pages/CookieManagerPage";
 import { useAuthStore } from "@/store/auth-store";
 import { useProviderStore } from "@/store/provider-store";
 import { useModelStore } from "@/store/model-store";
@@ -155,6 +156,7 @@ export default function App() {
           <Route path="/" element={<RedirectToChat />} />
           <Route path="/chat" element={<RedirectToChat />} />
           <Route path="/providers" element={<ProvidersPage />} />
+          <Route path="/cookies" element={<CookieManagerPage />} />
           <Route path="/api-keys" element={<ApiKeysPage />} />
           <Route path="/keystore" element={<KeyStorePage />} />
           <Route path="/models" element={<ModelsPage />} />

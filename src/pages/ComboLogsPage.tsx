@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   Boxes,
@@ -12,10 +12,13 @@ import {
   ChevronRight,
   Layers,
   ArrowRight,
+  RefreshCw,
+  Radio,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { useComboLogStore } from "@/store/combo-log-store";
 import { formatNumber, cn } from "@/utils";
 import { toast } from "sonner";
@@ -24,9 +27,39 @@ import type { ComboLogEntry } from "@/types";
 export function ComboLogsPage() {
   const logs = useComboLogStore((s) => s.logs);
   const clear = useComboLogStore((s) => s.clear);
+  const hydrate = useComboLogStore((s) => s.hydrate);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "success" | "failed">("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
+
+  // Initial hydrate & live polling
+  useEffect(() => {
+    void hydrate();
+    if (!autoRefresh) return;
+
+    const interval = setInterval(async () => {
+      await hydrate();
+      setLastRefreshed(new Date());
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [hydrate, autoRefresh]);
+
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await hydrate();
+      setLastRefreshed(new Date());
+      toast.success("Logs refreshed");
+    } catch {
+      toast.error("Failed to refresh logs");
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 400);
+    }
+  };
 
   const stats = useMemo(() => {
     let totalTokens = 0;
@@ -97,22 +130,51 @@ export function ComboLogsPage() {
               <Activity className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
             <h1 className="text-lg sm:text-2xl font-bold tracking-tight">Combo Logs</h1>
+            {autoRefresh && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Live
+              </span>
+            )}
           </div>
           <p className="hidden sm:block text-sm text-muted-foreground mt-1">
-            Monitor AI Combo fallback executions, latency, token consumption, and responding models.
+            Real-time monitoring of AI Combo fallback executions, latency, token consumption, and model switches.
           </p>
         </div>
-        {logs.length > 0 && (
+
+        <div className="flex items-center flex-wrap gap-2 self-start sm:self-auto">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-secondary/50 border border-border/40 text-xs text-muted-foreground mr-1">
+            <span>Auto-refresh (3s)</span>
+            <Switch
+              checked={autoRefresh}
+              onCheckedChange={setAutoRefresh}
+              className="scale-75"
+            />
+          </div>
+
           <Button
             variant="outline"
             size="sm"
-            onClick={handleClear}
-            className="text-destructive hover:bg-destructive/10 border-destructive/20 self-start sm:self-auto"
+            onClick={handleManualRefresh}
+            disabled={isRefreshing}
+            className="gap-1.5"
           >
-            <Trash2 className="w-4 h-4 mr-2" />
-            Clear Logs
+            <RefreshCw className={cn("w-3.5 h-3.5", isRefreshing && "animate-spin text-primary")} />
+            Refresh
           </Button>
-        )}
+
+          {logs.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleClear}
+              className="text-destructive hover:bg-destructive/10 border-destructive/20"
+            >
+              <Trash2 className="w-4 h-4 mr-1.5" />
+              Clear
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Metrics Cards */}

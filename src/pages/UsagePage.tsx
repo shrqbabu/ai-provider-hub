@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { BarChart3, DollarSign, Clock, Zap } from "lucide-react";
+import { useMemo, useState } from "react";
+import { BarChart3, DollarSign, Clock, Zap, RefreshCw, Trash2 } from "lucide-react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -18,7 +18,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useUsageStore } from "@/store/usage-store";
 import { useProviderStore } from "@/store/provider-store";
-import { formatNumber } from "@/utils";
+import { formatNumber, cn } from "@/utils";
 import { toast } from "sonner";
 
 const COLORS = ["#c99b6b", "#8b5a3c", "#d4a373", "#a8763e", "#e0b48c", "#6b4423"];
@@ -27,6 +27,20 @@ export function UsagePage() {
   const usage = useUsageStore((s) => s.usage);
   const providers = useProviderStore((s) => s.providers);
   const clear = useUsageStore((s) => s.clear);
+  const hydrate = useUsageStore((s) => s.hydrate);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await hydrate();
+      toast.success("Usage stats refreshed");
+    } catch {
+      toast.error("Failed to refresh usage stats");
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 400);
+    }
+  };
 
   const stats = useMemo(() => {
     const now = Date.now();
@@ -92,17 +106,32 @@ export function UsagePage() {
               Local, on-device tracking of tokens, cost, and requests.
             </p>
           </div>
-          <Button
-            variant="outline"
-            onClick={() => {
-              if (confirm("Clear all usage data?")) {
-                clear();
-                toast.success("Usage cleared.");
-              }
-            }}
-          >
-            Clear
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="gap-1.5"
+            >
+              <RefreshCw className={cn("w-3.5 h-3.5", isRefreshing && "animate-spin text-primary")} />
+              Refresh
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (confirm("Clear all usage data?")) {
+                  clear();
+                  toast.success("Usage cleared.");
+                }
+              }}
+              className="text-destructive hover:bg-destructive/10 border-destructive/20"
+            >
+              <Trash2 className="w-3.5 h-3.5 mr-1" />
+              Clear
+            </Button>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">

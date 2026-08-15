@@ -4,6 +4,7 @@ export type ProviderKey =
   | "anthropic"
   | "openrouter"
   | "google"
+  | "antigravity"
   | "custom";
 
 export interface ProviderDefinition {
@@ -23,10 +24,13 @@ export interface ConnectedProvider {
   name: string;
   displayName: string;
   // Auth mode: "apiKey" (default) sends Authorization: Bearer <apiKey>.
-  // "cookie" sends the raw cookie string as the Cookie header instead —
-  // for self-hosted / OpenAI-compatible gateways that use session cookies.
-  authMode?: "apiKey" | "cookie";
+  // "cookie" sends the raw cookie string as the Cookie header instead.
+  // "oauth" uses OAuth access token with automatic refresh via refreshToken.
+  authMode?: "apiKey" | "cookie" | "oauth";
   apiKey: string;
+  refreshToken?: string;
+  tokenExpiry?: number;
+  email?: string;
   // Additional API keys for fallback. The gateway tries them in order when the
   // primary (apiKey) hits 401/403/429/5xx. apiKey is always the first key tried;
   // apiKeys holds the rest. Stored so the whole ordered list survives.

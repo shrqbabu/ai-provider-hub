@@ -12,6 +12,7 @@ import { UsagePage } from "@/pages/UsagePage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { TrashPage } from "@/pages/TrashPage";
 import { AuthPage } from "@/pages/AuthPage";
+import { OAuthCallbackPage } from "@/pages/OAuthCallbackPage";
 import { ApiKeysPage } from "@/pages/ApiKeysPage";
 import { KeyStorePage } from "@/pages/KeyStorePage";
 import { ComboLogsPage } from "@/pages/ComboLogsPage";
@@ -162,6 +163,7 @@ export default function App() {
           <Route path="/models" element={<ModelsPage />} />
           <Route path="/combos" element={<CombosPage />} />
           <Route path="/combo-logs" element={<ComboLogsPage />} />
+          <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
           <Route path="/chat/:id" element={<ChatPage />} />
           <Route path="/prompts" element={<PromptsPage />} />
           <Route path="/usage" element={<UsagePage />} />

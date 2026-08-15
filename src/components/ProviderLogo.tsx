@@ -54,6 +54,22 @@ export function ProviderLogo({ provider, className, customUrl }: Props) {
           </svg>
         </div>
       );
+    case "google":
+      return (
+        <div className={cn(base, "bg-gradient-to-br from-red-500 via-pink-500 to-rose-600")}>
+          <svg viewBox="0 0 24 24" className="w-1/2 h-1/2" fill="currentColor">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z" />
+          </svg>
+        </div>
+      );
+    case "antigravity":
+      return (
+        <div className={cn(base, "bg-gradient-to-br from-blue-500 via-indigo-500 to-violet-600 shadow-sm")}>
+          <svg viewBox="0 0 24 24" className="w-1/2 h-1/2" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+          </svg>
+        </div>
+      );
     default:
       return (
         <div className={cn(base, "bg-gradient-to-br from-slate-500 to-zinc-700")}>

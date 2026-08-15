@@ -12,6 +12,7 @@ export const PROVIDER_BASE: Record<string, string> = {
   anthropic: "https://api.anthropic.com/v1",
   openrouter: "https://openrouter.ai/api/v1",
   google: "https://generativelanguage.googleapis.com/v1",
+  antigravity: "https://generativelanguage.googleapis.com/v1",
 };
 
 // Minimal mirror of the frontend types (api code can't import from src/).
@@ -19,9 +20,12 @@ export interface GwProvider {
   id: string;
   key: string;
   displayName?: string;
-  authMode?: "apiKey" | "cookie";
+  authMode?: "apiKey" | "cookie" | "oauth";
   apiFormat?: "openai" | "anthropic";
   apiKey?: string;
+  refreshToken?: string;
+  tokenExpiry?: number;
+  email?: string;
   apiKeys?: string[];
   cookie?: string;
   baseURL: string;

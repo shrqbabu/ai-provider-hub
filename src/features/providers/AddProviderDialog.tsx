@@ -56,7 +56,7 @@ const initial = (p?: ConnectedProvider): FormState => {
   return {
     key,
     displayName: p?.displayName ?? "",
-    authMode: p?.authMode ?? "apiKey",
+    authMode: p?.authMode === "cookie" ? "cookie" : "apiKey",
     apiFormat: p?.apiFormat ?? (key === "anthropic" ? "anthropic" : "openai"),
     apiKeys: dedupeKeys([p?.apiKey ?? "", ...(p?.apiKeys ?? [])]).length
       ? dedupeKeys([p?.apiKey ?? "", ...(p?.apiKeys ?? [])])

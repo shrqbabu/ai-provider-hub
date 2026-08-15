@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { Plus, Plug2 } from "lucide-react";
+import { Plus, Plug2, Sparkles } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { useProviderStore } from "@/store/provider-store";
 import { useModelStore } from "@/store/model-store";
 import { ProviderCard } from "@/features/providers/ProviderCard";
 import { AddProviderDialog } from "@/features/providers/AddProviderDialog";
+import { AntigravityOAuthDialog } from "@/features/providers/AntigravityOAuthDialog";
 import { toast } from "sonner";
 import { fetchModelIds } from "@/services/provider-service";
 import { inferCapabilities, inferTier } from "@/constants/providers";
@@ -21,6 +22,7 @@ export function ProvidersPage() {
   const upsertModels = useModelStore((s) => s.upsertMany);
   const removeByProvider = useModelStore((s) => s.removeByProvider);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [antigravityDialogOpen, setAntigravityDialogOpen] = useState(false);
   const [editing, setEditing] = useState<ConnectedProvider | undefined>();
   const [modelDialogFor, setModelDialogFor] = useState<ConnectedProvider | undefined>();
 
@@ -100,15 +102,25 @@ export function ProvidersPage() {
               for automatic fallback.
             </p>
           </div>
-          <Button
-            onClick={() => {
-              setEditing(undefined);
-              setDialogOpen(true);
-            }}
-          >
-            <Plus className="w-4 h-4" />
-            Add provider
-          </Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              onClick={() => setAntigravityDialogOpen(true)}
+              className="gap-1.5 border-blue-500/30 hover:border-blue-500/60 hover:bg-blue-500/10 text-blue-400"
+            >
+              <Sparkles className="w-4 h-4 text-blue-400" />
+              Connect Antigravity (OAuth)
+            </Button>
+            <Button
+              onClick={() => {
+                setEditing(undefined);
+                setDialogOpen(true);
+              }}
+            >
+              <Plus className="w-4 h-4" />
+              Add provider
+            </Button>
+          </div>
         </div>
 
         {providers.length === 0 ? (
@@ -118,21 +130,26 @@ export function ProvidersPage() {
             className="rounded-3xl border border-dashed border-border p-12 text-center"
           >
             <div className="w-16 h-16 rounded-2xl bg-primary/10 text-primary mx-auto flex items-center justify-center">
-              <Plug2 className="w-7 h-7" />
+              <Plug2 className="w-8 h-8" />
             </div>
-            <h3 className="mt-4 font-semibold text-lg">No providers connected</h3>
-            <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
-              Add your first provider to start discovering models and chatting.
+            <h3 className="mt-4 text-lg font-semibold">No providers yet</h3>
+            <p className="mt-1 text-sm text-muted-foreground max-w-sm mx-auto">
+              Add your first AI provider or connect Google Antigravity via OAuth to get started.
             </p>
-            <Button
-              className="mt-5"
-              onClick={() => {
-                setEditing(undefined);
-                setDialogOpen(true);
-              }}
-            >
-              <Plus className="w-4 h-4" /> Connect a provider
-            </Button>
+            <div className="mt-6 flex items-center justify-center gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setAntigravityDialogOpen(true)}
+                className="border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
+              >
+                <Sparkles className="w-4 h-4" />
+                Connect Antigravity
+              </Button>
+              <Button onClick={() => setDialogOpen(true)}>
+                <Plus className="w-4 h-4" />
+                Add provider
+              </Button>
+            </div>
           </motion.div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -171,6 +188,10 @@ export function ProvidersPage() {
             if (!v) setEditing(undefined);
           }}
           existing={editing}
+        />
+        <AntigravityOAuthDialog
+          open={antigravityDialogOpen}
+          onOpenChange={setAntigravityDialogOpen}
         />
         {modelDialogFor && (
           <AddModelDialog

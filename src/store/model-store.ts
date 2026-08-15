@@ -41,7 +41,25 @@ export const useModelStore = create<State & Actions>((set, get) => ({
       const key = `${m.providerId}::${m.modelId}`;
       const prev = map.get(key);
       if (prev) {
-        map.set(key, { ...prev, ...m, id: prev.id });
+        // Preserve user customizations and flags (disabled, favorite, saved, working)
+        map.set(key, {
+          ...m,
+          ...prev,
+          contextWindow: m.contextWindow ?? prev.contextWindow,
+          vision: m.vision ?? prev.vision,
+          pdf: m.pdf ?? prev.pdf,
+          streaming: m.streaming ?? prev.streaming,
+          toolCalling: m.toolCalling ?? prev.toolCalling,
+          reasoning: m.reasoning ?? prev.reasoning,
+          inputPrice: m.inputPrice ?? prev.inputPrice,
+          outputPrice: m.outputPrice ?? prev.outputPrice,
+          tier: m.tier ?? prev.tier,
+          id: prev.id,
+          disabled: prev.disabled,
+          favorite: prev.favorite,
+          saved: prev.saved,
+          working: prev.working,
+        });
       } else {
         map.set(key, { ...m, id: m.id ?? uuid() });
       }

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Search, Star, Layers, Plus, TestTube2, Loader2, CheckCircle2, RotateCcw } from "lucide-react";
+import { Search, Star, Layers, Plus, TestTube2, Loader2, CheckCircle2, RotateCcw, Plug } from "lucide-react";
 import { toast } from "sonner";
 import { testSingleModel } from "@/services/provider-service";
 import { Input } from "@/components/ui/input";
@@ -33,6 +33,7 @@ export function ModelsPage() {
   const [sort, setSort] = useState<"name" | "context" | "date">("name");
   const [showFavOnly, setShowFavOnly] = useState(false);
   const [showSavedOnly, setShowSavedOnly] = useState(false);
+  const [showDisconnected, setShowDisconnected] = useState(false);
   const [tierFilter, setTierFilter] = useState<"all" | "free" | "paid">("all");
   const [addFor, setAddFor] = useState<string | undefined>();
   const [testResults, setTestResults] = useState<Record<string, boolean>>({});
@@ -52,6 +53,9 @@ export function ModelsPage() {
       if (!p) return false;
       // If "all" is selected, hide models of disconnected providers
       if (providerFilter === "all" && p.disabled) return false;
+      // If model itself or its provider is disconnected, only show when showDisconnected is true or user searches
+      if (!showDisconnected && !q && (m.disabled || p.disabled)) return false;
+      if (showDisconnected && !m.disabled && !p.disabled) return false;
       return true;
     });
     if (providerFilter !== "all") list = list.filter((m) => m.providerId === providerFilter);
@@ -73,7 +77,14 @@ export function ModelsPage() {
       return (b.createdAt ?? 0) - (a.createdAt ?? 0);
     });
     return list;
-  }, [models, providerMap, providerFilter, showFavOnly, showSavedOnly, tierFilter, showOnlyWorking, testResults, q, sort]);
+  }, [models, providerMap, providerFilter, showFavOnly, showSavedOnly, tierFilter, showOnlyWorking, showDisconnected, testResults, q, sort]);
+
+  const disconnectedCount = useMemo(() => {
+    return models.filter((m) => {
+      const p = providerMap[m.providerId];
+      return (m.disabled || p?.disabled) && (providerFilter === "all" || m.providerId === providerFilter);
+    }).length;
+  }, [models, providerMap, providerFilter]);
 
   const startChat = (modelId: string) => {
     const model = models.find((m) => m.id === modelId);
@@ -83,10 +94,10 @@ export function ModelsPage() {
   };
 
   const runModelTests = async () => {
-    // Only test models for connected (non-disabled) providers from the currently filtered list!
+    // Only test active (non-disabled) models from connected providers!
     const targetModels = filtered.filter((m) => {
       const p = providerMap[m.providerId];
-      return p && !p.disabled;
+      return !m.disabled && p && !p.disabled;
     });
 
     if (!targetModels.length) {
@@ -290,6 +301,21 @@ export function ModelsPage() {
           >
             Saved only
           </Button>
+          {disconnectedCount > 0 && (
+            <Button
+              variant={showDisconnected ? "default" : "outline"}
+              size="sm"
+              onClick={() => setShowDisconnected(!showDisconnected)}
+              className={
+                showDisconnected
+                  ? "bg-amber-500 hover:bg-amber-600 text-white border-amber-500"
+                  : "text-amber-500 border-amber-500/30 hover:bg-amber-500/10"
+              }
+            >
+              <Plug className="w-3.5 h-3.5 mr-1" />
+              Disconnected ({disconnectedCount})
+            </Button>
+          )}
         </div>
 
         {filtered.length === 0 ? (

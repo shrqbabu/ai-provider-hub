@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { Settings, Download, Upload, Trash2, RotateCcw } from "lucide-react";
+import { Settings, Download, Upload, Trash2, RotateCcw, Database, HardDrive, CheckCircle2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -20,52 +20,117 @@ import { useChatStore } from "@/store/chat-store";
 import { usePromptStore } from "@/store/prompt-store";
 import { useUsageStore } from "@/store/usage-store";
 import { useComboStore } from "@/store/combo-store";
+import { useKeyStoreStore } from "@/store/keystore-store";
 
 export function SettingsPage() {
   const settings = useSettingsStore((s) => s.settings);
   const update = useSettingsStore((s) => s.update);
   const reset = useSettingsStore((s) => s.reset);
   const fileRef = useRef<HTMLInputElement>(null);
+  const providers = useProviderStore((s) => s.providers);
   const models = useModelStore((s) => s.models);
   const combos = useComboStore((s) => s.combos);
+  const chats = useChatStore((s) => s.chats);
+  const prompts = usePromptStore((s) => s.prompts);
+  const keystore = useKeyStoreStore((s) => s.items);
+  const usage = useUsageStore((s) => s.usage);
 
   const exportAll = async () => {
-    const data = {
+    const backupData = {
+      version: 1,
+      appName: "AI Provider Hub",
+      exportedAt: Date.now(),
       providers: useProviderStore.getState().providers,
       models: useModelStore.getState().models,
+      combos: useComboStore.getState().combos,
       chats: useChatStore.getState().chats,
       prompts: usePromptStore.getState().prompts,
+      keystore: useKeyStoreStore.getState().items,
       usage: useUsageStore.getState().usage,
-      settings,
-      exportedAt: Date.now(),
+      settings: useSettingsStore.getState().settings,
     };
-    const blob = new Blob([JSON.stringify(data, null, 2)], {
+
+    const countSummary = `${backupData.providers.length} providers, ${backupData.models.length} models, ${backupData.combos.length} combos, ${backupData.chats.length} chats`;
+
+    const blob = new Blob([JSON.stringify(backupData, null, 2)], {
       type: "application/json",
     });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `ai-provider-hub-${Date.now()}.json`;
+    const dateStr = new Date().toISOString().slice(0, 10);
+    a.download = `ai-provider-hub-backup-${dateStr}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    toast.success("Exported.");
+    toast.success(`Exported complete backup (${countSummary})`);
   };
 
   const importAll = async (file: File) => {
     try {
       const text = await file.text();
       const data = JSON.parse(text);
-      if (data.providers) await storage.set("providers", data.providers);
-      if (data.models) await storage.set("models", data.models);
-      if (data.chats) await storage.set("chats", data.chats);
-      if (data.prompts) await storage.set("prompts", data.prompts);
-      if (data.usage) await storage.set("usage", data.usage);
-      if (data.settings) await storage.set("settings", data.settings);
-      toast.success("Imported. Reloading...");
+      if (typeof data !== "object" || data === null) {
+        throw new Error("Invalid backup JSON file.");
+      }
+
+      let count = 0;
+      if (Array.isArray(data.providers)) {
+        await storage.set("providers", data.providers);
+        useProviderStore.setState({ providers: data.providers });
+        count++;
+      }
+      if (Array.isArray(data.models)) {
+        await storage.set("models", data.models);
+        useModelStore.setState({ models: data.models });
+        count++;
+      }
+      if (Array.isArray(data.combos)) {
+        await storage.set("combos", data.combos);
+        useComboStore.setState({ combos: data.combos });
+        count++;
+      }
+      if (Array.isArray(data.chats)) {
+        await storage.set("chats", data.chats);
+        useChatStore.setState({ chats: data.chats });
+        count++;
+      }
+      if (Array.isArray(data.prompts)) {
+        await storage.set("prompts", data.prompts);
+        usePromptStore.setState({ prompts: data.prompts });
+        count++;
+      }
+      if (Array.isArray(data.keystore)) {
+        await storage.set("keystore", data.keystore);
+        useKeyStoreStore.setState({ items: data.keystore });
+        count++;
+      }
+      if (data.usage && typeof data.usage === "object") {
+        await storage.set("usage", data.usage);
+        useUsageStore.setState({ usage: data.usage });
+        count++;
+      }
+      if (data.settings && typeof data.settings === "object") {
+        await storage.set("settings", data.settings);
+        useSettingsStore.setState({ settings: data.settings });
+        count++;
+      }
+
+      // Also sync to /api/backup backend endpoint
+      try {
+        await fetch("/api/backup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data }),
+        });
+      } catch {
+        // ignore network error
+      }
+
+      toast.success(`Import successful (${count} datasets restored). Reloading...`);
       setTimeout(() => window.location.reload(), 800);
     } catch (err) {
       toast.error(
-        `Import failed: ${err instanceof Error ? err.message : "unknown"}`
+        `Import failed: ${err instanceof Error ? err.message : "Invalid JSON file"}`
       );
     }
   };
@@ -206,16 +271,45 @@ export function SettingsPage() {
           </Card>
 
           <Card>
-            <CardContent className="p-5 space-y-3">
-              <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Data
+            <CardContent className="p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Database className="w-3.5 h-3.5 text-primary" /> Data Storage & Backup (VPS SQLite / Local DB)
+                </div>
+                <div className="text-[11px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" /> Persistent Storage Active
+                </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Button variant="outline" onClick={exportAll}>
-                  <Download className="w-4 h-4" /> Export all data
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
+                <div className="p-2 rounded-lg bg-secondary/50 border border-border/40">
+                  <div className="text-muted-foreground text-[10px] uppercase">Providers</div>
+                  <div className="font-semibold text-sm mt-0.5">{providers.length}</div>
+                </div>
+                <div className="p-2 rounded-lg bg-secondary/50 border border-border/40">
+                  <div className="text-muted-foreground text-[10px] uppercase">Models</div>
+                  <div className="font-semibold text-sm mt-0.5">{models.length}</div>
+                </div>
+                <div className="p-2 rounded-lg bg-secondary/50 border border-border/40">
+                  <div className="text-muted-foreground text-[10px] uppercase">Combos</div>
+                  <div className="font-semibold text-sm mt-0.5">{combos.length}</div>
+                </div>
+                <div className="p-2 rounded-lg bg-secondary/50 border border-border/40">
+                  <div className="text-muted-foreground text-[10px] uppercase">Chats</div>
+                  <div className="font-semibold text-sm mt-0.5">{chats.length}</div>
+                </div>
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                All your providers, API keys, models, chats, prompt templates, and gateway keys are safely stored in your VPS SQLite / local persistent database (<code>./data/hub_store.json</code>).
+              </p>
+
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button variant="default" onClick={exportAll} className="gap-1.5">
+                  <Download className="w-4 h-4" /> Export Backup (JSON)
                 </Button>
-                <Button variant="outline" onClick={() => fileRef.current?.click()}>
-                  <Upload className="w-4 h-4" /> Import
+                <Button variant="outline" onClick={() => fileRef.current?.click()} className="gap-1.5">
+                  <Upload className="w-4 h-4" /> Import Backup (JSON)
                 </Button>
                 <input
                   ref={fileRef}
@@ -230,7 +324,7 @@ export function SettingsPage() {
                 <Button variant="outline" onClick={reset}>
                   <RotateCcw className="w-4 h-4" /> Reset settings
                 </Button>
-                <Button variant="destructive" onClick={clearAll}>
+                <Button variant="destructive" onClick={clearAll} className="ml-auto">
                   <Trash2 className="w-4 h-4" /> Wipe all data
                 </Button>
               </div>

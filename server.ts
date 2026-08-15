@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { handleGateway } from "./api/_lib/gateway-core.js";
 import { handleKeys } from "./api/_lib/keys-core.js";
 import { handleData } from "./api/_lib/data-core.js";
+import { handleBackup } from "./api/_lib/backup-core.js";
 import { toCoreRequest, sendCoreResponse, sendError } from "./api/_lib/node-adapter.js";
 import handleProxy from "./api/proxy.js";
 import handleAntigravityOAuth from "./api/oauth/antigravity.js";
@@ -194,6 +195,14 @@ const server = http.createServer(async (req, res) => {
     // 6. OAuth Callback: /api/oauth/antigravity
     if (pathname.startsWith("/api/oauth/antigravity")) {
       await handleAntigravityOAuth(req, res);
+      return;
+    }
+
+    // 7. Full Backup & Restore: /api/backup
+    if (pathname.startsWith("/api/backup")) {
+      const core = toCoreRequest(req, "", query);
+      const result = await handleBackup(core, Date.now());
+      await sendCoreResponse(res, result);
       return;
     }
 

@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "setup": "node scripts/setup.js && npm run build",
+    "quickstart": "npm run setup && npm start",
     "build:client": "tsc -b && vite build",
     "build:server": "esbuild server.ts --bundle --platform=node --target=node18 --format=esm --outdir=dist-server --packages=external",
     "build": "npm run build:client && npm run build:server",

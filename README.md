@@ -51,20 +51,13 @@ sudo apt install -y nodejs nginx git certbot python3-certbot-nginx
 sudo npm install -g pm2
 ```
 
-#### Step 2: Clone & Build Project
+#### Step 2: Clone & 1-Command Setup
 ```bash
 git clone https://github.com/shrqbabu/ai-provider-hub.git
 cd ai-provider-hub
 
-# Install project dependencies
-npm install
-
-# Setup environment variables
-cp .env.example .env
-nano .env
-
-# Build both frontend and standalone Node.js server
-npm run build
+# 1-Command Install & Build (Automatically creates .env, data dir, and builds frontend + server)
+npm run setup
 ```
 
 #### Step 3: Start Service with PM2

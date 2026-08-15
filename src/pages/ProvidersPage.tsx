@@ -27,6 +27,10 @@ export function ProvidersPage() {
   const [modelDialogFor, setModelDialogFor] = useState<ConnectedProvider | undefined>();
 
   const refresh = async (p: ConnectedProvider) => {
+    if (p.disabled) {
+      toast.error("Cannot fetch models for a disconnected provider. Reconnect it first.");
+      return;
+    }
     toast.loading("Fetching models...", { id: p.id });
     try {
       const list = await fetchModelIds(p);
@@ -71,13 +75,22 @@ export function ProvidersPage() {
   };
 
   const handleDisconnect = (p: ConnectedProvider) => {
-    if (!p.disabled) {
-      if (!confirm(`Disconnect ${p.displayName}? Models under this provider will temporarily not be fetched.`)) return;
+    const willDisable = !p.disabled;
+    if (willDisable) {
+      if (!confirm(`Disconnect ${p.displayName || p.name}? Its models will be disabled and will not be fetched or tested.`)) return;
       toggleDisabledProvider(p.id);
-      toast.success("Provider disconnected.");
+      // Mark all models of this provider as disabled and not working
+      models
+        .filter((m) => m.providerId === p.id)
+        .forEach((m) => useModelStore.getState().update(m.id, { disabled: true, working: false }));
+      toast.success(`${p.displayName || p.name} disconnected.`);
     } else {
       toggleDisabledProvider(p.id);
-      toast.success("Provider reconnected.");
+      // Re-enable models
+      models
+        .filter((m) => m.providerId === p.id)
+        .forEach((m) => useModelStore.getState().update(m.id, { disabled: false }));
+      toast.success(`${p.displayName || p.name} reconnected.`);
     }
   };
 

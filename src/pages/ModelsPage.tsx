@@ -47,7 +47,13 @@ export function ModelsPage() {
   );
 
   const filtered = useMemo(() => {
-    let list = models.filter((m) => providerMap[m.providerId]);
+    let list = models.filter((m) => {
+      const p = providerMap[m.providerId];
+      if (!p) return false;
+      // If "all" is selected, hide models of disconnected providers
+      if (providerFilter === "all" && p.disabled) return false;
+      return true;
+    });
     if (providerFilter !== "all") list = list.filter((m) => m.providerId === providerFilter);
     if (showFavOnly) list = list.filter((m) => m.favorite);
     if (showSavedOnly) list = list.filter((m) => m.saved);
@@ -77,9 +83,18 @@ export function ModelsPage() {
   };
 
   const runModelTests = async () => {
-    const targetModels = models.filter((m) => providerMap[m.providerId]);
+    // Only test models for connected (non-disabled) providers from the currently filtered list!
+    const targetModels = filtered.filter((m) => {
+      const p = providerMap[m.providerId];
+      return p && !p.disabled;
+    });
+
     if (!targetModels.length) {
-      toast.error("No models available to test.");
+      if (providerFilter !== "all" && providerMap[providerFilter]?.disabled) {
+        toast.error("Selected provider is disconnected. Reconnect it first to test its models.");
+      } else {
+        toast.error("No active models available to test in the current view.");
+      }
       return;
     }
 
@@ -89,7 +104,14 @@ export function ModelsPage() {
     let passed = 0;
     let finished = 0;
 
-    toast.info(`Testing ${targetModels.length} models...`);
+    const targetProviderName =
+      providerFilter !== "all" ? providerMap[providerFilter]?.displayName || "Selected Provider" : undefined;
+
+    toast.info(
+      targetProviderName
+        ? `Testing ${targetModels.length} models for ${targetProviderName}...`
+        : `Testing ${targetModels.length} models...`
+    );
 
     const BATCH_SIZE = 4;
     for (let i = 0; i < targetModels.length; i += BATCH_SIZE) {
@@ -110,13 +132,21 @@ export function ModelsPage() {
 
     setIsTesting(false);
     setShowOnlyWorking(true);
-    toast.success(`Testing complete! ${passed} of ${targetModels.length} models working.`);
+    toast.success(
+      targetProviderName
+        ? `${targetProviderName}: ${passed} of ${targetModels.length} models working!`
+        : `Testing complete! ${passed} of ${targetModels.length} models working.`
+    );
   };
 
   const testOneModel = async (m: (typeof models)[0]) => {
     const p = providerMap[m.providerId];
     if (!p) {
       toast.error("Provider configuration not found.");
+      return;
+    }
+    if (p.disabled) {
+      toast.error("Provider is disconnected. Reconnect it first.");
       return;
     }
     setTestingSingleId(m.id);
@@ -129,6 +159,11 @@ export function ModelsPage() {
       toast.error(`Model "${m.displayName}" test failed and was auto-disconnected.`);
     }
   };
+
+  const testableCount = useMemo(
+    () => filtered.filter((m) => providerMap[m.providerId] && !providerMap[m.providerId].disabled).length,
+    [filtered, providerMap]
+  );
 
   return (
     <div className="h-full overflow-y-auto scrollbar-thin">
@@ -152,12 +187,14 @@ export function ModelsPage() {
               {isTesting ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Testing... ({testedCount}/{models.length})
+                  Testing... ({testedCount}/{testableCount})
                 </>
               ) : (
                 <>
                   <TestTube2 className="w-4 h-4 text-emerald-500" />
-                  Test models
+                  {providerFilter !== "all"
+                    ? `Test ${providerMap[providerFilter]?.displayName || "Provider"} Models`
+                    : "Test Models"}
                 </>
               )}
             </Button>
@@ -200,7 +237,7 @@ export function ModelsPage() {
               <SelectItem value="all">All providers</SelectItem>
               {providers.map((p) => (
                 <SelectItem key={p.id} value={p.id}>
-                  {p.displayName}
+                  {p.displayName || p.name} {p.disabled ? "(Disconnected)" : ""}
                 </SelectItem>
               ))}
             </SelectContent>

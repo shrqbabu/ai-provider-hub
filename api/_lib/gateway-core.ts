@@ -1127,6 +1127,31 @@ function openAIToGoogle(
       }
     }
 
+    // Handle OpenAI assistant tool_calls
+    if (msg.role === "assistant" && Array.isArray((msg as any).tool_calls)) {
+      for (const tc of (msg as any).tool_calls) {
+        let args = {};
+        try {
+          args = typeof tc.function?.arguments === "string" ? JSON.parse(tc.function.arguments) : (tc.function?.arguments || {});
+        } catch {}
+        parts.push({
+          functionCall: {
+            name: tc.function?.name || "",
+            args,
+          },
+        });
+      }
+    } else if (msg.role === "tool") {
+      const name = (msg as any).name || "tool_result";
+      const resultText = typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content ?? "");
+      parts.push({
+        functionResponse: {
+          name,
+          response: { name, output: resultText },
+        },
+      });
+    }
+
     if (parts.length === 0) continue;
 
     const last = contents[contents.length - 1];
@@ -1147,6 +1172,20 @@ function openAIToGoogle(
   const googleBody: Record<string, unknown> = { contents };
   if (systemInstruction) {
     googleBody.systemInstruction = { parts: [{ text: systemInstruction }] };
+  }
+
+  if (Array.isArray(body.tools) && body.tools.length > 0) {
+    googleBody.tools = [
+      {
+        functionDeclarations: (body.tools as any[]).map((t) => ({
+          name: t.function?.name || t.name,
+          description: t.function?.description || t.description || "",
+          parameters: cleanSchemaForGoogle(
+            t.function?.parameters || t.parameters || { type: "object", properties: {} }
+          ),
+        })),
+      },
+    ];
   }
 
   const generationConfig: Record<string, unknown> = {};
@@ -1188,7 +1227,31 @@ async function translateGoogleResponseToOpenAI(
   const googleResp = (await upstream.json()) as any;
   const candidate = googleResp.candidates?.[0];
   const parts = candidate?.content?.parts ?? [];
-  const text = parts.map((p: any) => p.text || "").join("");
+  const textParts: string[] = [];
+  const toolCalls: any[] = [];
+
+  for (const p of parts) {
+    if (p.text) textParts.push(p.text);
+    if (p.functionCall) {
+      toolCalls.push({
+        id: `call_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        type: "function",
+        function: {
+          name: p.functionCall.name || "",
+          arguments: JSON.stringify(p.functionCall.args || {}),
+        },
+      });
+    }
+  }
+
+  const text = textParts.join("");
+  const messageObj: Record<string, unknown> = {
+    role: "assistant",
+    content: text || (toolCalls.length ? null : ""),
+  };
+  if (toolCalls.length) {
+    messageObj.tool_calls = toolCalls;
+  }
 
   return {
     status: 200,
@@ -1201,8 +1264,10 @@ async function translateGoogleResponseToOpenAI(
       choices: [
         {
           index: 0,
-          message: { role: "assistant", content: text },
-          finish_reason: candidate?.finishReason?.toLowerCase() || "stop",
+          message: messageObj,
+          finish_reason: toolCalls.length
+            ? "tool_calls"
+            : candidate?.finishReason?.toLowerCase() || "stop",
         },
       ],
       usage: {

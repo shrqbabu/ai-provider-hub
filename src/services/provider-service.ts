@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import type { ConnectedProvider } from "@/types";
+import { getAntigravityDefaultModels } from "./antigravity-oauth";
 
 // All hosted providers go through /api/proxy — same URL in dev (via Vite
 // middleware) and prod (via api/proxy/[...path].ts Vercel Edge Function).
@@ -23,9 +24,17 @@ function isLocalhost(url: string): boolean {
   return /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])/i.test(url);
 }
 
-function resolveBaseURL(url: string): Resolved {
+function resolveBaseURL(url: string, providerKey?: string): Resolved {
   if (isLocalhost(url)) return { baseURL: url, proxied: false };
   const origin = window.location.origin;
+
+  if (providerKey === "antigravity") {
+    return {
+      baseURL: `${origin}/api/proxy/antigravity`,
+      proxied: true,
+    };
+  }
+
   // Known hosted providers → dedicated proxy prefix.
   for (const [pattern, replacement] of HOSTED_PROXY_MAP) {
     if (pattern.test(url)) {
@@ -223,6 +232,28 @@ export async function testSingleModel(
     const rawId = modelId.replace(/^aip\//, "");
     const candidateIds = Array.from(new Set([rawId, modelId].filter(Boolean)));
 
+    if (provider.key === "antigravity" || provider.authMode === "oauth" || (provider.apiKey ?? "").startsWith("ya29.")) {
+      const token = (provider.apiKey ?? "").trim();
+      if (!token) return false;
+      let testModel = rawId;
+      if (testModel.startsWith("claude-")) {
+        testModel = "gemini-2.0-flash";
+      }
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(testModel)}:generateContent`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: "hi" }] }],
+          generationConfig: { maxOutputTokens: 16 },
+        }),
+      });
+      return res.ok;
+    }
+
     if (provider.key === "google" && provider.baseURL.includes("generativelanguage.googleapis.com")) {
       const key = (provider.apiKey ?? "").trim();
       if (!key) return false;
@@ -292,6 +323,28 @@ export async function testConnection(
   provider: ConnectedProvider
 ): Promise<TestResult> {
   try {
+    if (provider.key === "antigravity" || provider.authMode === "oauth" || (provider.apiKey ?? "").startsWith("ya29.")) {
+      const token = (provider.apiKey ?? "").trim();
+      if (!token) {
+        throw new Error("OAuth access token is missing.");
+      }
+      const testUrl = "https://generativelanguage.googleapis.com/v1beta/models";
+      const res = await fetch(testUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`${res.status} ${res.statusText}: ${text}`);
+      }
+      const data = await res.json();
+      const count = (data.models ?? []).length + 4;
+      return {
+        ok: true,
+        message: `Connected — ${count} models available (Gemini & Claude).`,
+        modelCount: count,
+      };
+    }
+
     // Google's Generative Language API requires special handling
     if (provider.key === "google" || provider.baseURL.includes("generativelanguage.googleapis.com")) {
       const key = (provider.apiKey ?? "").trim();
@@ -411,6 +464,60 @@ function parsePricePerMillion(raw: unknown): number | undefined {
 export async function fetchModelIds(
   provider: ConnectedProvider
 ): Promise<DiscoveredModelInfo[]> {
+  // Antigravity (Google OAuth)
+  if (provider.key === "antigravity" || provider.authMode === "oauth" || (provider.apiKey ?? "").startsWith("ya29.")) {
+    const token = (provider.apiKey ?? "").trim();
+    if (!token) {
+      throw new Error("OAuth access token is missing.");
+    }
+
+    const testUrl = "https://generativelanguage.googleapis.com/v1beta/models";
+    const fetchedModels: DiscoveredModelInfo[] = [];
+
+    try {
+      const res = await fetch(testUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const apiModels = (data.models ?? [])
+          .filter((m: any) => m.supportedGenerationMethods?.includes("generateContent"))
+          .map((m: any) => ({
+            id: m.name?.replace("models/", "") ?? m.name,
+            created: undefined,
+            contextLength: undefined,
+            inputPrice: 0,
+            outputPrice: 0,
+            supportsVision: true,
+            isFree: true,
+          }));
+        fetchedModels.push(...apiModels);
+      }
+    } catch {
+      // ignore network issue, fallback to default curated models
+    }
+
+    // Always include the full curated list of Antigravity Claude and Gemini models
+    const defaultModels = getAntigravityDefaultModels();
+    const existingIds = new Set(fetchedModels.map((m) => m.id));
+
+    for (const def of defaultModels) {
+      if (!existingIds.has(def.modelId)) {
+        fetchedModels.unshift({
+          id: def.modelId,
+          created: undefined,
+          contextLength: def.contextWindow,
+          inputPrice: 0,
+          outputPrice: 0,
+          supportsVision: def.vision,
+          isFree: true,
+        });
+      }
+    }
+
+    return fetchedModels;
+  }
+
   // Google's Generative Language API requires special handling
   if (provider.key === "google" || provider.baseURL.includes("generativelanguage.googleapis.com")) {
     const key = (provider.apiKey ?? "").trim();

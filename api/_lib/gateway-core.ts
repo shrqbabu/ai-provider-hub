@@ -181,23 +181,43 @@ export async function handleGateway(
       endpoint === "/chat/completions" && isAnthropicProvider;
     const isGoogleProvider =
       provider.key === "google" ||
+      provider.key === "antigravity" ||
       (provider.baseURL ?? "").includes("generativelanguage.googleapis.com");
+    const isOAuth =
+      provider.authMode === "oauth" ||
+      provider.key === "antigravity" ||
+      cred.startsWith("ya29.");
 
     let actualEndpoint: string;
     let targetURL: string;
     let upstreamBody: string;
 
-    const cleanModelId = modelId.replace(/^aip\//i, "");
+    const cleanModelId = modelId.replace(/^(antigravity\/|google\/|aip\/)/i, "");
 
     if (needsTranslation && isGoogleProvider) {
       const googleRequest = anthropicToGoogle(body, cleanModelId);
       const streamEndpoint = wantsStream
         ? "streamGenerateContent"
         : "generateContent";
-      const sseParam = wantsStream ? "&alt=sse" : "";
-      targetURL = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}?key=${encodeURIComponent(
-        cred
-      )}${sseParam}`;
+      const sseParam = wantsStream ? (isOAuth ? "?alt=sse" : "&alt=sse") : "";
+      targetURL = isOAuth
+        ? `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}${sseParam}`
+        : `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}?key=${encodeURIComponent(
+            cred
+          )}${sseParam}`;
+      upstreamBody = JSON.stringify(googleRequest);
+      actualEndpoint = endpoint;
+    } else if (isGoogleProvider) {
+      const googleRequest = openAIToGoogle(body, cleanModelId);
+      const streamEndpoint = wantsStream
+        ? "streamGenerateContent"
+        : "generateContent";
+      const sseParam = wantsStream ? (isOAuth ? "?alt=sse" : "&alt=sse") : "";
+      targetURL = isOAuth
+        ? `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}${sseParam}`
+        : `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}?key=${encodeURIComponent(
+            cred
+          )}${sseParam}`;
       upstreamBody = JSON.stringify(googleRequest);
       actualEndpoint = endpoint;
     } else if (needsTranslation) {
@@ -217,14 +237,8 @@ export async function handleGateway(
     }
 
     const headers =
-      isGoogleProvider && needsTranslation
-        ? new Headers({
-            "Content-Type": "application/json",
-            // Ask upstream for uncompressed bytes. We relay the body straight
-            // through while stripping content-encoding, so a gzip/br body would
-            // reach the client mislabeled and render as garbage.
-            "Accept-Encoding": "identity",
-          })
+      isGoogleProvider
+        ? buildUpstreamHeaders(provider, cred, actualEndpoint)
         : buildUpstreamHeaders(provider, cred, actualEndpoint);
 
     let upstream: Response;
@@ -309,6 +323,9 @@ export async function handleGateway(
 
     if (needsTranslation && isGoogleProvider) {
       return await translateGoogleResponseToAnthropic(upstream, wantsStream, modelId);
+    }
+    if (isGoogleProvider) {
+      return await translateGoogleResponseToOpenAI(upstream, wantsStream, cleanModelId);
     }
     if (needsTranslation) {
       return await translateResponseToAnthropic(upstream, wantsStream, modelId);
@@ -1049,6 +1066,255 @@ function translateGoogleStreamToAnthropic(
       );
       controller.enqueue(ev({ type: "message_stop" }, "message_stop"));
       controller.close();
+    },
+  });
+
+  return {
+    status: 200,
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+    streamBody: stream,
+  };
+}
+
+function openAIToGoogle(
+  body: Record<string, unknown>,
+  _modelId: string
+): Record<string, unknown> {
+  const contents: Array<{
+    role: string;
+    parts: Array<Record<string, unknown>>;
+  }> = [];
+
+  const inMsgs = (body.messages ?? []) as Array<{
+    role: string;
+    content: string | Array<Record<string, unknown>>;
+  }>;
+
+  let systemInstruction: string | undefined;
+
+  for (const msg of inMsgs) {
+    if (msg.role === "system") {
+      if (typeof msg.content === "string") {
+        systemInstruction = msg.content;
+      }
+      continue;
+    }
+
+    const role = msg.role === "assistant" ? "model" : "user";
+    const parts: Array<Record<string, unknown>> = [];
+
+    if (typeof msg.content === "string") {
+      if (msg.content.trim()) parts.push({ text: msg.content });
+    } else if (Array.isArray(msg.content)) {
+      for (const part of msg.content) {
+        if (part.type === "text" && typeof part.text === "string" && part.text.trim()) {
+          parts.push({ text: part.text });
+        } else if (part.type === "image_url") {
+          const url = (part.image_url as { url?: string })?.url || "";
+          if (url.startsWith("data:")) {
+            const match = url.match(/^data:(.*?);base64,(.*)$/);
+            if (match) {
+              parts.push({
+                inlineData: { mimeType: match[1], data: match[2] },
+              });
+            }
+          }
+        }
+      }
+    }
+
+    if (parts.length === 0) continue;
+
+    const last = contents[contents.length - 1];
+    if (last && last.role === role) {
+      last.parts.push(...parts);
+    } else {
+      contents.push({ role, parts });
+    }
+  }
+
+  if (contents.length > 0 && contents[0].role !== "user") {
+    contents.unshift({ role: "user", parts: [{ text: "Hello" }] });
+  }
+  if (contents.length === 0) {
+    contents.push({ role: "user", parts: [{ text: "Hello" }] });
+  }
+
+  const googleBody: Record<string, unknown> = { contents };
+  if (systemInstruction) {
+    googleBody.systemInstruction = { parts: [{ text: systemInstruction }] };
+  }
+
+  const generationConfig: Record<string, unknown> = {};
+  if (body.temperature !== undefined) generationConfig.temperature = body.temperature;
+  if (body.max_tokens != null || body.max_completion_tokens != null) {
+    generationConfig.maxOutputTokens = body.max_tokens ?? body.max_completion_tokens;
+  }
+  if (body.top_p !== undefined) generationConfig.topP = body.top_p;
+  if (Object.keys(generationConfig).length > 0) {
+    googleBody.generationConfig = generationConfig;
+  }
+
+  return googleBody;
+}
+
+async function translateGoogleResponseToOpenAI(
+  upstream: Response,
+  wantsStream: boolean,
+  modelId: string
+): Promise<CoreResponse> {
+  if (upstream.status !== 200) {
+    const errText = await safeText(upstream);
+    let message = errText;
+    try {
+      const parsed = JSON.parse(errText) as { error?: { message?: string } };
+      if (parsed.error?.message) message = parsed.error.message;
+    } catch {}
+    return formatGatewayError(
+      upstream.status,
+      message || `Upstream error ${upstream.status}.`,
+      false
+    );
+  }
+
+  if (wantsStream) {
+    return translateGoogleStreamToOpenAI(upstream, modelId);
+  }
+
+  const googleResp = (await upstream.json()) as any;
+  const candidate = googleResp.candidates?.[0];
+  const parts = candidate?.content?.parts ?? [];
+  const text = parts.map((p: any) => p.text || "").join("");
+
+  return {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+    jsonBody: {
+      id: `chatcmpl-${Date.now()}`,
+      object: "chat.completion",
+      created: Math.floor(Date.now() / 1000),
+      model: modelId,
+      choices: [
+        {
+          index: 0,
+          message: { role: "assistant", content: text },
+          finish_reason: candidate?.finishReason?.toLowerCase() || "stop",
+        },
+      ],
+      usage: {
+        prompt_tokens: googleResp.usageMetadata?.promptTokenCount ?? 0,
+        completion_tokens: googleResp.usageMetadata?.candidatesTokenCount ?? 0,
+        total_tokens: googleResp.usageMetadata?.totalTokenCount ?? 0,
+      },
+    },
+  };
+}
+
+function translateGoogleStreamToOpenAI(
+  upstream: Response,
+  modelId: string
+): CoreResponse {
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  const chatId = `chatcmpl-${Date.now()}`;
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        const reader = upstream.body?.getReader();
+        if (!reader) {
+          controller.close();
+          return;
+        }
+
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          let startIdx = 0;
+          while (startIdx < buffer.length) {
+            const objStart = buffer.indexOf("{", startIdx);
+            if (objStart === -1) break;
+
+            let braceCount = 0;
+            let objEnd = -1;
+            for (let i = objStart; i < buffer.length; i++) {
+              if (buffer[i] === "{") braceCount++;
+              if (buffer[i] === "}") {
+                braceCount--;
+                if (braceCount === 0) {
+                  objEnd = i + 1;
+                  break;
+                }
+              }
+            }
+
+            if (objEnd !== -1) {
+              const chunk = buffer.substring(objStart, objEnd);
+              try {
+                const googleChunk = JSON.parse(chunk);
+                const candidate = googleChunk.candidates?.[0];
+                if (candidate) {
+                  const parts = candidate?.content?.parts || [];
+                  const text = parts.map((p: any) => p.text || "").join("");
+                  if (text) {
+                    controller.enqueue(
+                      encoder.encode(
+                        `data: ${JSON.stringify({
+                          id: chatId,
+                          object: "chat.completion.chunk",
+                          created: Math.floor(Date.now() / 1000),
+                          model: modelId,
+                          choices: [
+                            { index: 0, delta: { content: text }, finish_reason: null },
+                          ],
+                        })}\n\n`
+                      )
+                    );
+                  }
+                  if (candidate?.finishReason) {
+                    controller.enqueue(
+                      encoder.encode(
+                        `data: ${JSON.stringify({
+                          id: chatId,
+                          object: "chat.completion.chunk",
+                          created: Math.floor(Date.now() / 1000),
+                          model: modelId,
+                          choices: [
+                            {
+                              index: 0,
+                              delta: {},
+                              finish_reason: candidate.finishReason.toLowerCase(),
+                            },
+                          ],
+                        })}\n\n`
+                      )
+                    );
+                  }
+                }
+              } catch {}
+              startIdx = objEnd;
+            } else {
+              break;
+            }
+          }
+          buffer = buffer.substring(startIdx);
+        }
+
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+      } catch (err) {
+        try {
+          controller.error(err);
+        } catch {}
+      }
     },
   });
 

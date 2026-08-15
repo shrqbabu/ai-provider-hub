@@ -421,7 +421,9 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
                         onChange={(e) => setKeyAt(i, e.target.value)}
                         placeholder={
                           i === 0
-                            ? isCustom
+                            ? form.key === "google"
+                              ? "AIzaSy..."
+                              : isCustom
                               ? "nvapi-... / sk-... / any bearer token"
                               : "sk-..."
                             : "Fallback key"
@@ -463,6 +465,19 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
                   </div>
                 ))}
               </div>
+              {form.key === "google" && (
+                <div className="text-[11px] text-muted-foreground flex items-center justify-between">
+                  <span>Get your free Gemini API key from Google AI Studio:</span>
+                  <a
+                    href="https://aistudio.google.com/app/apikey"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-primary font-medium hover:underline inline-flex items-center gap-1"
+                  >
+                    aistudio.google.com/app/apikey
+                  </a>
+                </div>
+              )}
               <p className="text-[11px] text-muted-foreground">
                 {isCustom ? (
                   <>

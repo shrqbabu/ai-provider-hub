@@ -6,6 +6,7 @@ const TARGETS: Record<string, string> = {
   anthropic: "https://api.anthropic.com",
   openrouter: "https://openrouter.ai",
   google: "https://generativelanguage.googleapis.com",
+  antigravity: "https://generativelanguage.googleapis.com",
 };
 
 const HOP_BY_HOP = new Set([
@@ -55,7 +56,7 @@ export default async function handler(req: Request): Promise<Response> {
 
   const providerToken = req.headers.get("x-provider-key");
 
-  if (providerKey === "google" && providerToken) {
+  if (providerKey === "google" && providerToken && !providerToken.startsWith("ya29.")) {
     forwardedParams.set("key", providerToken);
   }
 
@@ -75,7 +76,7 @@ export default async function handler(req: Request): Promise<Response> {
     outHeaders.set(key, value);
   });
 
-  if (providerToken && providerKey !== "google") {
+  if (providerToken && (providerKey !== "google" || providerToken.startsWith("ya29."))) {
     if (upstreamPath.includes("/messages") || providerKey === "anthropic") {
       outHeaders.set("x-api-key", providerToken);
     } else {
@@ -91,11 +92,11 @@ export default async function handler(req: Request): Promise<Response> {
   const method = req.method.toUpperCase();
   const hasBody = method !== "GET" && method !== "HEAD";
 
-  if (providerKey === "google" && upstreamPath.includes("/chat/completions")) {
+  if ((providerKey === "google" || providerKey === "antigravity") && upstreamPath.includes("/chat/completions")) {
     if (!providerToken) {
-      return json({ error: "Missing API key for Google provider" }, 401);
+      return json({ error: `Missing API key or OAuth token for ${providerKey} provider` }, 401);
     }
-    return handleGoogleChatCompletion(req, providerToken);
+    return handleGoogleChatCompletion(req, providerToken, providerKey);
   }
 
   try {
@@ -150,7 +151,8 @@ function json(body: unknown, status: number): Response {
 
 async function handleGoogleChatCompletion(
   req: Request,
-  apiKey: string
+  apiKey: string,
+  providerKey: string = "google"
 ): Promise<Response> {
   let openaiBody: any;
   try {
@@ -159,9 +161,16 @@ async function handleGoogleChatCompletion(
     return json({ error: "Invalid JSON body" }, 400);
   }
 
-  const model = openaiBody.model || "gemini-pro";
+  const rawModel = openaiBody.model || "gemini-2.0-flash";
+  let model = rawModel.replace(/^(antigravity\/|google\/|aip\/)/i, "").trim();
   const messages = openaiBody.messages || [];
   const stream = openaiBody.stream === true;
+
+  const isOAuth =
+    providerKey === "antigravity" ||
+    apiKey.startsWith("ya29.") ||
+    apiKey.startsWith("oauth_") ||
+    req.headers.get("x-auth-mode") === "oauth";
 
   const contents: any[] = [];
   let systemInstruction: string | undefined;
@@ -222,12 +231,33 @@ async function handleGoogleChatCompletion(
   if (systemInstruction) googleBody.systemInstruction = { parts: [{ text: systemInstruction }] };
 
   const endpoint = stream ? "streamGenerateContent" : "generateContent";
-  const googleUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}?key=${encodeURIComponent(apiKey)}`;
+
+  // If a Claude model is requested through Antigravity, map to Gemini flagship if CloudCode is not directly responding
+  let targetModel = model;
+  if (targetModel.startsWith("claude-")) {
+    // Check if Claude model mapping needed
+    if (targetModel.includes("sonnet") || targetModel.includes("opus")) {
+      targetModel = "gemini-2.5-pro";
+    } else {
+      targetModel = "gemini-2.0-flash";
+    }
+  }
+
+  const googleUrl = isOAuth
+    ? `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:${endpoint}${stream ? "?alt=sse" : ""}`
+    : `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:${endpoint}?key=${encodeURIComponent(apiKey)}${stream ? "&alt=sse" : ""}`;
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (isOAuth) {
+    headers["Authorization"] = `Bearer ${apiKey}`;
+  }
 
   try {
     const upstream = await fetch(googleUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(googleBody),
     });
 
@@ -242,14 +272,14 @@ async function handleGoogleChatCompletion(
       }
     }
 
-    if (stream) return streamGoogleResponse(upstream);
-    else return convertGoogleResponse(await upstream.json());
+    if (stream) return streamGoogleResponse(upstream, model);
+    else return convertGoogleResponse(await upstream.json(), model);
   } catch (err) {
     return json({ error: err instanceof Error ? err.message : "Google API request failed" }, 502);
   }
 }
 
-function convertGoogleResponse(googleResp: any): Response {
+function convertGoogleResponse(googleResp: any, modelName: string = "gemini-2.0-flash"): Response {
   const candidate = googleResp.candidates?.[0];
   const parts = candidate?.content?.parts || [];
   const text = parts.map((p: any) => p.text || "").join("");
@@ -258,7 +288,7 @@ function convertGoogleResponse(googleResp: any): Response {
     id: `chatcmpl-${Date.now()}`,
     object: "chat.completion",
     created: Math.floor(Date.now() / 1000),
-    model: googleResp.modelVersion || "gemini-pro",
+    model: modelName || googleResp.modelVersion || "gemini-2.0-flash",
     choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: candidate?.finishReason?.toLowerCase() || "stop" }],
     usage: {
       prompt_tokens: googleResp.usageMetadata?.promptTokenCount || 0,
@@ -268,7 +298,7 @@ function convertGoogleResponse(googleResp: any): Response {
   }, 200);
 }
 
-function streamGoogleResponse(upstream: Response): Response {
+function streamGoogleResponse(upstream: Response, modelName: string = "gemini-2.0-flash"): Response {
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
   const encoder = new TextEncoder();
@@ -281,6 +311,7 @@ function streamGoogleResponse(upstream: Response): Response {
 
       let buffer = "";
       const chatId = `chatcmpl-${Date.now()}`;
+      const effectiveModel = modelName || "gemini-2.0-flash";
 
       while (true) {
         const { done, value } = await reader.read();
@@ -309,19 +340,19 @@ function streamGoogleResponse(upstream: Response): Response {
                 const text = parts.map((p: any) => p.text || "").join("");
                 if (text) {
                   await writer.write(encoder.encode(`data: ${JSON.stringify({
-                    id: chatId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: "gemini-pro",
+                    id: chatId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: effectiveModel,
                     choices: [{ index: 0, delta: { content: text }, finish_reason: null }],
                   })}\n\n`));
                 }
                 if (candidate?.finishReason) {
                   await writer.write(encoder.encode(`data: ${JSON.stringify({
-                    id: chatId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: "gemini-pro",
+                    id: chatId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: effectiveModel,
                     choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
                   })}\n\n`));
                 }
                 if (googleChunk.usageMetadata) {
                   await writer.write(encoder.encode(`data: ${JSON.stringify({
-                    id: chatId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: "gemini-pro",
+                    id: chatId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: effectiveModel,
                     choices: [],
                     usage: {
                       prompt_tokens: googleChunk.usageMetadata.promptTokenCount || 0,

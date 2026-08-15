@@ -47,13 +47,13 @@ export const PROVIDERS: Record<ProviderKey, ProviderDefinition> = {
   },
   google: {
     key: "google",
-    name: "Google (Gemini)",
+    name: "Google AI Studio",
     description:
-      "Google AI Studio & Gemini — multi-modal models with vision, coding, and reasoning capabilities.",
+      "Google AI Studio & Gemini API — Gemini 2.5 Pro, 2.5 Flash, 2.0 Flash, Flash Thinking, and 1.5 Pro models with official API key.",
     baseURL: "https://generativelanguage.googleapis.com/v1",
-    docsURL: "https://ai.google.dev/gemini-api/docs",
-    gradient: "from-red-400 via-pink-500 to-rose-500",
-    supportsModelsList: false,
+    docsURL: "https://aistudio.google.com/",
+    gradient: "from-blue-500 via-indigo-500 to-purple-600",
+    supportsModelsList: true,
     logo: "google",
   },
   antigravity: {

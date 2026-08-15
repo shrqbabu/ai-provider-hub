@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build:client": "tsc -b && vite build",
+    "build:server": "esbuild server.ts --bundle --platform=node --target=node18 --format=esm --outdir=dist-server --packages=external",
+    "build": "npm run build:client && npm run build:server",
+    "start": "node dist-server/server.js",
     "preview": "vite preview",
     "lint": "eslint ."
   },
@@ -58,6 +61,7 @@
     "@types/uuid": "^10.0.0",
     "@vitejs/plugin-react": "^4.3.2",
     "autoprefixer": "^10.4.20",
+    "esbuild": "^0.21.5",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.13",
     "typescript": "^5.6.2",

@@ -255,9 +255,7 @@ async function handleGoogleChatCompletion(
     // 1. OmniRoute primary CloudCode v1internal endpoint
     candidateRequests.push(
       { url: `https://cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(internalBody) },
-      { url: `https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(internalBody) },
       { url: `https://cloudcode-pa.googleapis.com/v1alpha/models/${model}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) },
-      { url: `https://daily-cloudcode-pa.sandbox.googleapis.com/v1alpha/models/${model}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) },
       { url: `https://cloudaicompanion.googleapis.com/v1alpha:generateMessage`, body: JSON.stringify(companionBody) },
       { url: `https://cloudcode-pa.googleapis.com/v1alpha:generateMessage`, body: JSON.stringify(companionBody) }
     );

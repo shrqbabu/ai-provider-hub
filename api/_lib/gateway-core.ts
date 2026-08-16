@@ -205,9 +205,7 @@ export async function handleGateway(
       if (isOAuth) {
         candidateUrls.push(
           `https://cloudcode-pa.googleapis.com/v1internal:${streamEndpoint}${sseParam}`,
-          `https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:${streamEndpoint}${sseParam}`,
           `https://cloudcode-pa.googleapis.com/v1alpha/models/${cleanModelId}:${streamEndpoint}${sseParam}`,
-          `https://daily-cloudcode-pa.sandbox.googleapis.com/v1alpha/models/${cleanModelId}:${streamEndpoint}${sseParam}`,
           `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}${sseParam}`,
           `https://generativelanguage.googleapis.com/v1/models/${cleanModelId}:${streamEndpoint}${sseParam}`
         );
@@ -237,9 +235,7 @@ export async function handleGateway(
       if (isOAuth) {
         candidateUrls.push(
           `https://cloudcode-pa.googleapis.com/v1internal:${streamEndpoint}${sseParam}`,
-          `https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:${streamEndpoint}${sseParam}`,
           `https://cloudcode-pa.googleapis.com/v1alpha/models/${cleanModelId}:${streamEndpoint}${sseParam}`,
-          `https://daily-cloudcode-pa.sandbox.googleapis.com/v1alpha/models/${cleanModelId}:${streamEndpoint}${sseParam}`,
           `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}${sseParam}`,
           `https://generativelanguage.googleapis.com/v1/models/${cleanModelId}:${streamEndpoint}${sseParam}`
         );

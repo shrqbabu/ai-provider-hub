@@ -13,9 +13,21 @@ import handleAntigravityOAuth from "./api/oauth/antigravity.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+function getDistDir(): string {
+  const candidates = [
+    path.resolve(process.cwd(), "./dist"),
+    path.resolve(__dirname, "./dist"),
+    path.resolve(__dirname, "../dist"),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return path.resolve(process.cwd(), "./dist");
+}
+
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const HOST = process.env.HOST || "0.0.0.0";
-const DIST_DIR = path.resolve(__dirname, "./dist");
+const DIST_DIR = getDistDir();
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -126,6 +138,11 @@ function serveStaticFile(req: IncomingMessage, res: ServerResponse, filePath: st
       res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
     } else {
       res.setHeader("Cache-Control", "public, max-age=3600");
+    }
+
+    if (req.method === "HEAD") {
+      res.end();
+      return true;
     }
 
     const stream = fs.createReadStream(filePath);

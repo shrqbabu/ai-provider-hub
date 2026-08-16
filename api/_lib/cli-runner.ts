@@ -38,6 +38,11 @@ const SUPPORTED_TOOLS: Array<{ name: string; command: string; versionFlag: strin
 export function detectInstalledCliTools(): CliToolInfo[] {
   const isWindows = process.platform === "win32";
   const whichCmd = isWindows ? "where" : "which";
+  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
+  const customEnv = {
+    ...process.env,
+    PATH: `${homeDir}/.antigravity/bin:${homeDir}/.local/bin:${homeDir}/bin:/usr/local/bin:/usr/bin:${process.env.PATH || ""}`,
+  };
 
   return SUPPORTED_TOOLS.map((tool) => {
     try {
@@ -45,6 +50,7 @@ export function detectInstalledCliTools(): CliToolInfo[] {
         encoding: "utf-8",
         stdio: ["ignore", "pipe", "ignore"],
         timeout: 2000,
+        env: customEnv,
       }).trim();
 
       const toolPath = pathOut.split("\n")[0].trim();
@@ -117,6 +123,12 @@ export function executeCliCompletion(options: {
     signal.addEventListener("abort", cancel);
   }
 
+  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
+  const customEnv = {
+    ...process.env,
+    PATH: `${homeDir}/.antigravity/bin:${homeDir}/.local/bin:${homeDir}/bin:/usr/local/bin:/usr/bin:${process.env.PATH || ""}`,
+  };
+
   if (stream) {
     const readable = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -128,6 +140,7 @@ export function executeCliCompletion(options: {
           child = spawn(command, args, {
             stdio: ["pipe", "pipe", "pipe"],
             shell: process.platform === "win32",
+            env: customEnv,
           });
 
           // Send initial role chunk

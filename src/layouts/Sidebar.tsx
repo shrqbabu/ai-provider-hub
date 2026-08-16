@@ -18,6 +18,7 @@ import {
   LogOut,
   Activity,
   Cookie,
+  User,
 } from "lucide-react";
 import { useChatStore } from "@/store/chat-store";
 import { useUIStore } from "@/store/ui-store";
@@ -28,6 +29,7 @@ import { toast } from "sonner";
 import { SearchDialog } from "@/features/search/SearchDialog";
 
 const nav = [
+  { to: "/profile", label: "My Profile", icon: User },
   { to: "/providers", label: "Providers", icon: Plug2 },
   { to: "/cookies", label: "Cookie Manager", icon: Cookie },
   { to: "/api-keys", label: "Gateway Keys", icon: KeyRound },
@@ -184,14 +186,32 @@ export function Sidebar() {
 
       <div className="p-3 border-t border-border/60">
         <div className="flex items-center justify-between gap-2">
-          <div className="min-w-0 flex-1">
-            <div className="text-xs font-medium truncate">
-              {user?.email ?? "Signed in"}
+          <NavLink
+            to="/profile"
+            onClick={closeOnNav}
+            className="flex items-center gap-2.5 min-w-0 flex-1 p-1.5 -m-1 rounded-xl hover:bg-secondary/60 transition group"
+            title="View User Profile & Account Data"
+          >
+            {user?.photoURL ? (
+              <img
+                src={user.photoURL}
+                alt=""
+                className="w-7 h-7 rounded-lg object-cover ring-1 ring-primary/40 shrink-0"
+              />
+            ) : (
+              <div className="w-7 h-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-bold text-xs ring-1 ring-primary/30 shrink-0">
+                {(user?.displayName || user?.email || "U").charAt(0).toUpperCase()}
+              </div>
+            )}
+            <div className="min-w-0 flex-1 text-left">
+              <div className="text-xs font-semibold truncate group-hover:text-primary transition">
+                {user?.displayName || user?.email || "My Account"}
+              </div>
+              <div className="text-[10px] text-muted-foreground truncate">
+                View Account & UID
+              </div>
             </div>
-            <div className="text-[10px] text-muted-foreground">
-              Synced to your account
-            </div>
-          </div>
+          </NavLink>
           <button
             onClick={handleLogout}
             className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition shrink-0"

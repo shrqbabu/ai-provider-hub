@@ -17,6 +17,7 @@ import { ApiKeysPage } from "@/pages/ApiKeysPage";
 import { KeyStorePage } from "@/pages/KeyStorePage";
 import { ComboLogsPage } from "@/pages/ComboLogsPage";
 import { CookieManagerPage } from "@/pages/CookieManagerPage";
+import { ProfilePage } from "@/pages/ProfilePage";
 import { useAuthStore } from "@/store/auth-store";
 import { useProviderStore } from "@/store/provider-store";
 import { useModelStore } from "@/store/model-store";
@@ -176,6 +177,7 @@ export default function App() {
           <Route path="/prompts" element={<PromptsPage />} />
           <Route path="/usage" element={<UsagePage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
           <Route path="/trash" element={<TrashPage />} />
           <Route path="*" element={<RedirectToChat />} />
         </Route>

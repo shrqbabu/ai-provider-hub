@@ -204,6 +204,8 @@ export async function handleGateway(
 
       if (isOAuth) {
         candidateUrls.push(
+          `https://cloudcode-pa.googleapis.com/v1internal:${streamEndpoint}${sseParam}`,
+          `https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:${streamEndpoint}${sseParam}`,
           `https://cloudcode-pa.googleapis.com/v1alpha/models/${cleanModelId}:${streamEndpoint}${sseParam}`,
           `https://daily-cloudcode-pa.sandbox.googleapis.com/v1alpha/models/${cleanModelId}:${streamEndpoint}${sseParam}`,
           `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}${sseParam}`,
@@ -212,6 +214,7 @@ export async function handleGateway(
         if (cleanModelId.startsWith("claude-")) {
           const gemFallback = cleanModelId.includes("sonnet") || cleanModelId.includes("opus") ? "gemini-2.5-pro" : "gemini-2.0-flash";
           candidateUrls.push(
+            `https://cloudcode-pa.googleapis.com/v1internal:${streamEndpoint}${sseParam}`,
             `https://cloudcode-pa.googleapis.com/v1alpha/models/${gemFallback}:${streamEndpoint}${sseParam}`,
             `https://generativelanguage.googleapis.com/v1beta/models/${gemFallback}:${streamEndpoint}${sseParam}`
           );
@@ -222,7 +225,7 @@ export async function handleGateway(
           `https://generativelanguage.googleapis.com/v1/models/${cleanModelId}:${streamEndpoint}?key=${encodeURIComponent(cred)}${sseParam}`
         );
       }
-      upstreamBody = JSON.stringify(googleRequest);
+      upstreamBody = JSON.stringify({ model: cleanModelId, ...googleRequest });
       actualEndpoint = endpoint;
     } else if (isGoogleProvider) {
       const googleRequest = openAIToGoogle(body, cleanModelId);
@@ -233,6 +236,8 @@ export async function handleGateway(
 
       if (isOAuth) {
         candidateUrls.push(
+          `https://cloudcode-pa.googleapis.com/v1internal:${streamEndpoint}${sseParam}`,
+          `https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:${streamEndpoint}${sseParam}`,
           `https://cloudcode-pa.googleapis.com/v1alpha/models/${cleanModelId}:${streamEndpoint}${sseParam}`,
           `https://daily-cloudcode-pa.sandbox.googleapis.com/v1alpha/models/${cleanModelId}:${streamEndpoint}${sseParam}`,
           `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}${sseParam}`,
@@ -241,6 +246,7 @@ export async function handleGateway(
         if (cleanModelId.startsWith("claude-")) {
           const gemFallback = cleanModelId.includes("sonnet") || cleanModelId.includes("opus") ? "gemini-2.5-pro" : "gemini-2.0-flash";
           candidateUrls.push(
+            `https://cloudcode-pa.googleapis.com/v1internal:${streamEndpoint}${sseParam}`,
             `https://cloudcode-pa.googleapis.com/v1alpha/models/${gemFallback}:${streamEndpoint}${sseParam}`,
             `https://generativelanguage.googleapis.com/v1beta/models/${gemFallback}:${streamEndpoint}${sseParam}`
           );
@@ -251,7 +257,7 @@ export async function handleGateway(
           `https://generativelanguage.googleapis.com/v1/models/${cleanModelId}:${streamEndpoint}?key=${encodeURIComponent(cred)}${sseParam}`
         );
       }
-      upstreamBody = JSON.stringify(googleRequest);
+      upstreamBody = JSON.stringify({ model: cleanModelId, ...googleRequest });
       actualEndpoint = endpoint;
     } else if (needsTranslation) {
       actualEndpoint = "/chat/completions";

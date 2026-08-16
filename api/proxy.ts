@@ -233,7 +233,7 @@ async function handleGoogleChatCompletion(
   const endpoint = stream ? "streamGenerateContent" : "generateContent";
   const sseParam = stream ? (isOAuth ? "?alt=sse" : "&alt=sse") : "";
 
-  // Prepare alternate CloudCode companion body
+  // Prepare alternate CloudCode companion and internal bodies (OmniRoute format)
   const promptText = messages.map((m: any) => typeof m.content === "string" ? m.content : "").join("\n");
   const companionBody = {
     model,
@@ -244,11 +244,18 @@ async function handleGoogleChatCompletion(
     })),
   };
 
+  const internalBody = {
+    model,
+    ...googleBody,
+  };
+
   const candidateRequests: Array<{ url: string; body: string }> = [];
 
   if (isOAuth) {
-    // 1. CloudCode PA endpoints with Gemini format
+    // 1. OmniRoute primary CloudCode v1internal endpoint
     candidateRequests.push(
+      { url: `https://cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(internalBody) },
+      { url: `https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(internalBody) },
       { url: `https://cloudcode-pa.googleapis.com/v1alpha/models/${model}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) },
       { url: `https://daily-cloudcode-pa.sandbox.googleapis.com/v1alpha/models/${model}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) },
       { url: `https://cloudaicompanion.googleapis.com/v1alpha:generateMessage`, body: JSON.stringify(companionBody) },
@@ -260,7 +267,9 @@ async function handleGoogleChatCompletion(
     if (model.includes("3.1-pro") || model.includes("2.5-pro") || model.includes("opus") || model.includes("sonnet")) {
       baseModel = "gemini-2.5-pro";
     }
+    const internalFallbackBody = { model: baseModel, ...googleBody };
     candidateRequests.push(
+      { url: `https://cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(internalFallbackBody) },
       { url: `https://cloudcode-pa.googleapis.com/v1alpha/models/${baseModel}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) },
       { url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) },
       { url: `https://generativelanguage.googleapis.com/v1beta/models/${baseModel}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) }

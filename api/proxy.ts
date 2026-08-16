@@ -233,34 +233,49 @@ async function handleGoogleChatCompletion(
   const endpoint = stream ? "streamGenerateContent" : "generateContent";
   const sseParam = stream ? (isOAuth ? "?alt=sse" : "&alt=sse") : "";
 
-  const candidateUrls: string[] = [];
+  // Prepare alternate CloudCode companion body
+  const promptText = messages.map((m: any) => typeof m.content === "string" ? m.content : "").join("\n");
+  const companionBody = {
+    model,
+    prompt: promptText,
+    messages: messages.map((m: any) => ({
+      author: m.role === "assistant" ? "model" : "user",
+      content: typeof m.content === "string" ? m.content : "",
+    })),
+  };
+
+  const candidateRequests: Array<{ url: string; body: string }> = [];
+
   if (isOAuth) {
-    candidateUrls.push(
-      `https://cloudcode-pa.googleapis.com/v1alpha/models/${model}:${endpoint}${sseParam}`,
-      `https://daily-cloudcode-pa.sandbox.googleapis.com/v1alpha/models/${model}:${endpoint}${sseParam}`,
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}${sseParam}`,
-      `https://generativelanguage.googleapis.com/v1/models/${model}:${endpoint}${sseParam}`
+    // 1. CloudCode PA endpoints with Gemini format
+    candidateRequests.push(
+      { url: `https://cloudcode-pa.googleapis.com/v1alpha/models/${model}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) },
+      { url: `https://daily-cloudcode-pa.sandbox.googleapis.com/v1alpha/models/${model}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) },
+      { url: `https://cloudaicompanion.googleapis.com/v1alpha:generateMessage`, body: JSON.stringify(companionBody) },
+      { url: `https://cloudcode-pa.googleapis.com/v1alpha:generateMessage`, body: JSON.stringify(companionBody) }
     );
 
-    // If Claude model, also add Gemini fallback endpoints if Claude endpoint isn't enabled
-    if (model.startsWith("claude-")) {
-      const geminiFallback = model.includes("sonnet") || model.includes("opus") ? "gemini-2.5-pro" : "gemini-2.0-flash";
-      candidateUrls.push(
-        `https://cloudcode-pa.googleapis.com/v1alpha/models/${geminiFallback}:${endpoint}${sseParam}`,
-        `https://generativelanguage.googleapis.com/v1beta/models/${geminiFallback}:${endpoint}${sseParam}`
-      );
+    // Fallbacks for Claude / preview models to standard Gemini backends
+    let baseModel = "gemini-2.5-flash";
+    if (model.includes("3.1-pro") || model.includes("2.5-pro") || model.includes("opus") || model.includes("sonnet")) {
+      baseModel = "gemini-2.5-pro";
     }
+    candidateRequests.push(
+      { url: `https://cloudcode-pa.googleapis.com/v1alpha/models/${baseModel}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) },
+      { url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) },
+      { url: `https://generativelanguage.googleapis.com/v1beta/models/${baseModel}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) }
+    );
   } else {
-    candidateUrls.push(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}?key=${encodeURIComponent(apiKey)}${sseParam}`,
-      `https://generativelanguage.googleapis.com/v1/models/${model}:${endpoint}?key=${encodeURIComponent(apiKey)}${sseParam}`
+    candidateRequests.push(
+      { url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}?key=${encodeURIComponent(apiKey)}${sseParam}`, body: JSON.stringify(googleBody) },
+      { url: `https://generativelanguage.googleapis.com/v1/models/${model}:${endpoint}?key=${encodeURIComponent(apiKey)}${sseParam}`, body: JSON.stringify(googleBody) }
     );
   }
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "User-Agent": "antigravity/1.0.0",
-    "x-goog-api-client": "gl-js/ antigravity/1.0.0",
+    "x-goog-api-client": "gl-node/20.0.0 antigravity/1.0.0",
   };
   if (isOAuth) {
     headers["Authorization"] = `Bearer ${apiKey}`;
@@ -269,12 +284,12 @@ async function handleGoogleChatCompletion(
   let lastErrorText = "";
   let lastStatus = 502;
 
-  for (const googleUrl of candidateUrls) {
+  for (const reqItem of candidateRequests) {
     try {
-      const upstream = await fetch(googleUrl, {
+      const upstream = await fetch(reqItem.url, {
         method: "POST",
         headers,
-        body: JSON.stringify(googleBody),
+        body: reqItem.body,
       });
 
       if (upstream.ok) {
@@ -285,7 +300,7 @@ async function handleGoogleChatCompletion(
       lastStatus = upstream.status;
       lastErrorText = await upstream.text().catch(() => `HTTP ${upstream.status}`);
 
-      // If 404/403/400, try next candidate URL
+      // If 404/403/400, continue to next candidate endpoint
       if (upstream.status === 404 || upstream.status === 403 || upstream.status === 400) {
         continue;
       }
@@ -305,16 +320,26 @@ async function handleGoogleChatCompletion(
   }
 }
 
-function convertGoogleResponse(googleResp: any, modelName: string = "gemini-2.0-flash"): Response {
+function convertGoogleResponse(googleResp: any, modelName: string = "gemini-2.5-flash"): Response {
   const candidate = googleResp.candidates?.[0];
   const parts = candidate?.content?.parts || [];
-  const text = parts.map((p: any) => p.text || "").join("");
+  let text = parts.map((p: any) => p.text || "").join("");
+
+  if (!text) {
+    if (typeof candidate?.message?.content === "string") text = candidate.message.content;
+    else if (typeof googleResp.reply === "string") text = googleResp.reply;
+    else if (typeof googleResp.message === "string") text = googleResp.message;
+    else if (typeof googleResp.response === "string") text = googleResp.response;
+    else if (Array.isArray(googleResp.predictions) && googleResp.predictions[0]) {
+      text = typeof googleResp.predictions[0] === "string" ? googleResp.predictions[0] : JSON.stringify(googleResp.predictions[0]);
+    }
+  }
 
   return json({
     id: `chatcmpl-${Date.now()}`,
     object: "chat.completion",
     created: Math.floor(Date.now() / 1000),
-    model: modelName || googleResp.modelVersion || "gemini-2.0-flash",
+    model: modelName || googleResp.modelVersion || "gemini-2.5-flash",
     choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: candidate?.finishReason?.toLowerCase() || "stop" }],
     usage: {
       prompt_tokens: googleResp.usageMetadata?.promptTokenCount || 0,

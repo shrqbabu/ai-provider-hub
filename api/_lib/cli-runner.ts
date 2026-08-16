@@ -84,7 +84,14 @@ const SUPPORTED_TOOLS: Array<{ name: string; command: string; versionFlag: strin
       else if (cleanModel.includes("sonnet")) cleanModel = "claude-sonnet-4-6-thinking";
       else if (cleanModel.includes("gpt-oss")) cleanModel = "gpt-oss-120b";
 
-      const args = ["-p", prompt, "--model", cleanModel, "--dangerously-skip-permissions"];
+      const args = [
+        "-p",
+        prompt,
+        "--model",
+        cleanModel,
+        "--dangerously-skip-permissions",
+        "--disable-slash-commands",
+      ];
       if (
         cleanModel.startsWith("gemini") ||
         cleanModel.startsWith("gpt-oss") ||

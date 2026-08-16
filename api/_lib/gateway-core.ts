@@ -93,22 +93,32 @@ export async function handleGateway(
 
   // ── GET models: return the user's saved models + combos in list shape ────
   if (path === "models" || path === "v1/models") {
-    return jsonResponse(200, {
-      object: "list",
-      data: [
-        ...models.map((m) => ({
-          id: displayModelId(m.modelId),
-          object: "model",
-          owned_by: m.providerKey,
-        })),
-        ...combos
-          .filter((c) => (c.name ?? "").trim())
-          .map((c) => ({
+    const data: Array<{ id: string; object: string; owned_by: string }> = [];
+    if (Array.isArray(models)) {
+      for (const m of models) {
+        if (m && m.modelId) {
+          data.push({
+            id: m.modelId,
+            object: "model",
+            owned_by: m.providerKey || m.providerId || "system",
+          });
+        }
+      }
+    }
+    if (Array.isArray(combos)) {
+      for (const c of combos) {
+        if (c && c.name) {
+          data.push({
             id: c.name,
             object: "model",
             owned_by: "combo",
-          })),
-      ],
+          });
+        }
+      }
+    }
+    return jsonResponse(200, {
+      object: "list",
+      data,
     });
   }
 

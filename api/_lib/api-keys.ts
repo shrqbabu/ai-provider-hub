@@ -40,30 +40,17 @@ export async function createApiKey(
   label: string,
   nowMs: number
 ): Promise<{ raw: string; record: ApiKeyPublic }> {
-  const raw = genRawKey();
-  const hash = hashKey(raw);
-  const record = {
-    id: hash,
-    uid,
-    label: label || "Gateway key",
-    last4: raw.slice(-4),
-    createdAt: nowMs,
-    revoked: false,
-  };
-
-  const db = loadDb();
-  db.apiKeys[hash] = record;
-  saveDb(db);
+  const result = await createLocalApiKey(uid, label, nowMs);
 
   if (isFirebaseConfigured()) {
     try {
-      await getDb().collection("apiKeys").doc(hash).set(record);
+      await getDb().collection("apiKeys").doc(result.record.id).set(result.record);
     } catch (e) {
       console.warn("[api-keys] Firestore save failed, saved to local db:", e);
     }
   }
 
-  return { raw, record };
+  return result;
 }
 
 /** List a user's gateway keys (never returns raw keys). */

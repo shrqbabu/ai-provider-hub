@@ -27,6 +27,49 @@ export function timeAgo(ts: number) {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
+/**
+ * Format timestamp in Indian Standard Time (IST - Asia/Kolkata).
+ * Example output: "16 Aug 2026, 06:40:05 AM IST"
+ */
+export function formatIndianDateTime(ts: number | Date | string): string {
+  try {
+    const date = typeof ts === "number" || typeof ts === "string" ? new Date(ts) : ts;
+    return (
+      new Intl.DateTimeFormat("en-IN", {
+        timeZone: "Asia/Kolkata",
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true,
+      }).format(date) + " IST"
+    );
+  } catch {
+    return new Date(ts).toLocaleString();
+  }
+}
+
+/**
+ * Format time only in Indian Standard Time (IST).
+ * Example output: "06:40:05 AM"
+ */
+export function formatIndianTime(ts: number | Date | string): string {
+  try {
+    const date = typeof ts === "number" || typeof ts === "string" ? new Date(ts) : ts;
+    return new Intl.DateTimeFormat("en-IN", {
+      timeZone: "Asia/Kolkata",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+    }).format(date);
+  } catch {
+    return new Date(ts).toLocaleTimeString();
+  }
+}
+
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }

@@ -64,12 +64,16 @@ export function UsagePage() {
   const byDay = useMemo(() => {
     const buckets: Record<string, { day: string; tokens: number; cost: number }> = {};
     for (const u of usage) {
-      const key = new Date(u.createdAt).toISOString().slice(0, 10);
+      const key = new Intl.DateTimeFormat("en-IN", {
+        timeZone: "Asia/Kolkata",
+        day: "2-digit",
+        month: "short",
+      }).format(new Date(u.createdAt));
       const b = (buckets[key] ||= { day: key, tokens: 0, cost: 0 });
       b.tokens += u.tokensIn + u.tokensOut;
       b.cost += u.cost;
     }
-    return Object.values(buckets).sort((a, b) => a.day.localeCompare(b.day)).slice(-14);
+    return Object.values(buckets).slice(-14);
   }, [usage]);
 
   const byProvider = useMemo(() => {

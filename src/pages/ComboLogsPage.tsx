@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useComboLogStore } from "@/store/combo-log-store";
-import { formatNumber, cn } from "@/utils";
+import { formatNumber, cn, formatIndianDateTime, formatIndianTime } from "@/utils";
 import { toast } from "sonner";
 import type { ComboLogEntry } from "@/types";
 
@@ -38,15 +38,15 @@ export function ComboLogsPage() {
   // Initial hydrate & live polling
   useEffect(() => {
     void hydrate();
+  }, [hydrate]);
+
+  useEffect(() => {
     if (!autoRefresh) return;
-
-    const interval = setInterval(async () => {
-      await hydrate();
-      setLastRefreshed(new Date());
+    const interval = setInterval(() => {
+      hydrate().then(() => setLastRefreshed(new Date()));
     }, 3000);
-
     return () => clearInterval(interval);
-  }, [hydrate, autoRefresh]);
+  }, [autoRefresh, hydrate]);
 
   const handleManualRefresh = async () => {
     setIsRefreshing(true);
@@ -61,94 +61,72 @@ export function ComboLogsPage() {
     }
   };
 
-  const stats = useMemo(() => {
-    let totalTokens = 0;
-    let totalDuration = 0;
-    let successCount = 0;
-
-    for (const log of logs) {
-      totalTokens += log.tokensIn + log.tokensOut;
-      totalDuration += log.durationMs;
-      if (log.respondingModelId) {
-        successCount++;
-      }
-    }
-
-    const avgLatency = logs.length ? Math.round(totalDuration / logs.length) : 0;
-    const successRate = logs.length ? Math.round((successCount / logs.length) * 100) : 0;
-
-    return {
-      totalCount: logs.length,
-      successCount,
-      totalTokens,
-      avgLatency,
-      successRate,
-    };
-  }, [logs]);
-
   const filteredLogs = useMemo(() => {
-    return logs.filter((log) => {
-      const isSuccess = Boolean(log.respondingModelId);
-      if (statusFilter === "success" && !isSuccess) return false;
-      if (statusFilter === "failed" && isSuccess) return false;
-
-      if (!search.trim()) return true;
-      const q = search.toLowerCase();
-      return (
-        log.comboName.toLowerCase().includes(q) ||
-        log.respondingModelId.toLowerCase().includes(q) ||
-        (log.respondingModelName && log.respondingModelName.toLowerCase().includes(q)) ||
-        log.attempts.some(
-          (a) =>
-            a.modelId.toLowerCase().includes(q) ||
-            (a.displayName && a.displayName.toLowerCase().includes(q)) ||
-            (a.error && a.error.toLowerCase().includes(q))
-        )
-      );
-    });
+    return logs
+      .filter((log) => {
+        if (statusFilter === "success") return Boolean(log.respondingModelId);
+        if (statusFilter === "failed") return !log.respondingModelId;
+        return true;
+      })
+      .filter((log) => {
+        if (!search) return true;
+        const q = search.toLowerCase();
+        return (
+          log.comboName.toLowerCase().includes(q) ||
+          log.respondingModelId.toLowerCase().includes(q) ||
+          (log.respondingModelName && log.respondingModelName.toLowerCase().includes(q)) ||
+          log.attempts.some(
+            (a) =>
+              a.modelId.toLowerCase().includes(q) ||
+              (a.error && a.error.toLowerCase().includes(q))
+          )
+        );
+      });
   }, [logs, search, statusFilter]);
 
-  const handleClear = () => {
-    if (!logs.length) return;
-    if (confirm("Are you sure you want to clear all combo logs?")) {
-      clear();
-      toast.success("Combo logs cleared.");
-    }
-  };
+  const stats = useMemo(() => {
+    const totalCount = logs.length;
+    const successCount = logs.filter((l) => Boolean(l.respondingModelId)).length;
+    const successRate = totalCount ? Math.round((successCount / totalCount) * 100) : 0;
+    const totalTokens = logs.reduce((acc, l) => acc + l.tokensIn + l.tokensOut, 0);
+    const totalDuration = logs.reduce((acc, l) => acc + l.durationMs, 0);
+    const avgLatency = totalCount ? Math.round(totalDuration / totalCount) : 0;
+
+    return {
+      totalCount,
+      successCount,
+      successRate,
+      totalTokens,
+      avgLatency,
+    };
+  }, [logs]);
 
   const toggleExpand = (id: string) => {
     setExpandedId((prev) => (prev === id ? null : id));
   };
 
   return (
-    <div className="h-full flex flex-col p-3 sm:p-6 xl:p-8 max-w-7xl mx-auto space-y-4 sm:space-y-6 overflow-hidden">
+    <div className="h-full flex flex-col p-4 md:p-8 max-w-7xl mx-auto w-full gap-4 overflow-y-auto scrollbar-thin">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
         <div>
-          <div className="flex items-center gap-2.5">
-            <div className="p-1.5 sm:p-2 rounded-xl bg-primary/10 text-primary">
-              <Activity className="w-5 h-5 sm:w-6 sm:h-6" />
-            </div>
-            <h1 className="text-lg sm:text-2xl font-bold tracking-tight">Combo Logs</h1>
-            {autoRefresh && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Live
-              </span>
-            )}
-          </div>
-          <p className="hidden sm:block text-sm text-muted-foreground mt-1">
-            Real-time monitoring of AI Combo fallback executions, latency, token consumption, and model switches.
+          <h1 className="text-xl md:text-2xl font-bold flex items-center gap-2">
+            <Activity className="w-5 h-5 md:w-6 md:h-6 text-primary" />
+            Live Combo Logs
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Real-time tracking of multi-model fallback execution, attempts, and latency.
           </p>
         </div>
-
-        <div className="flex items-center flex-wrap gap-2 self-start sm:self-auto">
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-secondary/50 border border-border/40 text-xs text-muted-foreground mr-1">
-            <span>Auto-refresh (3s)</span>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          {/* Live Auto-Refresh Indicator */}
+          <div className="flex items-center gap-2 bg-card/60 border border-border/60 px-2.5 py-1.5 rounded-lg text-xs">
+            <Radio className={cn("w-3.5 h-3.5", autoRefresh ? "text-emerald-500 animate-pulse" : "text-muted-foreground")} />
+            <span className="font-medium hidden sm:inline">{autoRefresh ? "Live (3s)" : "Paused"}</span>
             <Switch
               checked={autoRefresh}
               onCheckedChange={setAutoRefresh}
-              className="scale-75"
+              className="scale-75 data-[state=checked]:bg-emerald-500"
             />
           </div>
 
@@ -158,22 +136,27 @@ export function ComboLogsPage() {
             onClick={handleManualRefresh}
             disabled={isRefreshing}
             className="gap-1.5"
+            title={`Last updated: ${formatIndianTime(lastRefreshed)}`}
           >
             <RefreshCw className={cn("w-3.5 h-3.5", isRefreshing && "animate-spin text-primary")} />
-            Refresh
+            <span className="hidden sm:inline">Refresh</span>
           </Button>
 
-          {logs.length > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleClear}
-              className="text-destructive hover:bg-destructive/10 border-destructive/20"
-            >
-              <Trash2 className="w-4 h-4 mr-1.5" />
-              Clear
-            </Button>
-          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (confirm("Are you sure you want to clear all combo logs?")) {
+                clear();
+                toast.success("Logs cleared");
+              }
+            }}
+            disabled={logs.length === 0}
+            className="text-destructive hover:bg-destructive/10 border-destructive/20"
+          >
+            <Trash2 className="w-4 h-4 mr-1.5" />
+            Clear
+          </Button>
         </div>
       </div>
 
@@ -258,44 +241,40 @@ export function ComboLogsPage() {
         </div>
         <div className="flex items-center gap-2 self-start sm:self-auto">
           <Button
-            variant={statusFilter === "all" ? "secondary" : "ghost"}
+            variant={statusFilter === "all" ? "default" : "outline"}
             size="sm"
             onClick={() => setStatusFilter("all")}
-            className="text-xs"
+            className="h-8 sm:h-9 text-xs"
           >
             All
           </Button>
           <Button
-            variant={statusFilter === "success" ? "secondary" : "ghost"}
+            variant={statusFilter === "success" ? "default" : "outline"}
             size="sm"
             onClick={() => setStatusFilter("success")}
-            className="text-xs text-emerald-500"
+            className="h-8 sm:h-9 text-xs text-emerald-500 hover:text-emerald-500"
           >
             Success
           </Button>
           <Button
-            variant={statusFilter === "failed" ? "secondary" : "ghost"}
+            variant={statusFilter === "failed" ? "default" : "outline"}
             size="sm"
             onClick={() => setStatusFilter("failed")}
-            className="text-xs text-rose-500"
+            className="h-8 sm:h-9 text-xs text-rose-500 hover:text-rose-500"
           >
             Failed
           </Button>
         </div>
       </div>
 
-      {/* Logs Table / List */}
-      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin space-y-3 pr-1">
+      {/* Logs Feed */}
+      <div className="flex-1 space-y-3 pb-8">
         {filteredLogs.length === 0 ? (
-          <Card className="bg-card/40 backdrop-blur-xl border-border/60 p-12 text-center">
-            <div className="w-12 h-12 rounded-2xl bg-secondary flex items-center justify-center mx-auto mb-3">
-              <Activity className="w-6 h-6 text-muted-foreground" />
-            </div>
+          <Card className="bg-card/40 backdrop-blur-xl border-border/60 p-8 text-center">
+            <Boxes className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-50" />
             <h3 className="text-base font-semibold">No Combo Logs Found</h3>
-            <p className="text-sm text-muted-foreground mt-1">
-              {logs.length === 0
-                ? "Combo execution metrics will appear here when you select and chat using an AI Combo."
-                : "No logs match your search filters."}
+            <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
+              Requests through your Combos will appear here in real-time with detailed fallback traces.
             </p>
           </Card>
         ) : (
@@ -347,7 +326,7 @@ export function ComboLogsPage() {
                         </span>
                       </div>
                       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                        <span className="min-w-0 truncate">{new Date(log.createdAt).toLocaleString()}</span>
+                        <span className="min-w-0 truncate font-medium text-foreground/80">{formatIndianDateTime(log.createdAt)}</span>
                         <span className="shrink-0">•</span>
                         <span className="shrink-0">{log.attempts.length} attempt(s)</span>
                       </div>

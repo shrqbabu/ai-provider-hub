@@ -72,10 +72,18 @@ export async function handleGateway(
     );
   }
 
-  let uid = await resolveApiKey(raw);
+  const connectionId = req.header("x-connection-id") || req.header("x-provider-id");
+  const providerKeyHeader = req.header("x-provider-key");
+
+  let uid = raw ? await resolveApiKey(raw) : null;
   if (!uid) {
     // Also accept direct Firebase session token or authenticated user
     uid = await requireUser(req);
+  }
+
+  // If called directly with x-connection-id (like OmniRoute) or OAuth token
+  if (!uid && (connectionId === "antigravity" || (raw && (raw.startsWith("ya29.") || raw === "antigravity")) || (providerKeyHeader && providerKeyHeader.startsWith("ya29.")))) {
+    uid = "oauth_direct_user";
   }
 
   if (!uid) {
@@ -84,12 +92,29 @@ export async function handleGateway(
 
   const path = req.subPath.replace(/^\/+/, "").replace(/\/+$/, "").toLowerCase();
 
-  // â”€â”€ Load the user's connected providers + models + combos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  const [providers, models, combos] = await Promise.all([
+  // Load the user's connected providers + models + combos
+  let [providers, models, combos] = await Promise.all([
     readKV<GwProvider[]>(uid, "providers", []),
     readKV<GwModel[]>(uid, "models", []),
     readKV<GwCombo[]>(uid, "combos", []),
   ]);
+
+  if (connectionId === "antigravity" || (raw && raw.startsWith("ya29.")) || (providerKeyHeader && providerKeyHeader.startsWith("ya29."))) {
+    const hasAntigravity = providers.some((p) => p.key === "antigravity" || p.id === connectionId);
+    if (!hasAntigravity) {
+      providers = [
+        ...providers,
+        {
+          id: "antigravity",
+          key: "antigravity",
+          displayName: "Antigravity (Google OAuth)",
+          authMode: "oauth",
+          apiKey: (providerKeyHeader || raw || "").trim(),
+          baseURL: "https://cloudcode-pa.googleapis.com/v1internal",
+        },
+      ];
+    }
+  }
 
   // â”€â”€ GET models: return the user's saved models + combos in list shape â”€â”€â”€â”€
   if (path === "models" || path === "v1/models") {

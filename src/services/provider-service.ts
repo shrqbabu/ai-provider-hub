@@ -274,6 +274,7 @@ export async function testSingleModel(
           "Content-Type": "application/json",
           "x-provider-key": token,
           "x-auth-mode": "oauth",
+          "x-connection-id": "antigravity",
         },
         body: JSON.stringify({
           model: rawId,
@@ -298,6 +299,7 @@ export async function testSingleModel(
               "Content-Type": "application/json",
               "x-provider-key": token,
               "x-auth-mode": "oauth",
+              "x-connection-id": "antigravity",
             },
             body: JSON.stringify({
               model: rawId,

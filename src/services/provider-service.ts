@@ -399,11 +399,31 @@ export async function testConnection(
   provider: ConnectedProvider
 ): Promise<TestResult> {
   try {
-    if (provider.key === "antigravity" || provider.authMode === "oauth" || (provider.apiKey ?? "").startsWith("ya29.")) {
-      const token = (provider.apiKey ?? "").trim();
+    const isOAuth =
+      provider.key === "antigravity" ||
+      provider.authMode === "oauth" ||
+      (provider.apiKey ?? "").startsWith("ya29.");
+
+    if (isOAuth) {
+      let token = (provider.apiKey ?? "").trim();
       if (!token) {
-        throw new Error("OAuth access token is missing.");
+        throw new Error("OAuth access token is missing. Please re-authenticate.");
       }
+
+      // Auto-refresh token if expired
+      if (provider.refreshToken && provider.tokenExpiry && Date.now() >= provider.tokenExpiry - 60_000) {
+        try {
+          const refreshed = await refreshAntigravityToken(provider.refreshToken);
+          token = refreshed.accessToken;
+          useProviderStore.getState().update(provider.id, {
+            apiKey: refreshed.accessToken,
+            tokenExpiry: refreshed.tokenExpiry,
+          });
+        } catch {
+          // ignore
+        }
+      }
+
       const testUrl = "https://generativelanguage.googleapis.com/v1beta/models";
       const res = await fetch(testUrl, {
         headers: { Authorization: `Bearer ${token}` },
@@ -412,26 +432,24 @@ export async function testConnection(
         const text = await res.text();
         throw new Error(`${res.status} ${res.statusText}: ${text}`);
       }
+
       const data = await res.json();
       const count = (data.models ?? []).length + 4;
       return {
         ok: true,
-        message: `Connected — ${count} models available (Gemini & Claude).`,
+        message: `Connected — ${count} models available (Gemini & Claude via Antigravity).`,
         modelCount: count,
       };
     }
 
-    // Google's Generative Language API requires special handling
+    // Google's Generative Language API with API key (AIza...)
     if (provider.key === "google" || provider.baseURL.includes("generativelanguage.googleapis.com")) {
       const key = (provider.apiKey ?? "").trim();
       if (!key) {
         throw new Error("API key is missing.");
       }
 
-      // Google's API uses /v1beta/models endpoint with key as query param
-      // Test directly without going through the proxy since Google needs the key in URL
       const testUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`;
-
       const res = await fetch(testUrl);
       if (!res.ok) {
         const text = await res.text();
@@ -631,8 +649,12 @@ export async function fetchModelIds(
     return fetchedModels;
   }
 
-  // Google's Generative Language API requires special handling
-  if (provider.key === "google" || provider.baseURL.includes("generativelanguage.googleapis.com")) {
+  // Google's Generative Language API with API key (AIza...)
+  if (
+    (provider.key === "google" || provider.baseURL.includes("generativelanguage.googleapis.com")) &&
+    !(provider.apiKey ?? "").startsWith("ya29.") &&
+    provider.authMode !== "oauth"
+  ) {
     const key = (provider.apiKey ?? "").trim();
     if (!key) {
       throw new Error("API key is missing.");

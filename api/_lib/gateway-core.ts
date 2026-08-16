@@ -1,17 +1,17 @@
-// Gateway core — the OpenAI-compatible endpoint the user hits with their own
-// "ah-…" key from anywhere. Flow:
-//   1. Authenticate the ah- key → uid.
+// Gateway core â€” the OpenAI-compatible endpoint the user hits with their own
+// "ah-â€¦" key from anywhere. Flow:
+//   1. Authenticate the ah- key â†’ uid.
 //   2. Load the user's providers + models from Firestore.
 //   3. Resolve which provider serves the requested model (auto-detect).
 //   4. Try that provider's keys in order (fallback on 401/403/429/5xx/network).
 //   5. Stream the upstream response straight back (SSE passes through unchanged).
 //
 // Supported sub-paths (OpenAI-compatible):
-//   POST chat/completions   → provider /chat/completions
-//   POST completions        → provider /completions
-//   POST embeddings         → provider /embeddings
-//   POST messages           → provider /messages (Anthropic-native)
-//   GET  models             → aggregate of the user's saved models + combos
+//   POST chat/completions   â†’ provider /chat/completions
+//   POST completions        â†’ provider /completions
+//   POST embeddings         â†’ provider /embeddings
+//   POST messages           â†’ provider /messages (Anthropic-native)
+//   GET  models             â†’ aggregate of the user's saved models + combos
 import { resolveApiKey } from "./api-keys.js";
 import { readKV, writeKV } from "./kv.js";
 import {
@@ -56,7 +56,7 @@ export async function handleGateway(
 ): Promise<CoreResponse> {
   const isAnthropicReq = req.subPath.toLowerCase().includes("messages");
 
-  // ── 1. Auth ────────────────────────────────────────────────────────────
+  // â”€â”€ 1. Auth â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const raw =
     bearerToken(req) ||
     req.header("x-api-key") ||
@@ -67,7 +67,7 @@ export async function handleGateway(
   if (!raw) {
     return formatGatewayError(
       401,
-      "Missing API key. Send `Authorization: Bearer ah-…` or `x-api-key: ah-…`.",
+      "Missing API key. Send `Authorization: Bearer ah-â€¦` or `x-api-key: ah-â€¦`.",
       isAnthropicReq
     );
   }
@@ -84,14 +84,14 @@ export async function handleGateway(
 
   const path = req.subPath.replace(/^\/+/, "").replace(/\/+$/, "").toLowerCase();
 
-  // ── Load the user's connected providers + models + combos ───────────────
+  // â”€â”€ Load the user's connected providers + models + combos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const [providers, models, combos] = await Promise.all([
     readKV<GwProvider[]>(uid, "providers", []),
     readKV<GwModel[]>(uid, "models", []),
     readKV<GwCombo[]>(uid, "combos", []),
   ]);
 
-  // ── GET models: return the user's saved models + combos in list shape ────
+  // â”€â”€ GET models: return the user's saved models + combos in list shape â”€â”€â”€â”€
   if (path === "models" || path === "v1/models") {
     const data: Array<{ id: string; object: string; owned_by: string }> = [];
     if (Array.isArray(models)) {
@@ -123,7 +123,7 @@ export async function handleGateway(
     });
   }
 
-  // ── POST inference endpoints ─────────────────────────────────────────────
+  // â”€â”€ POST inference endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const endpoint = matchEndpoint(path);
   if (!endpoint) {
     return formatGatewayError(
@@ -173,7 +173,7 @@ export async function handleGateway(
     );
   }
 
-  // ── Fallback loop over attempt(s) ────────────────────────────────────────
+  // â”€â”€ Fallback loop over attempt(s) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   let lastStatus = 502;
   let lastText = "All provider attempts failed.";
   const isCombo = resolved && "combo" in resolved && !!resolved.combo;
@@ -195,10 +195,10 @@ export async function handleGateway(
     const isAnthropicProvider = (provider.apiFormat ?? "openai") === "anthropic";
     // Two translation directions are possible, depending on what format the
     // CALLER speaks vs what the PROVIDER speaks:
-    //   - /messages request → OpenAI provider: translate request → OpenAI,
-    //     response → Anthropic (needsTranslation).
-    //   - /chat/completions request → Anthropic provider (e.g. a combo member):
-    //     translate request → Anthropic, response → OpenAI (toAnthropicProvider).
+    //   - /messages request â†’ OpenAI provider: translate request â†’ OpenAI,
+    //     response â†’ Anthropic (needsTranslation).
+    //   - /chat/completions request â†’ Anthropic provider (e.g. a combo member):
+    //     translate request â†’ Anthropic, response â†’ OpenAI (toAnthropicProvider).
     const needsTranslation = endpoint === "/messages" && !isAnthropicProvider;
     const toAnthropicProvider =
       endpoint === "/chat/completions" && isAnthropicProvider;
@@ -227,6 +227,7 @@ export async function handleGateway(
 
       if (isOAuth) {
         candidateUrls.push(
+          `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}${sseParam}`,
           `https://cloudcode-pa.googleapis.com/v1internal:${streamEndpoint}${sseParam}`,
           `https://cloudcode-pa.googleapis.com/v1alpha/models/${cleanModelId}:${streamEndpoint}${sseParam}`,
           `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}${sseParam}`,
@@ -235,7 +236,8 @@ export async function handleGateway(
         if (cleanModelId.startsWith("claude-")) {
           const gemFallback = cleanModelId.includes("sonnet") || cleanModelId.includes("opus") ? "gemini-2.5-pro" : "gemini-2.0-flash";
           candidateUrls.push(
-            `https://cloudcode-pa.googleapis.com/v1internal:${streamEndpoint}${sseParam}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}${sseParam}`,
+          `https://cloudcode-pa.googleapis.com/v1internal:${streamEndpoint}${sseParam}`,
             `https://cloudcode-pa.googleapis.com/v1alpha/models/${gemFallback}:${streamEndpoint}${sseParam}`,
             `https://generativelanguage.googleapis.com/v1beta/models/${gemFallback}:${streamEndpoint}${sseParam}`
           );
@@ -257,6 +259,7 @@ export async function handleGateway(
 
       if (isOAuth) {
         candidateUrls.push(
+          `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}${sseParam}`,
           `https://cloudcode-pa.googleapis.com/v1internal:${streamEndpoint}${sseParam}`,
           `https://cloudcode-pa.googleapis.com/v1alpha/models/${cleanModelId}:${streamEndpoint}${sseParam}`,
           `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}${sseParam}`,
@@ -265,7 +268,8 @@ export async function handleGateway(
         if (cleanModelId.startsWith("claude-")) {
           const gemFallback = cleanModelId.includes("sonnet") || cleanModelId.includes("opus") ? "gemini-2.5-pro" : "gemini-2.0-flash";
           candidateUrls.push(
-            `https://cloudcode-pa.googleapis.com/v1internal:${streamEndpoint}${sseParam}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}${sseParam}`,
+          `https://cloudcode-pa.googleapis.com/v1internal:${streamEndpoint}${sseParam}`,
             `https://cloudcode-pa.googleapis.com/v1alpha/models/${gemFallback}:${streamEndpoint}${sseParam}`,
             `https://generativelanguage.googleapis.com/v1beta/models/${gemFallback}:${streamEndpoint}${sseParam}`
           );
@@ -362,7 +366,7 @@ export async function handleGateway(
 
     // We're here on either a genuine success OR the LAST attempt (which may
     // still be an error, e.g. every combo member is rate-limited). Only treat
-    // a 2xx as success — otherwise the combo log would show "responded" while
+    // a 2xx as success â€” otherwise the combo log would show "responded" while
     // the client actually receives the upstream error.
     const succeeded = upstream.ok;
 
@@ -493,7 +497,7 @@ function openAIToAnthropic(
   }>;
 
   for (const msg of inMsgs) {
-    // Anthropic has no system message role — system content is collected into
+    // Anthropic has no system message role â€” system content is collected into
     // the top-level `system` field at the end, so skip it here.
     if (msg.role === "system") continue;
     const role = msg.role === "assistant" ? "assistant" : "user";
@@ -517,7 +521,7 @@ function openAIToAnthropic(
         const url =
           (block.image_url as Record<string, unknown>)?.url ?? "";
         if (typeof url === "string" && url) {
-          // data:image/...;base64,... → Anthropic inline image block.
+          // data:image/...;base64,... â†’ Anthropic inline image block.
           const m = /^data:(image\/[\w.+-]+);base64,(.+)$/.exec(url);
           if (m) {
             parts.push({
@@ -565,7 +569,7 @@ function openAIToAnthropic(
   if (body.temperature != null) result.temperature = body.temperature;
   if (body.top_p != null) result.top_p = body.top_p;
 
-  // OpenAI tool_calls → Anthropic tools. The first system message in the
+  // OpenAI tool_calls â†’ Anthropic tools. The first system message in the
   // conversation is lifted into systemInstruction (Anthropic requires it
   // outside the messages array).
   const systemParts: string[] = [];
@@ -1570,7 +1574,7 @@ async function translateResponseToAnthropic(
 }
 
 // Translate an Anthropic Messages response into an OpenAI /chat/completions
-// response. The inverse of openAIToAnthropic — used when a caller that speaks
+// response. The inverse of openAIToAnthropic â€” used when a caller that speaks
 // OpenAI (Claude Desktop, SDKs, combos) is served by an Anthropic provider.
 async function translateAnthropicResponseToOpenAI(
   upstream: Response,
@@ -1662,7 +1666,7 @@ async function translateAnthropicResponseToOpenAI(
   };
 }
 
-// SSE bridge: Anthropic event stream → OpenAI chat.completion.chunk stream.
+// SSE bridge: Anthropic event stream â†’ OpenAI chat.completion.chunk stream.
 // Consumes the upstream Anthropic stream and re-emits OpenAI chunks so an
 // OpenAI-shaped client (Claude Desktop app chat, combos) parses it natively.
 function translateAnthropicStreamToOpenAI(
@@ -2069,7 +2073,7 @@ function relay(upstream: Response, _wantsStream: boolean): CoreResponse {
     if (lk === "content-encoding" || lk === "content-length") return;
     headers[k] = v;
   });
-  // An upstream HTML response means we hit a web page, not an API — usually a
+  // An upstream HTML response means we hit a web page, not an API â€” usually a
   // wrong base URL (missing /v1), a captive portal, or the provider's own 404
   // page. Streaming raw HTML to an OpenAI/Anthropic client shows garbage.
   if ((headers["content-type"] ?? "").toLowerCase().includes("text/html")) {

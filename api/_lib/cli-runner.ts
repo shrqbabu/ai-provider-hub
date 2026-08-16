@@ -13,7 +13,22 @@ const SUPPORTED_TOOLS: Array<{ name: string; command: string; versionFlag: strin
     name: "Antigravity CLI (agy)",
     command: "agy",
     versionFlag: "--version",
-    runArgs: (model, prompt) => ["--model", model || "gemini-3.7-flash", prompt],
+    runArgs: (model, prompt) => {
+      let cleanModel = (model || "gemini-3.7-flash").replace(/^(cli|antigravity)\//, "");
+      let effort = "medium";
+      if (cleanModel.includes("high")) effort = "high";
+      if (cleanModel.includes("low")) effort = "low";
+      cleanModel = cleanModel.replace(/-(high|medium|low)$/, "");
+      if (cleanModel.includes("claude-sonnet") || cleanModel.includes("sonnet-4-6")) cleanModel = "claude-sonnet-4-6";
+      if (cleanModel.includes("claude-opus") || cleanModel.includes("opus-4-6")) cleanModel = "claude-opus-4-6";
+      if (cleanModel.includes("gpt-oss")) cleanModel = "gpt-oss-120b";
+
+      const args = ["-p", prompt, "--model", cleanModel, "--dangerously-skip-permissions"];
+      if (cleanModel.startsWith("gemini") || cleanModel.startsWith("gpt-oss")) {
+        args.push("--effort", effort);
+      }
+      return args;
+    },
   },
   {
     name: "Gemini CLI",

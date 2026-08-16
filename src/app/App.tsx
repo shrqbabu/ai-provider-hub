@@ -53,8 +53,8 @@ export default function App() {
 
   // Once auth resolves (user signed in), hydrate stores from the backend.
   useEffect(() => {
-    if (authLoading || !authConfigured) return;
-    if (!user) {
+    if (authLoading) return;
+    if (authConfigured && !user) {
       useProviderStore.setState({ providers: [], activeId: null });
       useModelStore.setState({ models: [], selectedModelId: null });
       useComboStore.setState({ combos: [] });

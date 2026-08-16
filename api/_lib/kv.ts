@@ -17,8 +17,6 @@ function docRef(uid: string, key: string) {
 }
 
 export async function readKV<T>(uid: string, key: string, fallback: T): Promise<T> {
-  let firestoreVal: T | undefined;
-
   if (isFirebaseAdminReady()) {
     try {
       const snap = await docRef(uid, key).get();
@@ -26,9 +24,9 @@ export async function readKV<T>(uid: string, key: string, fallback: T): Promise<
         const data = snap.data();
         if (data !== undefined) {
           const val = data.v ?? data.value ?? data.data;
-          if (val !== undefined) firestoreVal = val as T;
-          else if (typeof data === "object" && data !== null) {
-            firestoreVal = data as T;
+          if (val !== undefined) return val as T;
+          if (typeof data === "object" && data !== null) {
+            return data as T;
           }
         }
       }
@@ -37,24 +35,7 @@ export async function readKV<T>(uid: string, key: string, fallback: T): Promise<
     }
   }
 
-  if (firestoreVal !== undefined) {
-    if (Array.isArray(firestoreVal) && firestoreVal.length === 0) {
-      const localVal = await readLocalKV<T>(uid, key, fallback);
-      if (Array.isArray(localVal) && localVal.length > 0) return localVal;
-      // Also check local_user fallback if uid was different
-      const defaultLocal = await readLocalKV<T>("local_user", key, fallback);
-      if (Array.isArray(defaultLocal) && defaultLocal.length > 0) return defaultLocal;
-    }
-    return firestoreVal;
-  }
-
-  const localVal = await readLocalKV<T>(uid, key, fallback);
-  if (Array.isArray(localVal) && localVal.length > 0) return localVal;
-
-  const defaultLocal = await readLocalKV<T>("local_user", key, fallback);
-  if (Array.isArray(defaultLocal) && defaultLocal.length > 0) return defaultLocal;
-
-  return localVal;
+  return readLocalKV<T>(uid, key, fallback);
 }
 
 export async function writeKV(

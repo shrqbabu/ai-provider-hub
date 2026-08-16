@@ -57,15 +57,17 @@ export default function App() {
   // Once auth resolves (user signed in), hydrate stores from the backend.
   useEffect(() => {
     if (authLoading) return;
+    // Clear in-memory state before hydrating for the current user
+    useProviderStore.setState({ providers: [], activeId: null });
+    useModelStore.setState({ models: [], selectedModelId: null });
+    useComboStore.setState({ combos: [] });
+    useChatStore.setState({ chats: [], activeId: null });
+    usePromptStore.setState({ prompts: [] });
+    useUsageStore.setState({ records: [] });
+    useKeyStoreStore.setState({ items: [] });
+    useComboLogStore.setState({ logs: [] });
+
     if (authConfigured && !user) {
-      useProviderStore.setState({ providers: [], activeId: null });
-      useModelStore.setState({ models: [], selectedModelId: null });
-      useComboStore.setState({ combos: [] });
-      useChatStore.setState({ chats: [], activeId: null });
-      usePromptStore.setState({ prompts: [] });
-      useUsageStore.setState({ records: [] });
-      useKeyStoreStore.setState({ items: [] });
-      useComboLogStore.setState({ logs: [] });
       setReady(true);
       return;
     }
@@ -80,16 +82,26 @@ export default function App() {
       hydrateKeyStore(),
       hydrateComboLogs(),
     ]).then(() => {
-      // Re-run tier inference for ALL models on load. This fixes previously
-      // cached models that were mislabeled (e.g. OpenRouter paid models that
-      // showed up as "free" because we hadn't parsed pricing yet). Cheap —
-      // just a map + local state update.
+      // Re-run tier inference and purge legacy discount/deprecated models on load
       const modelState = useModelStore.getState();
       const providerState = useProviderStore.getState();
       const providerMap = new Map(
         providerState.providers.map((p) => [p.id, p])
       );
-      const patched = modelState.models.map((m) => ({
+
+      const validModels = modelState.models.filter((m) => {
+        const id = (m.modelId || "").toLowerCase();
+        if (
+          id.includes(":discount") ||
+          id.includes("-discount") ||
+          id.includes(":deprecated")
+        ) {
+          return false;
+        }
+        return true;
+      });
+
+      const patched = validModels.map((m) => ({
         ...m,
         tier: inferTier({
           providerKey: m.providerKey,
@@ -99,7 +111,13 @@ export default function App() {
           outputPrice: m.outputPrice,
         }),
       }));
-      if (patched.length > 0) modelState.upsertMany(patched);
+
+      if (validModels.length !== modelState.models.length) {
+        useModelStore.setState({ models: patched });
+        storage.set("models", patched).catch(() => {});
+      } else if (patched.length > 0) {
+        modelState.upsertMany(patched);
+      }
       setReady(true);
     });
   }, [

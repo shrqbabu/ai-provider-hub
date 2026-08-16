@@ -1,4 +1,4 @@
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   MessageSquarePlus,
@@ -24,7 +24,7 @@ import { useChatStore } from "@/store/chat-store";
 import { useUIStore } from "@/store/ui-store";
 import { useAuthStore } from "@/store/auth-store";
 import { cn, truncate } from "@/utils";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { SearchDialog } from "@/features/search/SearchDialog";
 
@@ -45,6 +45,7 @@ const nav = [
 
 export function Sidebar() {
   const navigate = useNavigate();
+  const location = useLocation();
   const chats = useChatStore((s) => s.chats);
   const create = useChatStore((s) => s.create);
   const user = useAuthStore((s) => s.user);
@@ -52,6 +53,11 @@ export function Sidebar() {
   const [searchOpen, setSearchOpen] = useState(false);
   const mobileOpen = useUIStore((s) => s.sidebarOpen);
   const setMobileOpen = useUIStore((s) => s.setSidebarOpen);
+
+  // Automatically close mobile drawer when route changes
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location.pathname, location.search, setMobileOpen]);
 
   const handleLogout = async () => {
     try {

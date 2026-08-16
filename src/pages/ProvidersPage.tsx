@@ -12,6 +12,7 @@ import { fetchModelIds } from "@/services/provider-service";
 import { inferCapabilities, inferTier } from "@/constants/providers";
 import type { ConnectedProvider } from "@/types";
 import { AddModelDialog } from "@/features/models/AddModelDialog";
+import { AntigravityQuotaTracker } from "@/components/AntigravityQuotaTracker";
 
 export function ProvidersPage() {
   const providers = useProviderStore((s) => s.providers);
@@ -162,6 +163,7 @@ export function ProvidersPage() {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            <AntigravityQuotaTracker />
             <Button
               variant="outline"
               onClick={connectCliBridge}

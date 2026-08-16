@@ -313,12 +313,8 @@ async function handleGoogleChatCompletion(
       lastStatus = upstream.status;
       lastErrorText = await upstream.text().catch(() => `HTTP ${upstream.status}`);
 
-      // If 404/403/401/400, continue to next candidate endpoint
-      if (upstream.status === 404 || upstream.status === 403 || upstream.status === 401 || upstream.status === 400) {
-        continue;
-      }
-
-      break;
+      // Try the next candidate endpoint on any failure
+      continue;
     } catch (err: any) {
       lastErrorText = err?.message || "Upstream fetch error";
     }
@@ -328,10 +324,21 @@ async function handleGoogleChatCompletion(
   if (isOAuth) {
     try {
       const { executeCliCompletion } = await import("./_lib/cli-runner.js");
-      const cliResp = await executeCliCompletion(model, messages, { stream });
-      return cliResp;
-    } catch {
-      // ignore CLI fallback error and return API error below
+      const cliResult = executeCliCompletion({ model, messages, stream });
+      if ("stream" in cliResult) {
+        return new Response(cliResult.stream, {
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+          },
+        });
+      } else {
+        const data = await cliResult.promise;
+        return json(data);
+      }
+    } catch (cliErr) {
+      console.error("[CLI Fallback Error]", cliErr);
     }
   }
 

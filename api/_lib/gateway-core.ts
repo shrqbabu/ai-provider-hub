@@ -321,8 +321,8 @@ export async function handleGateway(
         lastStatus = candidateResp.status;
         lastText = await safeText(candidateResp);
 
-        // If candidate url returned 404 or 403 or 400 on CloudCode endpoint, try next candidate
-        if (candidateUrls.length > 1 && (candidateResp.status === 404 || candidateResp.status === 403 || candidateResp.status === 400)) {
+        // If candidate url returned non-ok status, try next candidate
+        if (candidateUrls.length > 1 && !candidateResp.ok) {
           continue;
         }
 

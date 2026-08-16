@@ -57,15 +57,27 @@ export async function handleGateway(
   const isAnthropicReq = req.subPath.toLowerCase().includes("messages");
 
   // ── 1. Auth ────────────────────────────────────────────────────────────
-  const raw = bearerToken(req);
+  const raw =
+    bearerToken(req) ||
+    req.header("x-api-key") ||
+    req.header("api-key") ||
+    req.query.get("key") ||
+    req.query.get("api_key");
+
   if (!raw) {
     return formatGatewayError(
       401,
-      "Missing API key. Send `Authorization: Bearer ah-…`.",
+      "Missing API key. Send `Authorization: Bearer ah-…` or `x-api-key: ah-…`.",
       isAnthropicReq
     );
   }
-  const uid = await resolveApiKey(raw);
+
+  let uid = await resolveApiKey(raw);
+  if (!uid) {
+    // Also accept direct Firebase session token or authenticated user
+    uid = await requireUser(req);
+  }
+
   if (!uid) {
     return formatGatewayError(401, "Invalid or revoked API key.", isAnthropicReq);
   }

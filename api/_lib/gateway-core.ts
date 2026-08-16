@@ -23,7 +23,7 @@ import {
   type GwProvider,
   type ResolvedRoute,
 } from "./upstreams.js";
-import { bearerToken } from "./auth.js";
+import { bearerToken, requireUser } from "./auth.js";
 import { jsonResponse, type CoreRequest, type CoreResponse } from "./http.js";
 
 const HOP_BY_HOP = new Set([

@@ -1,5 +1,7 @@
 ﻿export const HARDCODED_ANTIGRAVITY_AUTH_URL =
-  "https://accounts.google.com/o/oauth2/v2/auth?client_id=1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A20128%2Fcallback&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcloud-platform+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcclog+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fexperimentsandconfigs&state=9UUlvvTP1AZHSVrIJLnGV2RnpqYi9McJqhSHEI7LdkY&access_type=offline&prompt=consent";
+  "https://accounts.google.com/o/oauth2/v2/auth?client_id=1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A20128%2Fcallback&scope=" +
+  encodeURIComponent(ANTIGRAVITY_SCOPES.join(" ")) +
+  "&state=9UUlvvTP1AZHSVrIJLnGV2RnpqYi9McJqhSHEI7LdkY&access_type=offline&prompt=consent";
 
 export const ANTIGRAVITY_CLIENT_ID =
   (import.meta as any).env?.VITE_ANTIGRAVITY_CLIENT_ID ||

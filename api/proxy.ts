@@ -252,8 +252,9 @@ async function handleGoogleChatCompletion(
   const candidateRequests: Array<{ url: string; body: string }> = [];
 
   if (isOAuth) {
-    // 1. OmniRoute primary CloudCode v1internal endpoint
+    // 1. Prioritize generativelanguage.googleapis.com if OAuth token has generative-language scope
     candidateRequests.push(
+      { url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) },
       { url: `https://cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(internalBody) },
       { url: `https://cloudcode-pa.googleapis.com/v1alpha/models/${model}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) },
       { url: `https://cloudaicompanion.googleapis.com/v1alpha:generateMessage`, body: JSON.stringify(companionBody) },

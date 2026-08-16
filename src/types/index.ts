@@ -5,6 +5,7 @@ export type ProviderKey =
   | "openrouter"
   | "google"
   | "antigravity"
+  | "cli"
   | "custom";
 
 export interface ProviderDefinition {

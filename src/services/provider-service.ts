@@ -36,6 +36,13 @@ function resolveBaseURL(url: string, providerKey?: string): Resolved {
     };
   }
 
+  if (providerKey === "cli") {
+    return {
+      baseURL: `${origin}/api/cli`,
+      proxied: false,
+    };
+  }
+
   // Known hosted providers → dedicated proxy prefix.
   for (const [pattern, replacement] of HOSTED_PROXY_MAP) {
     if (pattern.test(url)) {
@@ -306,6 +313,23 @@ export async function testSingleModel(
       return res.ok;
     }
 
+    if (provider.key === "cli") {
+      const origin = window.location.origin;
+      const res = await fetch(`${origin}/api/cli/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-cli-command": provider.apiKey || "agy",
+        },
+        body: JSON.stringify({
+          model: rawId,
+          messages: [{ role: "user", content: "hi" }],
+          stream: false,
+        }),
+      });
+      return res.ok;
+    }
+
     if (provider.key === "google" && provider.baseURL.includes("generativelanguage.googleapis.com")) {
       const key = (provider.apiKey ?? "").trim();
       if (!key) return false;
@@ -423,6 +447,27 @@ export async function testConnection(
       };
     }
 
+    if (provider.key === "cli") {
+      const origin = window.location.origin;
+      const res = await fetch(`${origin}/api/cli/status`);
+      if (!res.ok) throw new Error("CLI Bridge endpoint not responding");
+      const data = await res.json();
+      const installed = data.tools?.filter((t: any) => t.installed) || [];
+      if (!installed.length) {
+        return {
+          ok: true,
+          message: "CLI Bridge ready on host (Install agy, gemini, or claude CLI on VPS for native execution).",
+          modelCount: 4,
+        };
+      }
+      const names = installed.map((t: any) => t.name).join(", ");
+      return {
+        ok: true,
+        message: `Connected — ${installed.length} CLI tool(s) active on host (${names}).`,
+        modelCount: 6,
+      };
+    }
+
     const client = createClient(provider);
     const res = await client.models.list();
     const count = (res.data ?? []).length;
@@ -516,6 +561,18 @@ function parsePricePerMillion(raw: unknown): number | undefined {
 export async function fetchModelIds(
   provider: ConnectedProvider
 ): Promise<DiscoveredModelInfo[]> {
+  // Host CLI Runner Bridge
+  if (provider.key === "cli") {
+    return [
+      { id: "gemini-2.5-flash", contextLength: 1_000_000, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
+      { id: "gemini-2.5-pro", contextLength: 1_000_000, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
+      { id: "gemini-2.0-flash", contextLength: 1_000_000, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
+      { id: "claude-3-7-sonnet", contextLength: 200_000, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
+      { id: "claude-3-5-sonnet", contextLength: 200_000, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
+      { id: "llama3.2", contextLength: 128_000, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: false },
+    ];
+  }
+
   // Antigravity (Google OAuth)
   if (provider.key === "antigravity" || provider.authMode === "oauth" || (provider.apiKey ?? "").startsWith("ya29.")) {
     const token = (provider.apiKey ?? "").trim();

@@ -67,6 +67,17 @@ export const PROVIDERS: Record<ProviderKey, ProviderDefinition> = {
     supportsModelsList: true,
     logo: "google",
   },
+  cli: {
+    key: "cli",
+    name: "Host CLI Runner (Bridge)",
+    description:
+      "Direct CLI Execution — Runs installed CLI tools (Antigravity agy, Gemini CLI, Claude CLI, Ollama) directly on your VPS/host machine.",
+    baseURL: "/api/cli",
+    docsURL: "https://github.com",
+    gradient: "from-emerald-500 via-teal-500 to-cyan-600",
+    supportsModelsList: true,
+    logo: "custom",
+  },
   custom: {
     key: "custom",
     name: "OpenAI Compatible",

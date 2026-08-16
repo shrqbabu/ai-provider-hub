@@ -13,7 +13,7 @@ const SUPPORTED_TOOLS: Array<{ name: string; command: string; versionFlag: strin
     name: "Antigravity CLI (agy)",
     command: "agy",
     versionFlag: "--version",
-    runArgs: (model, prompt) => ["chat", "--model", model || "gemini-2.5-flash", prompt],
+    runArgs: (model, prompt) => ["--model", model || "gemini-3.7-flash", prompt],
   },
   {
     name: "Gemini CLI",
@@ -42,6 +42,10 @@ export function detectInstalledCliTools(): CliToolInfo[] {
   const customEnv = {
     ...process.env,
     PATH: `${homeDir}/.antigravity/bin:${homeDir}/.local/bin:${homeDir}/bin:/usr/local/bin:/usr/bin:${process.env.PATH || ""}`,
+    TERM: "dumb",
+    CI: "true",
+    NO_COLOR: "1",
+    FORCE_COLOR: "0",
   };
 
   return SUPPORTED_TOOLS.map((tool) => {
@@ -127,6 +131,10 @@ export function executeCliCompletion(options: {
   const customEnv = {
     ...process.env,
     PATH: `${homeDir}/.antigravity/bin:${homeDir}/.local/bin:${homeDir}/bin:/usr/local/bin:/usr/bin:${process.env.PATH || ""}`,
+    TERM: "dumb",
+    CI: "true",
+    NO_COLOR: "1",
+    FORCE_COLOR: "0",
   };
 
   if (stream) {

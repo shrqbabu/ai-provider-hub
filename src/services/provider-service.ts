@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import type { ConnectedProvider } from "@/types";
-import { getAntigravityDefaultModels } from "./antigravity-oauth";
+import { getAntigravityDefaultModels, refreshAntigravityToken } from "./antigravity-oauth";
+import { useProviderStore } from "@/store/provider-store";
 
 // All hosted providers go through /api/proxy — same URL in dev (via Vite
 // middleware) and prod (via api/proxy/[...path].ts Vercel Edge Function).
@@ -241,10 +242,26 @@ export async function testSingleModel(
     const candidateIds = Array.from(new Set([rawId, modelId].filter(Boolean)));
 
     if (provider.key === "antigravity" || provider.authMode === "oauth" || (provider.apiKey ?? "").startsWith("ya29.")) {
-      const token = (provider.apiKey ?? "").trim();
-      if (!token) return false;
+      let token = (provider.apiKey ?? "").trim();
       const origin = window.location.origin;
-      const res = await fetch(`${origin}/api/proxy/antigravity/chat/completions`, {
+
+      // Auto-refresh token if expired or near expiry
+      if (provider.refreshToken && provider.tokenExpiry && Date.now() >= provider.tokenExpiry - 60_000) {
+        try {
+          const refreshed = await refreshAntigravityToken(provider.refreshToken);
+          token = refreshed.accessToken;
+          useProviderStore.getState().update(provider.id, {
+            apiKey: refreshed.accessToken,
+            tokenExpiry: refreshed.tokenExpiry,
+          });
+        } catch {
+          // ignore and try current token
+        }
+      }
+
+      if (!token) return false;
+
+      let res = await fetch(`${origin}/api/proxy/antigravity/chat/completions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -257,6 +274,35 @@ export async function testSingleModel(
           max_tokens: 16,
         }),
       });
+
+      // If 401 Unauthorized and we have a refreshToken, refresh and retry once
+      if (res.status === 401 && provider.refreshToken) {
+        try {
+          const refreshed = await refreshAntigravityToken(provider.refreshToken);
+          token = refreshed.accessToken;
+          useProviderStore.getState().update(provider.id, {
+            apiKey: refreshed.accessToken,
+            tokenExpiry: refreshed.tokenExpiry,
+          });
+
+          res = await fetch(`${origin}/api/proxy/antigravity/chat/completions`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-provider-key": token,
+              "x-auth-mode": "oauth",
+            },
+            body: JSON.stringify({
+              model: rawId,
+              messages: [{ role: "user", content: "hi" }],
+              max_tokens: 16,
+            }),
+          });
+        } catch {
+          // ignore
+        }
+      }
+
       return res.ok;
     }
 

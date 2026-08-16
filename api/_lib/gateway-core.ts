@@ -107,9 +107,10 @@ export async function handleGateway(
     }
     if (Array.isArray(combos)) {
       for (const c of combos) {
-        if (c && c.name) {
+        const comboName = (c?.name || (c as any)?.comboName || (c as any)?.id || "").trim();
+        if (comboName) {
           data.push({
-            id: c.name,
+            id: comboName,
             object: "model",
             owned_by: "combo",
           });

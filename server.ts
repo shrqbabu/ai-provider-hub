@@ -243,8 +243,9 @@ const server = http.createServer(async (req, res) => {
       }
       const parsed = JSON.parse(rawBody || "{}");
       const command = (req.headers["x-cli-command"] as string) || parsed.command || "agy";
-      const model = parsed.model || "gemini-2.5-flash";
+      const model = parsed.model || "gemini-3.7-flash";
       const stream = Boolean(parsed.stream);
+      const sessionId = (req.headers["x-session-id"] as string) || (req.headers["x-user-uid"] as string) || parsed.sessionId || parsed.chatId || "cli_active_session";
 
       if (stream) {
         res.statusCode = 200;
@@ -258,6 +259,7 @@ const server = http.createServer(async (req, res) => {
           model,
           messages: parsed.messages || [],
           stream: true,
+          sessionId,
         });
 
         if ("stream" in result) {
@@ -280,6 +282,7 @@ const server = http.createServer(async (req, res) => {
           model,
           messages: parsed.messages || [],
           stream: false,
+          sessionId,
         });
 
         if ("promise" in result) {

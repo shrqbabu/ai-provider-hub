@@ -1,4 +1,7 @@
 import { spawn, execSync, type ChildProcessWithoutNullStreams } from "node:child_process";
+import os from "node:os";
+import fs from "node:fs";
+import path from "node:path";
 
 export interface CliToolInfo {
   name: string;
@@ -8,12 +11,67 @@ export interface CliToolInfo {
   version?: string;
 }
 
-const SUPPORTED_TOOLS: Array<{ name: string; command: string; versionFlag: string; runArgs: (model: string, prompt: string) => string[] }> = [
+interface CliSession {
+  dir: string;
+  turnCount: number;
+  createdAt: number;
+  lastUsedAt: number;
+  model: string;
+}
+
+const MAX_SESSION_TURNS = 50;
+const SESSION_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+const sessionStore = new Map<string, CliSession>();
+
+function getOrCreateSession(sessionKey: string, model: string): { dir: string; isNewSession: boolean } {
+  const now = Date.now();
+  const existing = sessionStore.get(sessionKey);
+
+  if (existing) {
+    const isExpired = now - existing.lastUsedAt > SESSION_TTL_MS;
+    const isTurnLimit = existing.turnCount >= MAX_SESSION_TURNS;
+    const isModelChange = existing.model !== model;
+
+    if (!isExpired && !isTurnLimit && !isModelChange && fs.existsSync(existing.dir)) {
+      existing.turnCount++;
+      existing.lastUsedAt = now;
+      return { dir: existing.dir, isNewSession: false };
+    }
+
+    try {
+      if (fs.existsSync(existing.dir)) {
+        fs.rmSync(existing.dir, { recursive: true, force: true });
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  const safeKey = sessionKey.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 32);
+  const sessionDir = path.join(os.tmpdir(), "ai_hub_cli_sessions", `${safeKey}_${Date.now()}`);
+  try {
+    fs.mkdirSync(sessionDir, { recursive: true });
+  } catch {
+    // ignore
+  }
+
+  sessionStore.set(sessionKey, {
+    dir: sessionDir,
+    turnCount: 1,
+    createdAt: now,
+    lastUsedAt: now,
+    model,
+  });
+
+  return { dir: sessionDir, isNewSession: true };
+}
+
+const SUPPORTED_TOOLS: Array<{ name: string; command: string; versionFlag: string; runArgs: (model: string, prompt: string, isContinue?: boolean) => string[] }> = [
   {
     name: "Antigravity CLI (agy)",
     command: "agy",
     versionFlag: "--version",
-    runArgs: (model, prompt) => {
+    runArgs: (model, prompt, isContinue = false) => {
       let cleanModel = (model || "gemini-3.7-flash").replace(/^(cli|antigravity)\//, "");
       let effort = "medium";
       if (cleanModel.includes("high")) effort = "high";
@@ -26,6 +84,9 @@ const SUPPORTED_TOOLS: Array<{ name: string; command: string; versionFlag: strin
       const args = ["-p", prompt, "--model", cleanModel, "--dangerously-skip-permissions"];
       if (cleanModel.startsWith("gemini") || cleanModel.startsWith("gpt-oss")) {
         args.push("--effort", effort);
+      }
+      if (isContinue) {
+        args.unshift("-c");
       }
       return args;
     },
@@ -107,8 +168,11 @@ export function executeCliCompletion(options: {
   messages: Array<{ role: string; content: string }>;
   stream?: boolean;
   signal?: AbortSignal;
+  sessionId?: string;
 }): { stream: ReadableStream<Uint8Array>; cancel: () => void } | { promise: Promise<any>; cancel: () => void } {
-  const { command = "agy", model = "gemini-2.5-flash", messages, stream = false, signal } = options;
+  const { command = "agy", model = "gemini-3.7-flash", messages, stream = false, signal, sessionId = "default_cli_session" } = options;
+
+  const { dir: sessionCwd, isNewSession } = getOrCreateSession(sessionId, model);
 
   // Extract prompt text from messages
   const lastUserMsg = messages.filter((m) => m.role === "user").pop();
@@ -119,10 +183,17 @@ export function executeCliCompletion(options: {
     name: command,
     command,
     versionFlag: "--version",
-    runArgs: (m: string, p: string) => ["chat", "--model", m, p],
+    runArgs: (m: string, p: string, isContinue?: boolean) => [
+      ...(isContinue ? ["-c"] : []),
+      "-p",
+      p,
+      "--model",
+      m,
+      "--dangerously-skip-permissions",
+    ],
   };
 
-  const args = toolConfig.runArgs(model, prompt);
+  const args = toolConfig.runArgs(model, prompt, !isNewSession);
   let child: ChildProcessWithoutNullStreams | null = null;
 
   const cancel = () => {
@@ -160,10 +231,11 @@ export function executeCliCompletion(options: {
         const created = Math.floor(Date.now() / 1000);
 
         try {
-          console.log(`[CLI Stream] Spawning: ${command} ${args.join(" ")}`);
+          console.log(`[CLI Stream] Spawning (session=${sessionId}, new=${isNewSession}): ${command} ${args.join(" ")} in ${sessionCwd}`);
           child = spawn(command, args, {
             stdio: ["pipe", "pipe", "pipe"],
             shell: process.platform === "win32",
+            cwd: sessionCwd,
             env: customEnv,
           });
 
@@ -249,10 +321,11 @@ export function executeCliCompletion(options: {
   // Non-streaming Promise
   const promise = new Promise((resolve, reject) => {
     try {
-      console.log(`[CLI Sync] Spawning: ${command} ${args.join(" ")}`);
+      console.log(`[CLI Sync] Spawning (session=${sessionId}, new=${isNewSession}): ${command} ${args.join(" ")} in ${sessionCwd}`);
       child = spawn(command, args, {
         stdio: ["pipe", "pipe", "pipe"],
         shell: process.platform === "win32",
+        cwd: sessionCwd,
         env: customEnv,
       });
 

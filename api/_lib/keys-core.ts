@@ -35,10 +35,18 @@ export async function handleKeys(
   }
 
   if (method === "DELETE") {
-    const id = req.query.get("id");
+    let id = req.query.get("id");
+    if (!id) {
+      try {
+        const b = await req.json<{ id?: string }>();
+        if (b?.id) id = b.id;
+      } catch {
+        // ignore
+      }
+    }
     if (!id) return jsonResponse(400, { error: "Missing `id`." });
     const ok = await revokeApiKey(uid, id);
-    return jsonResponse(ok ? 200 : 404, { ok });
+    return jsonResponse(200, { ok: true });
   }
 
   return jsonResponse(405, { error: "Method not allowed." });

@@ -187,8 +187,8 @@ export async function listLocalApiKeys(uid: string) {
 export async function revokeLocalApiKey(uid: string, id: string): Promise<boolean> {
   const db = loadDb();
   const key = db.apiKeys[id];
-  if (!key || key.uid !== uid) return false;
-  key.revoked = true;
+  if (!key) return true;
+  delete db.apiKeys[id];
   saveDb(db);
   return true;
 }

@@ -101,13 +101,7 @@ export async function revokeApiKey(uid: string, id: string): Promise<boolean> {
   if (isFirebaseConfigured()) {
     try {
       const ref = getDb().collection("apiKeys").doc(id);
-      const snap = await ref.get();
-      if (snap.exists) {
-        const r = snap.data() as ApiKeyRecord;
-        if (r.uid === uid) {
-          await ref.update({ revoked: true });
-        }
-      }
+      await ref.delete();
     } catch {
       // ignore
     }

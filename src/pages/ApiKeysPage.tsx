@@ -65,12 +65,14 @@ export function ApiKeysPage() {
   const handleRevoke = async (key: GatewayKey) => {
     if (!confirm(`Revoke "${key.label}" (…${key.last4})? Apps using it will stop working.`))
       return;
+    setKeys((prev) => prev.filter((k) => k.id !== key.id));
     try {
       await revokeGatewayKey(key.id);
-      toast.success("Key revoked.");
+      toast.success("Key deleted / revoked.");
       await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to revoke key.");
+      await load();
     }
   };
 

@@ -1,8 +1,3 @@
-﻿export const HARDCODED_ANTIGRAVITY_AUTH_URL =
-  "https://accounts.google.com/o/oauth2/v2/auth?client_id=1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A20128%2Fcallback&scope=" +
-  encodeURIComponent(ANTIGRAVITY_SCOPES.join(" ")) +
-  "&state=9UUlvvTP1AZHSVrIJLnGV2RnpqYi9McJqhSHEI7LdkY&access_type=offline&prompt=consent";
-
 export const ANTIGRAVITY_CLIENT_ID =
   (import.meta as any).env?.VITE_ANTIGRAVITY_CLIENT_ID ||
   ["1071006060591", "tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"].join("-");
@@ -19,6 +14,11 @@ export const ANTIGRAVITY_SCOPES = [
   "https://www.googleapis.com/auth/experimentsandconfigs",
   "openid",
 ];
+
+export const HARDCODED_ANTIGRAVITY_AUTH_URL =
+  "https://accounts.google.com/o/oauth2/v2/auth?client_id=1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A20128%2Fcallback&scope=" +
+  encodeURIComponent(ANTIGRAVITY_SCOPES.join(" ")) +
+  "&state=9UUlvvTP1AZHSVrIJLnGV2RnpqYi9McJqhSHEI7LdkY&access_type=offline&prompt=consent";
 
 export const CLI_REDIRECT_URI = "http://127.0.0.1:20128/callback";
 export const LEGACY_CLI_REDIRECT_URI = "http://localhost:51121/oauth-callback";

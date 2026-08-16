@@ -101,6 +101,51 @@ export function ProvidersPage() {
     toast.success("Provider removed.");
   };
 
+  const connectCliBridge = () => {
+    const existingCli = providers.find((p) => p.key === "cli");
+    if (existingCli) {
+      toast.info("Host CLI Bridge is already connected!");
+      return;
+    }
+    const created = useProviderStore.getState().add({
+      key: "cli",
+      name: "Host CLI Runner (Bridge)",
+      displayName: "Host CLI Bridge (agy)",
+      authMode: "apiKey",
+      apiKey: "agy",
+      apiKeys: ["agy"],
+      baseURL: "/api/cli",
+      apiFormat: "openai",
+      streaming: true,
+      vision: true,
+      fileUpload: true,
+    });
+
+    const defaultModels = [
+      { id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash (Host CLI)", tier: "free" as const },
+      { id: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro (Host CLI)", tier: "free" as const },
+      { id: "gemini-2.0-flash", displayName: "Gemini 2.0 Flash (Host CLI)", tier: "free" as const },
+      { id: "claude-3-7-sonnet", displayName: "Claude 3.7 Sonnet (Host CLI)", tier: "free" as const },
+      { id: "claude-3-5-sonnet", displayName: "Claude 3.5 Sonnet (Host CLI)", tier: "free" as const },
+      { id: "llama3.2", displayName: "Llama 3.2 (Ollama CLI)", tier: "free" as const },
+    ];
+
+    useModelStore.getState().upsertMany(
+      defaultModels.map((m) => ({
+        providerId: created.id,
+        providerKey: "cli" as const,
+        modelId: m.id,
+        displayName: m.displayName,
+        contextWindow: 1_000_000,
+        vision: true,
+        tier: m.tier,
+        createdAt: Date.now(),
+      }))
+    );
+
+    toast.success("Host CLI Bridge connected with native VPS models!");
+  };
+
   return (
     <div className="h-full overflow-y-auto scrollbar-thin">
       <div className="max-w-6xl mx-auto p-4 md:p-8">
@@ -116,6 +161,14 @@ export function ProvidersPage() {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              onClick={connectCliBridge}
+              className="gap-1.5 border-emerald-500/30 hover:border-emerald-500/60 hover:bg-emerald-500/10 text-emerald-400"
+            >
+              <Plug2 className="w-4 h-4 text-emerald-400" />
+              Connect Host CLI (agy)
+            </Button>
             <Button
               variant="outline"
               onClick={() => setAntigravityDialogOpen(true)}
@@ -147,9 +200,17 @@ export function ProvidersPage() {
             </div>
             <h3 className="mt-4 text-lg font-semibold">No providers yet</h3>
             <p className="mt-1 text-sm text-muted-foreground max-w-sm mx-auto">
-              Add your first AI provider or connect Google Antigravity via OAuth to get started.
+              Connect your host CLI binary (`agy`), Antigravity Google OAuth, or add any custom AI provider.
             </p>
-            <div className="mt-6 flex items-center justify-center gap-3">
+            <div className="mt-6 flex items-center justify-center gap-3 flex-wrap">
+              <Button
+                variant="outline"
+                onClick={connectCliBridge}
+                className="border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10"
+              >
+                <Plug2 className="w-4 h-4" />
+                Connect Host CLI (agy)
+              </Button>
               <Button
                 variant="outline"
                 onClick={() => setAntigravityDialogOpen(true)}

@@ -227,7 +227,7 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
   };
 
   const handleSave = async () => {
-    if (isCookie ? !form.cookie.trim() : !primaryKey) {
+    if (form.key !== "cli" && (isCookie ? !form.cookie.trim() : !primaryKey)) {
       toast.error(
         isCookie
           ? "Cookie and base URL are required."
@@ -239,11 +239,13 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
       toast.error("Base URL is required.");
       return;
     }
-    try {
-      new URL(form.baseURL);
-    } catch {
-      toast.error("Base URL must be a valid URL, e.g. https://integrate.api.nvidia.com/v1");
-      return;
+    if (form.key !== "cli") {
+      try {
+        new URL(form.baseURL);
+      } catch {
+        toast.error("Base URL must be a valid URL, e.g. https://integrate.api.nvidia.com/v1");
+        return;
+      }
     }
     if (!form.displayName.trim() && isCustom) {
       toast.error("Give this provider a display name.");
@@ -396,7 +398,25 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
             </div>
           )}
 
-          {!isCookie && (
+          {form.key === "cli" ? (
+            <div className="space-y-1.5 p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-500/5">
+              <div className="flex items-center justify-between">
+                <Label className="text-emerald-400 font-medium">Host CLI Binary</Label>
+                <span className="text-[11px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                  Native Host Runner
+                </span>
+              </div>
+              <Input
+                value={form.apiKeys[0] || "agy"}
+                onChange={(e) => setKeyAt(0, e.target.value)}
+                placeholder="agy (or gemini / claude / ollama)"
+                className="border-emerald-500/30"
+              />
+              <p className="text-xs text-muted-foreground">
+                The server will directly invoke this CLI tool installed on your VPS (e.g. <code>agy</code> for Antigravity, <code>gemini</code>, <code>claude</code>, <code>ollama</code>). No API key needed!
+              </p>
+            </div>
+          ) : !isCookie ? (
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <Label>
@@ -488,7 +508,7 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
                 top-to-bottom when one hits a rate limit or auth error.
               </p>
             </div>
-          )}
+          ) : null}
 
           {isCookie && (
             <div className="space-y-1.5">

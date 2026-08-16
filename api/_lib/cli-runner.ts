@@ -137,11 +137,23 @@ export function executeCliCompletion(options: {
         const created = Math.floor(Date.now() / 1000);
 
         try {
+          console.log(`[CLI Stream] Spawning: ${command} ${args.join(" ")}`);
           child = spawn(command, args, {
             stdio: ["pipe", "pipe", "pipe"],
             shell: process.platform === "win32",
             env: customEnv,
           });
+
+          // Close stdin so interactive CLI knows no more input is coming
+          child.stdin.end();
+
+          // Safety timeout (30 seconds)
+          const timer = setTimeout(() => {
+            if (child && !child.killed) {
+              console.warn(`[CLI Stream] Process timed out after 30s, killing: ${command}`);
+              child.kill("SIGTERM");
+            }
+          }, 30000);
 
           // Send initial role chunk
           const initChunk = {
@@ -155,6 +167,7 @@ export function executeCliCompletion(options: {
 
           child.stdout.on("data", (chunk: Buffer) => {
             const text = chunk.toString("utf-8");
+            console.log(`[CLI stdout]: ${text.slice(0, 100)}`);
             const dataChunk = {
               id: chatId,
               object: "chat.completion.chunk",
@@ -170,6 +183,7 @@ export function executeCliCompletion(options: {
           });
 
           child.on("close", (code) => {
+            clearTimeout(timer);
             const finalChunk = {
               id: chatId,
               object: "chat.completion.chunk",
@@ -183,6 +197,8 @@ export function executeCliCompletion(options: {
           });
 
           child.on("error", (err) => {
+            clearTimeout(timer);
+            console.error(`[CLI spawn error]`, err);
             const errChunk = {
               id: chatId,
               object: "chat.completion.chunk",
@@ -210,10 +226,22 @@ export function executeCliCompletion(options: {
   // Non-streaming Promise
   const promise = new Promise((resolve, reject) => {
     try {
+      console.log(`[CLI Sync] Spawning: ${command} ${args.join(" ")}`);
       child = spawn(command, args, {
         stdio: ["pipe", "pipe", "pipe"],
         shell: process.platform === "win32",
+        env: customEnv,
       });
+
+      // Close stdin immediately
+      child.stdin.end();
+
+      const timer = setTimeout(() => {
+        if (child && !child.killed) {
+          console.warn(`[CLI Sync] Process timed out after 20s, killing: ${command}`);
+          child.kill("SIGTERM");
+        }
+      }, 20000);
 
       let stdout = "";
       let stderr = "";
@@ -227,6 +255,8 @@ export function executeCliCompletion(options: {
       });
 
       child.on("close", (code) => {
+        clearTimeout(timer);
+        console.log(`[CLI close code=${code}], stdout length=${stdout.length}, stderr=${stderr}`);
         if (code === 0 || stdout.trim().length > 0) {
           resolve({
             id: `chatcmpl-cli-${Date.now()}`,
@@ -236,7 +266,7 @@ export function executeCliCompletion(options: {
             choices: [
               {
                 index: 0,
-                message: { role: "assistant", content: stdout.trim() },
+                message: { role: "assistant", content: stdout.trim() || "OK" },
                 finish_reason: "stop",
               },
             ],
@@ -251,7 +281,11 @@ export function executeCliCompletion(options: {
         }
       });
 
-      child.on("error", reject);
+      child.on("error", (err) => {
+        clearTimeout(timer);
+        console.error(`[CLI sync spawn error]`, err);
+        reject(err);
+      });
     } catch (err) {
       reject(err);
     }

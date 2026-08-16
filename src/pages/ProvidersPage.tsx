@@ -122,12 +122,13 @@ export function ProvidersPage() {
     });
 
     const defaultModels = [
-      { id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash (Host CLI)", tier: "free" as const },
-      { id: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro (Host CLI)", tier: "free" as const },
-      { id: "gemini-2.0-flash", displayName: "Gemini 2.0 Flash (Host CLI)", tier: "free" as const },
-      { id: "claude-3-7-sonnet", displayName: "Claude 3.7 Sonnet (Host CLI)", tier: "free" as const },
-      { id: "claude-3-5-sonnet", displayName: "Claude 3.5 Sonnet (Host CLI)", tier: "free" as const },
-      { id: "llama3.2", displayName: "Llama 3.2 (Ollama CLI)", tier: "free" as const },
+      { id: "gemini-3.7-flash", displayName: "Gemini 3.7 Flash", tier: "free" as const },
+      { id: "gemini-3.6-flash", displayName: "Gemini 3.6 Flash", tier: "free" as const },
+      { id: "gemini-3.5-flash", displayName: "Gemini 3.5 Flash", tier: "free" as const },
+      { id: "gemini-3.1-pro", displayName: "Gemini 3.1 Pro", tier: "free" as const },
+      { id: "claude-sonnet-4-6-thinking", displayName: "Claude Sonnet 4.6 (Thinking)", tier: "free" as const },
+      { id: "claude-opus-4-6-thinking", displayName: "Claude Opus 4.6 (Thinking)", tier: "free" as const },
+      { id: "gpt-oss-120b", displayName: "GPT-OSS 120B (Medium)", tier: "free" as const },
     ];
 
     useModelStore.getState().upsertMany(
@@ -136,7 +137,7 @@ export function ProvidersPage() {
         providerKey: "cli" as const,
         modelId: m.id,
         displayName: m.displayName,
-        contextWindow: 1_000_000,
+        contextWindow: 1_047_576,
         vision: true,
         tier: m.tier,
         createdAt: Date.now(),

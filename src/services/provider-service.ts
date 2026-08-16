@@ -564,12 +564,16 @@ export async function fetchModelIds(
   // Host CLI Runner Bridge
   if (provider.key === "cli") {
     return [
-      { id: "gemini-2.5-flash", contextLength: 1_000_000, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
-      { id: "gemini-2.5-pro", contextLength: 1_000_000, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
-      { id: "gemini-2.0-flash", contextLength: 1_000_000, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
+      { id: "gemini-3.7-flash", contextLength: 1_047_576, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
+      { id: "gemini-3.6-flash", contextLength: 1_047_576, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
+      { id: "gemini-3.5-flash", contextLength: 1_047_576, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
+      { id: "gemini-3.1-pro", contextLength: 2_097_152, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
+      { id: "claude-sonnet-4-6-thinking", contextLength: 200_000, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
+      { id: "claude-opus-4-6-thinking", contextLength: 200_000, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
+      { id: "gpt-oss-120b", contextLength: 131_072, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: false },
+      { id: "gemini-2.5-flash", contextLength: 1_047_576, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
+      { id: "gemini-2.5-pro", contextLength: 2_097_152, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
       { id: "claude-3-7-sonnet", contextLength: 200_000, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
-      { id: "claude-3-5-sonnet", contextLength: 200_000, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
-      { id: "llama3.2", contextLength: 128_000, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: false },
     ];
   }
 

@@ -99,3 +99,9 @@ export async function getIdToken(): Promise<string | null> {
   if (!user) return null;
   return user.getIdToken();
 }
+
+export function getAuthUid(): string | null {
+  if (!firebaseConfigured) return null;
+  const user = getFirebaseAuth().currentUser;
+  return user?.uid || null;
+}

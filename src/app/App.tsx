@@ -55,6 +55,14 @@ export default function App() {
   useEffect(() => {
     if (authLoading || !authConfigured) return;
     if (!user) {
+      useProviderStore.setState({ providers: [], activeId: null });
+      useModelStore.setState({ models: [], selectedModelId: null });
+      useComboStore.setState({ combos: [] });
+      useChatStore.setState({ chats: [], activeId: null });
+      usePromptStore.setState({ prompts: [] });
+      useUsageStore.setState({ records: [] });
+      useKeyStoreStore.setState({ accounts: [], activeAccountId: null });
+      useComboLogStore.setState({ logs: [] });
       setReady(true);
       return;
     }

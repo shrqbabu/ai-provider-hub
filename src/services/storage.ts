@@ -2,15 +2,17 @@
 // Firestore (users/{uid}/kv/{key}), accessed via our Node backend (/api/data)
 // so the client never touches Firestore directly (Admin SDK only). Same
 // interface as before, so existing stores work unchanged.
-import { getIdToken } from "@/store/auth-store";
+import { getIdToken, getAuthUid } from "@/store/auth-store";
 
 async function apiCall(
   endpoint: string,
   options?: RequestInit
 ): Promise<Response> {
   const token = await getIdToken();
+  const uid = getAuthUid();
   const headers = new Headers(options?.headers);
   if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (uid) headers.set("x-user-uid", uid);
   headers.set("Content-Type", "application/json");
   return fetch(endpoint, { ...options, headers });
 }

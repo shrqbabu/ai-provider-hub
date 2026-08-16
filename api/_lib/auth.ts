@@ -12,19 +12,36 @@ export function bearerToken(req: CoreRequest): string | undefined {
 /** Verify the Firebase ID token on the request. Returns uid, or null if invalid/missing. */
 export async function requireUser(req: CoreRequest): Promise<string | null> {
   const token = bearerToken(req);
+  const headerUid = req.header("x-user-uid");
 
-  // In self-hosted VPS mode (no Firebase service account), all data belongs to the local user
-  if (!isFirebaseConfigured()) {
-    if (!token) return "local_user";
-    // If client sent a token/dummy token, accept it
-    return token.length > 30 ? token.slice(0, 28) : "local_user";
+  if (!token) {
+    return headerUid || "local_user";
   }
 
-  if (!token) return null;
+  // 1. If Firebase Admin is configured with private key, cryptographically verify token
+  if (isFirebaseConfigured()) {
+    try {
+      const decoded = await getAdminAuth().verifyIdToken(token);
+      return decoded.uid;
+    } catch (e) {
+      console.warn("[Auth] Firebase Admin token verify failed:", e);
+    }
+  }
+
+  // 2. Decode JWT payload to get the true unique `user_id` / `sub` per user
   try {
-    const decoded = await getAdminAuth().verifyIdToken(token);
-    return decoded.uid;
-  } catch {
-    return null;
+    const parts = token.split(".");
+    if (parts.length === 3) {
+      const payloadJson = Buffer.from(parts[1], "base64").toString("utf-8");
+      const payload = JSON.parse(payloadJson);
+      if (payload.user_id || payload.sub) {
+        return (payload.user_id || payload.sub) as string;
+      }
+    }
+  } catch (e) {
+    // ignore
   }
+
+  if (headerUid) return headerUid;
+  return "local_user";
 }

@@ -72,17 +72,26 @@ const SUPPORTED_TOOLS: Array<{ name: string; command: string; versionFlag: strin
     command: "agy",
     versionFlag: "--version",
     runArgs: (model, prompt, isContinue = false) => {
-      let cleanModel = (model || "gemini-3.7-flash").replace(/^(cli|antigravity)\//, "");
+      let cleanModel = (model || "gemini-3.7-flash").replace(/^(cli|antigravity)\//, "").trim();
       let effort = "medium";
       if (cleanModel.includes("high")) effort = "high";
       if (cleanModel.includes("low")) effort = "low";
       cleanModel = cleanModel.replace(/-(high|medium|low)$/, "");
-      if (cleanModel.includes("claude-sonnet") || cleanModel.includes("sonnet-4-6")) cleanModel = "claude-sonnet-4-6";
-      if (cleanModel.includes("claude-opus") || cleanModel.includes("opus-4-6")) cleanModel = "claude-opus-4-6";
-      if (cleanModel.includes("gpt-oss")) cleanModel = "gpt-oss-120b";
+
+      if (cleanModel.includes("opus")) cleanModel = "claude-opus-4-6-thinking";
+      else if (cleanModel.includes("sonnet")) cleanModel = "claude-sonnet-4-6-thinking";
+      else if (cleanModel.includes("gpt-oss")) cleanModel = "gpt-oss-120b";
+      else if (cleanModel.startsWith("gemini")) {
+        // Keep clean Gemini model name
+      }
 
       const args = ["-p", prompt, "--model", cleanModel, "--dangerously-skip-permissions"];
-      if (cleanModel.startsWith("gemini") || cleanModel.startsWith("gpt-oss")) {
+      if (
+        cleanModel.startsWith("gemini") ||
+        cleanModel.startsWith("gpt-oss") ||
+        cleanModel.includes("flash") ||
+        cleanModel.includes("pro")
+      ) {
         args.push("--effort", effort);
       }
       if (isContinue) {
@@ -233,22 +242,19 @@ export function executeCliCompletion(options: {
         try {
           console.log(`[CLI Stream] Spawning (session=${sessionId}, new=${isNewSession}): ${command} ${args.join(" ")} in ${sessionCwd}`);
           child = spawn(command, args, {
-            stdio: ["pipe", "pipe", "pipe"],
+            stdio: ["ignore", "pipe", "pipe"],
             shell: process.platform === "win32",
             cwd: sessionCwd,
             env: customEnv,
           });
 
-          // Close stdin so interactive CLI knows no more input is coming
-          child.stdin.end();
-
-          // Safety timeout (30 seconds)
+          // Safety timeout (120 seconds)
           const timer = setTimeout(() => {
             if (child && !child.killed) {
-              console.warn(`[CLI Stream] Process timed out after 30s, killing: ${command}`);
+              console.warn(`[CLI Stream] Process timed out after 120s, killing: ${command}`);
               child.kill("SIGTERM");
             }
-          }, 30000);
+          }, 120000);
 
           // Send initial role chunk
           const initChunk = {
@@ -260,9 +266,12 @@ export function executeCliCompletion(options: {
           };
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(initChunk)}\n\n`));
 
+          let stdoutText = "";
+          let stderrText = "";
+
           child.stdout.on("data", (chunk: Buffer) => {
             const text = chunk.toString("utf-8");
-            console.log(`[CLI stdout]: ${text.slice(0, 100)}`);
+            stdoutText += text;
             const dataChunk = {
               id: chatId,
               object: "chat.completion.chunk",
@@ -274,19 +283,32 @@ export function executeCliCompletion(options: {
           });
 
           child.stderr.on("data", (errChunk: Buffer) => {
-            console.error(`[CLI stderr]`, errChunk.toString("utf-8"));
+            const errStr = errChunk.toString("utf-8");
+            stderrText += errStr;
+            console.error(`[CLI stderr]`, errStr);
           });
 
           child.on("close", (code) => {
             clearTimeout(timer);
-            const finalChunk = {
-              id: chatId,
-              object: "chat.completion.chunk",
-              created,
-              model,
-              choices: [{ index: 0, delta: {}, finish_reason: code === 0 ? "stop" : "error" }],
-            };
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(finalChunk)}\n\n`));
+            if (code !== 0 && stdoutText.trim().length === 0 && stderrText.trim().length > 0) {
+              const errChunk = {
+                id: chatId,
+                object: "chat.completion.chunk",
+                created,
+                model,
+                choices: [{ index: 0, delta: { content: `\n[CLI Error: ${stderrText.trim()}]` }, finish_reason: "error" }],
+              };
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(errChunk)}\n\n`));
+            } else {
+              const finalChunk = {
+                id: chatId,
+                object: "chat.completion.chunk",
+                created,
+                model,
+                choices: [{ index: 0, delta: {}, finish_reason: code === 0 ? "stop" : "error" }],
+              };
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(finalChunk)}\n\n`));
+            }
             controller.enqueue(encoder.encode("data: [DONE]\n\n"));
             controller.close();
           });
@@ -323,21 +345,18 @@ export function executeCliCompletion(options: {
     try {
       console.log(`[CLI Sync] Spawning (session=${sessionId}, new=${isNewSession}): ${command} ${args.join(" ")} in ${sessionCwd}`);
       child = spawn(command, args, {
-        stdio: ["pipe", "pipe", "pipe"],
+        stdio: ["ignore", "pipe", "pipe"],
         shell: process.platform === "win32",
         cwd: sessionCwd,
         env: customEnv,
       });
 
-      // Close stdin immediately
-      child.stdin.end();
-
       const timer = setTimeout(() => {
         if (child && !child.killed) {
-          console.warn(`[CLI Sync] Process timed out after 20s, killing: ${command}`);
+          console.warn(`[CLI Sync] Process timed out after 120s, killing: ${command}`);
           child.kill("SIGTERM");
         }
-      }, 20000);
+      }, 120000);
 
       let stdout = "";
       let stderr = "";

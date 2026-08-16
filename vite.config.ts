@@ -243,6 +243,13 @@ export default defineConfig(({ mode }) => {
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    target: "es2020",
+    minify: "esbuild",
+    sourcemap: false,
+    reportCompressedSize: false,
+    chunkSizeWarningLimit: 2000,
+  },
   };
 });
 

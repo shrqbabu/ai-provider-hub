@@ -248,15 +248,21 @@ async function handleGoogleChatCompletion(
     model,
     ...googleBody,
   };
+  const wrappedInternalBody = {
+    model,
+    project: "",
+    request: googleBody,
+  };
 
   const candidateRequests: Array<{ url: string; body: string }> = [];
 
   if (isOAuth) {
-    // 1. Prioritize generativelanguage.googleapis.com if OAuth token has generative-language scope
+    // 1. Antigravity CloudCode Internal endpoints (highest priority for ya29... tokens)
     candidateRequests.push(
-      { url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) },
+      { url: `https://cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(wrappedInternalBody) },
       { url: `https://cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(internalBody) },
       { url: `https://cloudcode-pa.googleapis.com/v1alpha/models/${model}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) },
+      { url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) },
       { url: `https://cloudaicompanion.googleapis.com/v1alpha:generateMessage`, body: JSON.stringify(companionBody) },
       { url: `https://cloudcode-pa.googleapis.com/v1alpha:generateMessage`, body: JSON.stringify(companionBody) }
     );
@@ -266,11 +272,10 @@ async function handleGoogleChatCompletion(
     if (model.includes("3.1-pro") || model.includes("2.5-pro") || model.includes("opus") || model.includes("sonnet")) {
       baseModel = "gemini-2.5-pro";
     }
-    const internalFallbackBody = { model: baseModel, ...googleBody };
+    const fallbackWrapped = { model: baseModel, project: "", request: googleBody };
     candidateRequests.push(
-      { url: `https://cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(internalFallbackBody) },
+      { url: `https://cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(fallbackWrapped) },
       { url: `https://cloudcode-pa.googleapis.com/v1alpha/models/${baseModel}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) },
-      { url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) },
       { url: `https://generativelanguage.googleapis.com/v1beta/models/${baseModel}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) }
     );
   } else {
@@ -308,14 +313,25 @@ async function handleGoogleChatCompletion(
       lastStatus = upstream.status;
       lastErrorText = await upstream.text().catch(() => `HTTP ${upstream.status}`);
 
-      // If 404/403/400, continue to next candidate endpoint
-      if (upstream.status === 404 || upstream.status === 403 || upstream.status === 400) {
+      // If 404/403/401/400, continue to next candidate endpoint
+      if (upstream.status === 404 || upstream.status === 403 || upstream.status === 401 || upstream.status === 400) {
         continue;
       }
 
       break;
     } catch (err: any) {
       lastErrorText = err?.message || "Upstream fetch error";
+    }
+  }
+
+  // If cloud endpoints fail and we're on host, execute via Host CLI bridge as ultimate fallback
+  if (isOAuth) {
+    try {
+      const { executeCliCompletion } = await import("./_lib/cli-runner.js");
+      const cliResp = await executeCliCompletion(model, messages, { stream });
+      return cliResp;
+    } catch {
+      // ignore CLI fallback error and return API error below
     }
   }
 

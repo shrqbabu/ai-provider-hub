@@ -96,7 +96,7 @@ export function resolveRawRequest(
   const authMode = provider.authMode ?? "apiKey";
   const key = (provider.apiKey ?? "").trim();
   const cookie = (provider.cookie ?? "").trim();
-  const { baseURL, proxied, targetHeader } = resolveBaseURL(provider.baseURL);
+  const { baseURL, proxied, targetHeader } = resolveBaseURL(provider.baseURL, provider.key);
 
   let url = baseURL.replace(/\/$/, "") + subPath;
   const headers: Record<string, string> = {
@@ -106,6 +106,10 @@ export function resolveRawRequest(
   if (proxied) {
     if (authMode === "cookie") headers["x-provider-cookie"] = cookie;
     else headers["x-provider-key"] = key;
+
+    if (authMode === "oauth" || provider.key === "antigravity" || key.startsWith("ya29.")) {
+      headers["x-auth-mode"] = "oauth";
+    }
 
     // Rewrite path-based proxy URL to query-param format for Vercel.
     const u = new URL(url);
@@ -145,11 +149,11 @@ export function createClient(provider: ConnectedProvider): OpenAI {
     }
   } else if (!key) {
     throw new Error(
-      "API key is missing. Edit the provider and paste your API key."
+      "API key or OAuth token is missing. Edit the provider and re-connect."
     );
   }
 
-  const { baseURL, proxied, targetHeader } = resolveBaseURL(provider.baseURL);
+  const { baseURL, proxied, targetHeader } = resolveBaseURL(provider.baseURL, provider.key);
 
   if (authMode === "cookie" && !proxied) {
     // Browsers forbid setting the Cookie header on fetch, so cookie auth must
@@ -171,6 +175,10 @@ export function createClient(provider: ConnectedProvider): OpenAI {
           headers.set("x-provider-cookie", cookie);
         } else {
           headers.set("x-provider-key", key);
+        }
+
+        if (authMode === "oauth" || provider.key === "antigravity" || key.startsWith("ya29.")) {
+          headers.set("x-auth-mode", "oauth");
         }
 
         // Rewrite path-based proxy URL to query-param format.
@@ -235,20 +243,18 @@ export async function testSingleModel(
     if (provider.key === "antigravity" || provider.authMode === "oauth" || (provider.apiKey ?? "").startsWith("ya29.")) {
       const token = (provider.apiKey ?? "").trim();
       if (!token) return false;
-      let testModel = rawId;
-      if (testModel.startsWith("claude-")) {
-        testModel = "gemini-2.0-flash";
-      }
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(testModel)}:generateContent`;
-      const res = await fetch(url, {
+      const origin = window.location.origin;
+      const res = await fetch(`${origin}/api/proxy/antigravity/chat/completions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          "x-provider-key": token,
+          "x-auth-mode": "oauth",
         },
         body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: "hi" }] }],
-          generationConfig: { maxOutputTokens: 16 },
+          model: rawId,
+          messages: [{ role: "user", content: "hi" }],
+          max_tokens: 16,
         }),
       });
       return res.ok;

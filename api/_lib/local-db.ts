@@ -73,23 +73,21 @@ function loadDb(): LocalDbSchema {
   return memoryDb;
 }
 
-let saveTimeout: NodeJS.Timeout | null = null;
-
 function saveDb(db: LocalDbSchema): void {
   ensureDataDir();
   memoryDb = db;
 
-  // Debounce writes to prevent disk thrashing
-  if (saveTimeout) clearTimeout(saveTimeout);
-  saveTimeout = setTimeout(() => {
+  try {
+    const tmpFile = DB_FILE + ".tmp";
+    fs.writeFileSync(tmpFile, JSON.stringify(db, null, 2), "utf-8");
+    fs.renameSync(tmpFile, DB_FILE);
+  } catch (err) {
     try {
-      const tmpFile = DB_FILE + ".tmp";
-      fs.writeFileSync(tmpFile, JSON.stringify(db, null, 2), "utf-8");
-      fs.renameSync(tmpFile, DB_FILE);
-    } catch (err) {
-      console.error("[local-db] Failed to save database to disk:", err);
+      fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), "utf-8");
+    } catch (e) {
+      console.error("[local-db] Failed to save database to disk:", e);
     }
-  }, 100);
+  }
 }
 
 // -----------------------------------------------------------------------------

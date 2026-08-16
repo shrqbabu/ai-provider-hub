@@ -40,39 +40,44 @@ export async function createApiKey(
   label: string,
   nowMs: number
 ): Promise<{ raw: string; record: ApiKeyPublic }> {
-  if (!isFirebaseConfigured()) {
-    return createLocalApiKey(uid, label, nowMs);
+  const raw = genRawKey();
+  const hash = hashKey(raw);
+  const record = {
+    id: hash,
+    uid,
+    label: label || "Gateway key",
+    last4: raw.slice(-4),
+    createdAt: nowMs,
+    revoked: false,
+  };
+
+  const db = loadDb();
+  db.apiKeys[hash] = record;
+  saveDb(db);
+
+  if (isFirebaseConfigured()) {
+    try {
+      await getDb().collection("apiKeys").doc(hash).set(record);
+    } catch (e) {
+      console.warn("[api-keys] Firestore save failed, saved to local db:", e);
+    }
   }
-  try {
-    const raw = genRawKey();
-    const hash = hashKey(raw);
-    const record: ApiKeyRecord = {
-      uid,
-      label: label || "Gateway key",
-      last4: raw.slice(-4),
-      createdAt: nowMs,
-      revoked: false,
-    };
-    await getDb().collection("apiKeys").doc(hash).set(record);
-    // Also save to local db
-    await createLocalApiKey(uid, label, nowMs);
-    return { raw, record: { id: hash, ...record } };
-  } catch {
-    return createLocalApiKey(uid, label, nowMs);
-  }
+
+  return { raw, record };
 }
 
 /** List a user's gateway keys (never returns raw keys). */
 export async function listApiKeys(uid: string): Promise<ApiKeyPublic[]> {
-  if (!isFirebaseConfigured()) {
-    return listLocalApiKeys(uid);
+  const localList = await listLocalApiKeys(uid);
+  if (localList.length > 0 || !isFirebaseConfigured()) {
+    return localList;
   }
   try {
     const snap = await getDb()
       .collection("apiKeys")
       .where("uid", "==", uid)
       .get();
-    return snap.docs
+    const firestoreList = snap.docs
       .map((d) => {
         const r = d.data() as ApiKeyRecord;
         return {
@@ -84,8 +89,9 @@ export async function listApiKeys(uid: string): Promise<ApiKeyPublic[]> {
         };
       })
       .sort((a, b) => b.createdAt - a.createdAt);
+    return firestoreList.length > 0 ? firestoreList : localList;
   } catch {
-    return listLocalApiKeys(uid);
+    return localList;
   }
 }
 

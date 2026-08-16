@@ -1,6 +1,6 @@
 // Client service for the user's gateway "ah-…" keys. Talks to /api/keys with
 // the Firebase ID token. The raw key is only ever returned once, at creation.
-import { getIdToken } from "@/store/auth-store";
+import { getIdToken, getAuthUid } from "@/store/auth-store";
 
 export interface GatewayKey {
   id: string;
@@ -12,8 +12,10 @@ export interface GatewayKey {
 
 async function call(endpoint: string, options?: RequestInit): Promise<Response> {
   const token = await getIdToken();
+  const uid = getAuthUid();
   const headers = new Headers(options?.headers);
   if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (uid) headers.set("x-user-uid", uid);
   headers.set("Content-Type", "application/json");
   return fetch(endpoint, { ...options, headers });
 }

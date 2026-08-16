@@ -4,6 +4,8 @@ import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider,
   signOut,
   type User,
@@ -39,6 +41,12 @@ export const useAuthStore = create<State & Actions>((set) => ({
     }
     if (unsub) return; // already subscribed
     const auth = getFirebaseAuth();
+
+    // Check if returning from redirect sign-in
+    getRedirectResult(auth).catch(() => {
+      // ignore redirect error if any
+    });
+
     unsub = onAuthStateChanged(auth, (user) => {
       set({ user, loading: false });
     });
@@ -57,7 +65,21 @@ export const useAuthStore = create<State & Actions>((set) => ({
   loginWithGoogle: async () => {
     const auth = getFirebaseAuth();
     const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
+    provider.setCustomParameters({ prompt: "select_account" });
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (err: any) {
+      if (
+        err?.code === "auth/popup-blocked" ||
+        err?.code === "auth/cancelled-popup-request" ||
+        err?.code === "auth/popup-closed-by-user"
+      ) {
+        // Fallback to full page redirect if popup is blocked by browser
+        await signInWithRedirect(auth, provider);
+        return;
+      }
+      throw err;
+    }
   },
 
   logout: async () => {

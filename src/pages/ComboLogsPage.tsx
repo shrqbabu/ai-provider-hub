@@ -43,8 +43,8 @@ export function ComboLogsPage() {
   useEffect(() => {
     if (!autoRefresh) return;
     const interval = setInterval(() => {
-      hydrate().then(() => setLastRefreshed(new Date()));
-    }, 3000);
+      hydrate();
+    }, 4000);
     return () => clearInterval(interval);
   }, [autoRefresh, hydrate]);
 
@@ -57,7 +57,7 @@ export function ComboLogsPage() {
     } catch {
       toast.error("Failed to refresh logs");
     } finally {
-      setTimeout(() => setIsRefreshing(false), 400);
+      setTimeout(() => setIsRefreshing(false), 300);
     }
   };
 

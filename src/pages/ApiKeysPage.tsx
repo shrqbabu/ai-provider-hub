@@ -17,6 +17,7 @@ import {
   revokeGatewayKey,
   type GatewayKey,
 } from "@/services/gateway-keys-service";
+import { useAuthStore } from "@/store/auth-store";
 import { timeAgo } from "@/utils";
 
 export function ApiKeysPage() {
@@ -26,6 +27,9 @@ export function ApiKeysPage() {
   const [label, setLabel] = useState("");
   const [newRawKey, setNewRawKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  const user = useAuthStore((s) => s.user);
+  const authLoading = useAuthStore((s) => s.loading);
 
   const origin = window.location.origin;
 
@@ -43,15 +47,19 @@ export function ApiKeysPage() {
   };
 
   useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!authLoading) {
+      load();
+    }
+  }, [authLoading, user]);
 
   const handleCreate = async () => {
     setCreating(true);
     try {
-      const { raw } = await createGatewayKey(label || "Gateway key");
-      setNewRawKey(raw);
+      const res = await createGatewayKey(label || "Gateway key");
+      setNewRawKey(res.raw);
+      if (res.key) {
+        setKeys((prev) => [res.key, ...prev.filter((k) => k.id !== res.key.id)]);
+      }
       setLabel("");
       toast.success("Key created! Copy it now — it won't be shown again.");
       await load();

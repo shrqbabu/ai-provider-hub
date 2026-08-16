@@ -61,7 +61,7 @@ export default function App() {
       useChatStore.setState({ chats: [], activeId: null });
       usePromptStore.setState({ prompts: [] });
       useUsageStore.setState({ records: [] });
-      useKeyStoreStore.setState({ accounts: [], activeAccountId: null });
+      useKeyStoreStore.setState({ items: [] });
       useComboLogStore.setState({ logs: [] });
       setReady(true);
       return;

@@ -107,6 +107,12 @@ export function baseURLFor(p: GwProvider): string {
   let url = (p.baseURL ?? "").trim().replace(/\/$/, "");
   if (!url) return PROVIDER_BASE[p.key] ?? "";
 
+  // If baseURL is relative (e.g. /api/cli), resolve to localhost server
+  if (url.startsWith("/")) {
+    const port = process.env.PORT || "3000";
+    url = `http://127.0.0.1:${port}${url}`;
+  }
+
   // 1. Strip trailing endpoint paths if user saved the full endpoint URL
   url = url
     .replace(/\/chat\/completions\/?$/i, "")

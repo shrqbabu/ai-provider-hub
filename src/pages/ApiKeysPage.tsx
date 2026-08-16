@@ -200,11 +200,11 @@ export function ApiKeysPage() {
           <div className="space-y-1.5">
             <div className="text-xs text-muted-foreground">curl</div>
             <pre className="rounded-lg bg-background border border-border p-3 text-xs font-mono overflow-x-auto">
-{`curl ${origin}/api/v1/chat/completions \\
+{`curl ${origin}/v1/chat/completions \\
   -H "Authorization: Bearer ah-…" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "claude-opus-4-8",
+    "model": "claude-3-7-sonnet",
     "messages": [{"role":"user","content":"Hello!"}]
   }'`}
             </pre>
@@ -216,13 +216,13 @@ export function ApiKeysPage() {
 {`from openai import OpenAI
 
 client = OpenAI(
-    base_url="${origin}/api/v1",
+    base_url="${origin}/v1",
     api_key="ah-…",
 )
 
-# Same key works across every provider you've connected:
-client.chat.completions.create(model="gpt-4o", messages=[...])
-client.chat.completions.create(model="claude-opus-4-8", messages=[...])`}
+# Same key works across every provider and model you've connected:
+client.chat.completions.create(model="gemini-2.5-pro", messages=[...])
+client.chat.completions.create(model="claude-3-7-sonnet", messages=[...])`}
             </pre>
           </div>
 

@@ -231,51 +231,77 @@ async function handleGoogleChatCompletion(
   if (systemInstruction) googleBody.systemInstruction = { parts: [{ text: systemInstruction }] };
 
   const endpoint = stream ? "streamGenerateContent" : "generateContent";
+  const sseParam = stream ? (isOAuth ? "?alt=sse" : "&alt=sse") : "";
 
-  // If a Claude model is requested through Antigravity, map to Gemini flagship if CloudCode is not directly responding
-  let targetModel = model;
-  if (targetModel.startsWith("claude-")) {
-    // Check if Claude model mapping needed
-    if (targetModel.includes("sonnet") || targetModel.includes("opus")) {
-      targetModel = "gemini-2.5-pro";
-    } else {
-      targetModel = "gemini-2.0-flash";
+  const candidateUrls: string[] = [];
+  if (isOAuth) {
+    candidateUrls.push(
+      `https://cloudcode-pa.googleapis.com/v1alpha/models/${model}:${endpoint}${sseParam}`,
+      `https://daily-cloudcode-pa.sandbox.googleapis.com/v1alpha/models/${model}:${endpoint}${sseParam}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}${sseParam}`,
+      `https://generativelanguage.googleapis.com/v1/models/${model}:${endpoint}${sseParam}`
+    );
+
+    // If Claude model, also add Gemini fallback endpoints if Claude endpoint isn't enabled
+    if (model.startsWith("claude-")) {
+      const geminiFallback = model.includes("sonnet") || model.includes("opus") ? "gemini-2.5-pro" : "gemini-2.0-flash";
+      candidateUrls.push(
+        `https://cloudcode-pa.googleapis.com/v1alpha/models/${geminiFallback}:${endpoint}${sseParam}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${geminiFallback}:${endpoint}${sseParam}`
+      );
     }
+  } else {
+    candidateUrls.push(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}?key=${encodeURIComponent(apiKey)}${sseParam}`,
+      `https://generativelanguage.googleapis.com/v1/models/${model}:${endpoint}?key=${encodeURIComponent(apiKey)}${sseParam}`
+    );
   }
-
-  const googleUrl = isOAuth
-    ? `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:${endpoint}${stream ? "?alt=sse" : ""}`
-    : `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:${endpoint}?key=${encodeURIComponent(apiKey)}${stream ? "&alt=sse" : ""}`;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    "User-Agent": "antigravity/1.0.0",
+    "x-goog-api-client": "gl-js/ antigravity/1.0.0",
   };
   if (isOAuth) {
     headers["Authorization"] = `Bearer ${apiKey}`;
   }
 
-  try {
-    const upstream = await fetch(googleUrl, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(googleBody),
-    });
+  let lastErrorText = "";
+  let lastStatus = 502;
 
-    if (!upstream.ok) {
-      const errorText = await upstream.text();
-      try {
-        const errorJson = JSON.parse(errorText);
-        const errorMsg = errorJson.error?.message || errorText;
-        return json({ error: { message: errorMsg, type: "google_api_error", code: errorJson.error?.code || upstream.status } }, upstream.status);
-      } catch {
-        return json({ error: { message: errorText, type: "google_api_error", code: upstream.status } }, upstream.status);
+  for (const googleUrl of candidateUrls) {
+    try {
+      const upstream = await fetch(googleUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(googleBody),
+      });
+
+      if (upstream.ok) {
+        if (stream) return streamGoogleResponse(upstream, model);
+        else return convertGoogleResponse(await upstream.json(), model);
       }
-    }
 
-    if (stream) return streamGoogleResponse(upstream, model);
-    else return convertGoogleResponse(await upstream.json(), model);
-  } catch (err) {
-    return json({ error: err instanceof Error ? err.message : "Google API request failed" }, 502);
+      lastStatus = upstream.status;
+      lastErrorText = await upstream.text().catch(() => `HTTP ${upstream.status}`);
+
+      // If 404/403/400, try next candidate URL
+      if (upstream.status === 404 || upstream.status === 403 || upstream.status === 400) {
+        continue;
+      }
+
+      break;
+    } catch (err: any) {
+      lastErrorText = err?.message || "Upstream fetch error";
+    }
+  }
+
+  try {
+    const errorJson = JSON.parse(lastErrorText);
+    const errorMsg = errorJson.error?.message || lastErrorText;
+    return json({ error: { message: errorMsg, type: "google_api_error", code: errorJson.error?.code || lastStatus } }, lastStatus);
+  } catch {
+    return json({ error: { message: lastErrorText || "Google API request failed", type: "google_api_error", code: lastStatus } }, lastStatus);
   }
 }
 

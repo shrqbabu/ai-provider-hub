@@ -193,6 +193,7 @@ export async function handleGateway(
     let upstreamBody: string;
 
     const cleanModelId = modelId.replace(/^(antigravity\/|google\/|aip\/)/i, "");
+    const candidateUrls: string[] = [];
 
     if (needsTranslation && isGoogleProvider) {
       const googleRequest = anthropicToGoogle(body, cleanModelId);
@@ -200,11 +201,27 @@ export async function handleGateway(
         ? "streamGenerateContent"
         : "generateContent";
       const sseParam = wantsStream ? (isOAuth ? "?alt=sse" : "&alt=sse") : "";
-      targetURL = isOAuth
-        ? `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}${sseParam}`
-        : `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}?key=${encodeURIComponent(
-            cred
-          )}${sseParam}`;
+
+      if (isOAuth) {
+        candidateUrls.push(
+          `https://cloudcode-pa.googleapis.com/v1alpha/models/${cleanModelId}:${streamEndpoint}${sseParam}`,
+          `https://daily-cloudcode-pa.sandbox.googleapis.com/v1alpha/models/${cleanModelId}:${streamEndpoint}${sseParam}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}${sseParam}`,
+          `https://generativelanguage.googleapis.com/v1/models/${cleanModelId}:${streamEndpoint}${sseParam}`
+        );
+        if (cleanModelId.startsWith("claude-")) {
+          const gemFallback = cleanModelId.includes("sonnet") || cleanModelId.includes("opus") ? "gemini-2.5-pro" : "gemini-2.0-flash";
+          candidateUrls.push(
+            `https://cloudcode-pa.googleapis.com/v1alpha/models/${gemFallback}:${streamEndpoint}${sseParam}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/${gemFallback}:${streamEndpoint}${sseParam}`
+          );
+        }
+      } else {
+        candidateUrls.push(
+          `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}?key=${encodeURIComponent(cred)}${sseParam}`,
+          `https://generativelanguage.googleapis.com/v1/models/${cleanModelId}:${streamEndpoint}?key=${encodeURIComponent(cred)}${sseParam}`
+        );
+      }
       upstreamBody = JSON.stringify(googleRequest);
       actualEndpoint = endpoint;
     } else if (isGoogleProvider) {
@@ -213,26 +230,42 @@ export async function handleGateway(
         ? "streamGenerateContent"
         : "generateContent";
       const sseParam = wantsStream ? (isOAuth ? "?alt=sse" : "&alt=sse") : "";
-      targetURL = isOAuth
-        ? `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}${sseParam}`
-        : `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}?key=${encodeURIComponent(
-            cred
-          )}${sseParam}`;
+
+      if (isOAuth) {
+        candidateUrls.push(
+          `https://cloudcode-pa.googleapis.com/v1alpha/models/${cleanModelId}:${streamEndpoint}${sseParam}`,
+          `https://daily-cloudcode-pa.sandbox.googleapis.com/v1alpha/models/${cleanModelId}:${streamEndpoint}${sseParam}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}${sseParam}`,
+          `https://generativelanguage.googleapis.com/v1/models/${cleanModelId}:${streamEndpoint}${sseParam}`
+        );
+        if (cleanModelId.startsWith("claude-")) {
+          const gemFallback = cleanModelId.includes("sonnet") || cleanModelId.includes("opus") ? "gemini-2.5-pro" : "gemini-2.0-flash";
+          candidateUrls.push(
+            `https://cloudcode-pa.googleapis.com/v1alpha/models/${gemFallback}:${streamEndpoint}${sseParam}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/${gemFallback}:${streamEndpoint}${sseParam}`
+          );
+        }
+      } else {
+        candidateUrls.push(
+          `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelId}:${streamEndpoint}?key=${encodeURIComponent(cred)}${sseParam}`,
+          `https://generativelanguage.googleapis.com/v1/models/${cleanModelId}:${streamEndpoint}?key=${encodeURIComponent(cred)}${sseParam}`
+        );
+      }
       upstreamBody = JSON.stringify(googleRequest);
       actualEndpoint = endpoint;
     } else if (needsTranslation) {
       actualEndpoint = "/chat/completions";
-      targetURL = baseURLFor(provider).replace(/\/$/, "") + actualEndpoint;
+      candidateUrls.push(baseURLFor(provider).replace(/\/$/, "") + actualEndpoint);
       upstreamBody = JSON.stringify(
         anthropicToOpenAI(body, cleanModelId, provider.key)
       );
     } else if (toAnthropicProvider) {
       actualEndpoint = "/messages";
-      targetURL = baseURLFor(provider).replace(/\/$/, "") + actualEndpoint;
+      candidateUrls.push(baseURLFor(provider).replace(/\/$/, "") + actualEndpoint);
       upstreamBody = JSON.stringify(openAIToAnthropic(body, cleanModelId));
     } else {
       actualEndpoint = endpoint;
-      targetURL = baseURLFor(provider).replace(/\/$/, "") + actualEndpoint;
+      candidateUrls.push(baseURLFor(provider).replace(/\/$/, "") + actualEndpoint);
       upstreamBody = JSON.stringify({ ...body, model: cleanModelId });
     }
 
@@ -241,16 +274,38 @@ export async function handleGateway(
         ? buildUpstreamHeaders(provider, cred, actualEndpoint)
         : buildUpstreamHeaders(provider, cred, actualEndpoint);
 
-    let upstream: Response;
-    try {
-      upstream = await fetch(targetURL, {
-        method: "POST",
-        headers,
-        body: upstreamBody,
-      });
-    } catch (err) {
-      lastStatus = 502;
-      lastText = err instanceof Error ? err.message : "Upstream fetch failed.";
+    let upstream: Response | null = null;
+
+    for (const url of candidateUrls) {
+      try {
+        const candidateResp = await fetch(url, {
+          method: "POST",
+          headers,
+          body: upstreamBody,
+        });
+
+        if (candidateResp.ok) {
+          upstream = candidateResp;
+          break;
+        }
+
+        lastStatus = candidateResp.status;
+        lastText = await safeText(candidateResp);
+
+        // If candidate url returned 404 or 403 or 400 on CloudCode endpoint, try next candidate
+        if (candidateUrls.length > 1 && (candidateResp.status === 404 || candidateResp.status === 403 || candidateResp.status === 400)) {
+          continue;
+        }
+
+        upstream = candidateResp;
+        break;
+      } catch (err) {
+        lastStatus = 502;
+        lastText = err instanceof Error ? err.message : "Upstream fetch failed.";
+      }
+    }
+
+    if (!upstream) {
       if (isCombo) {
         comboAttempts.push({
           providerId: provider.id,
@@ -373,6 +428,12 @@ function buildUpstreamHeaders(
   // while stripping content-encoding, so a gzip/br body would reach the
   // client mislabeled and render as garbage.
   headers.set("Accept-Encoding", "identity");
+
+  if (provider.key === "antigravity" || provider.key === "google") {
+    headers.set("User-Agent", "antigravity/1.0.0");
+    headers.set("x-goog-api-client", "gl-js/ antigravity/1.0.0");
+  }
+
   const isAnthropic =
     provider.apiFormat === "anthropic" || endpoint === "/messages";
   if (provider.authMode === "cookie") {
@@ -1961,10 +2022,9 @@ function formatGatewayError(
 function displayModelId(modelId: string): string {
   const id = (modelId ?? "").trim();
   if (!id) return id;
-  if (!/claude/i.test(id)) return id;
   const slash = id.indexOf("/");
-  const bare = slash > 0 ? id.slice(slash + 1) : id;
-  return `aip/${bare}`;
+  const bare = slash > 0 && id.startsWith("aip/") ? id.slice(slash + 1) : id;
+  return bare;
 }
 
 function matchEndpoint(path: string): string | null {

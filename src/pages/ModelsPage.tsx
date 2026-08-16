@@ -132,7 +132,7 @@ export function ModelsPage() {
           const provider = providerMap[m.providerId];
           const ok = provider ? await testSingleModel(provider, m.modelId) : false;
           results[m.id] = ok;
-          updateModel(m.id, { working: ok, disabled: !ok });
+          updateModel(m.id, { working: ok });
           if (ok) passed++;
           finished++;
           setTestedCount(finished);
@@ -142,11 +142,13 @@ export function ModelsPage() {
     }
 
     setIsTesting(false);
-    setShowOnlyWorking(true);
+    if (passed > 0) {
+      setShowOnlyWorking(true);
+    }
     toast.success(
       targetProviderName
-        ? `${targetProviderName}: ${passed} of ${targetModels.length} models working!`
-        : `Testing complete! ${passed} of ${targetModels.length} models working.`
+        ? `${targetProviderName}: ${passed} of ${targetModels.length} models verified!`
+        : `Testing complete! ${passed} of ${targetModels.length} models verified.`
     );
   };
 
@@ -302,19 +304,37 @@ export function ModelsPage() {
             Saved only
           </Button>
           {disconnectedCount > 0 && (
-            <Button
-              variant={showDisconnected ? "default" : "outline"}
-              size="sm"
-              onClick={() => setShowDisconnected(!showDisconnected)}
-              className={
-                showDisconnected
-                  ? "bg-amber-500 hover:bg-amber-600 text-white border-amber-500"
-                  : "text-amber-500 border-amber-500/30 hover:bg-amber-500/10"
-              }
-            >
-              <Plug className="w-3.5 h-3.5 mr-1" />
-              Disconnected ({disconnectedCount})
-            </Button>
+            <div className="flex items-center gap-1.5">
+              <Button
+                variant={showDisconnected ? "default" : "outline"}
+                size="sm"
+                onClick={() => setShowDisconnected(!showDisconnected)}
+                className={
+                  showDisconnected
+                    ? "bg-amber-500 hover:bg-amber-600 text-white border-amber-500"
+                    : "text-amber-500 border-amber-500/30 hover:bg-amber-500/10"
+                }
+              >
+                <Plug className="w-3.5 h-3.5 mr-1" />
+                Disconnected ({disconnectedCount})
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  models.forEach((m) => {
+                    if (providerFilter === "all" || m.providerId === providerFilter) {
+                      updateModel(m.id, { disabled: false });
+                    }
+                  });
+                  setShowDisconnected(false);
+                  toast.success("All models re-enabled!");
+                }}
+                className="text-xs text-muted-foreground hover:text-foreground h-8"
+              >
+                Re-enable all
+              </Button>
+            </div>
           )}
         </div>
 

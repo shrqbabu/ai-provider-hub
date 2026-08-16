@@ -661,28 +661,46 @@ export async function fetchModelIds(
 
   const client = createClient(provider);
   const res = await client.models.list();
-  return (res.data ?? []).map((m) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const raw = m as any;
-    const pricing = raw?.pricing ?? {};
-    const inputPrice = parsePricePerMillion(pricing.prompt ?? pricing.input);
-    const outputPrice = parsePricePerMillion(
-      pricing.completion ?? pricing.output
-    );
-    return {
-      id: raw.id,
-      created: raw.created,
-      contextLength: raw.context_length ?? raw.top_provider?.context_length,
-      inputPrice,
-      outputPrice,
-      supportsVision:
-        raw?.architecture?.input_modalities?.includes?.("image") ?? undefined,
-      // If provider explicitly gave us pricing data and both are 0, it's free.
-      // Undefined pricing → we can't say (treat as unknown, don't guess).
-      isFree:
-        inputPrice != null && outputPrice != null
-          ? inputPrice === 0 && outputPrice === 0
-          : undefined,
-    };
-  });
+  return (res.data ?? [])
+    .filter((m) => {
+      // Filter out discount, deprecated, or inactive models
+      const raw = m as any;
+      const id = String(raw?.id ?? "").toLowerCase();
+      if (!id) return false;
+      if (
+        id.includes(":discount") ||
+        id.includes("-discount") ||
+        id.includes(":deprecated")
+      ) {
+        return false;
+      }
+      if (raw?.status === "deprecated" || raw?.deprecated === true) {
+        return false;
+      }
+      return true;
+    })
+    .map((m) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const raw = m as any;
+      const pricing = raw?.pricing ?? {};
+      const inputPrice = parsePricePerMillion(pricing.prompt ?? pricing.input);
+      const outputPrice = parsePricePerMillion(
+        pricing.completion ?? pricing.output
+      );
+      return {
+        id: raw.id,
+        created: raw.created,
+        contextLength: raw.context_length ?? raw.top_provider?.context_length,
+        inputPrice,
+        outputPrice,
+        supportsVision:
+          raw?.architecture?.input_modalities?.includes?.("image") ?? undefined,
+        // If provider explicitly gave us pricing data and both are 0, it's free.
+        // Undefined pricing → we can't say (treat as unknown, don't guess).
+        isFree:
+          inputPrice != null && outputPrice != null
+            ? inputPrice === 0 && outputPrice === 0
+            : undefined,
+      };
+    });
 }

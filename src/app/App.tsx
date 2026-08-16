@@ -1,23 +1,25 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, lazy, Suspense } from "react";
 import { Route, Routes, useNavigate } from "react-router-dom";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppShell } from "@/layouts/AppShell";
-import { LandingPage } from "@/pages/LandingPage";
-import { ProvidersPage } from "@/pages/ProvidersPage";
-import { ModelsPage } from "@/pages/ModelsPage";
-import { CombosPage } from "@/pages/CombosPage";
-import { ChatPage } from "@/pages/ChatPage";
-import { PromptsPage } from "@/pages/PromptsPage";
-import { UsagePage } from "@/pages/UsagePage";
-import { SettingsPage } from "@/pages/SettingsPage";
-import { TrashPage } from "@/pages/TrashPage";
 import { AuthPage } from "@/pages/AuthPage";
-import { OAuthCallbackPage } from "@/pages/OAuthCallbackPage";
-import { ApiKeysPage } from "@/pages/ApiKeysPage";
-import { KeyStorePage } from "@/pages/KeyStorePage";
-import { ComboLogsPage } from "@/pages/ComboLogsPage";
-import { CookieManagerPage } from "@/pages/CookieManagerPage";
-import { ProfilePage } from "@/pages/ProfilePage";
+import { Sparkles, Loader2 } from "lucide-react";
+
+// Lazy-loaded route pages for minimal initial bundle size & fast loading
+const ProvidersPage = lazy(() => import("@/pages/ProvidersPage").then((m) => ({ default: m.ProvidersPage })));
+const ModelsPage = lazy(() => import("@/pages/ModelsPage").then((m) => ({ default: m.ModelsPage })));
+const CombosPage = lazy(() => import("@/pages/CombosPage").then((m) => ({ default: m.CombosPage })));
+const ChatPage = lazy(() => import("@/pages/ChatPage").then((m) => ({ default: m.ChatPage })));
+const PromptsPage = lazy(() => import("@/pages/PromptsPage").then((m) => ({ default: m.PromptsPage })));
+const UsagePage = lazy(() => import("@/pages/UsagePage").then((m) => ({ default: m.UsagePage })));
+const SettingsPage = lazy(() => import("@/pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
+const TrashPage = lazy(() => import("@/pages/TrashPage").then((m) => ({ default: m.TrashPage })));
+const OAuthCallbackPage = lazy(() => import("@/pages/OAuthCallbackPage").then((m) => ({ default: m.OAuthCallbackPage })));
+const ApiKeysPage = lazy(() => import("@/pages/ApiKeysPage").then((m) => ({ default: m.ApiKeysPage })));
+const KeyStorePage = lazy(() => import("@/pages/KeyStorePage").then((m) => ({ default: m.KeyStorePage })));
+const ComboLogsPage = lazy(() => import("@/pages/ComboLogsPage").then((m) => ({ default: m.ComboLogsPage })));
+const CookieManagerPage = lazy(() => import("@/pages/CookieManagerPage").then((m) => ({ default: m.CookieManagerPage })));
+const ProfilePage = lazy(() => import("@/pages/ProfilePage").then((m) => ({ default: m.ProfilePage })));
 import { useAuthStore } from "@/store/auth-store";
 import { useProviderStore } from "@/store/provider-store";
 import { useModelStore } from "@/store/model-store";
@@ -161,28 +163,41 @@ export default function App() {
 
   return (
     <TooltipProvider>
-      <Routes>
-        <Route element={<AppShell />}>
-          <Route path="/" element={<RedirectToChat />} />
-          <Route path="/chat" element={<RedirectToChat />} />
-          <Route path="/providers" element={<ProvidersPage />} />
-          <Route path="/cookies" element={<CookieManagerPage />} />
-          <Route path="/api-keys" element={<ApiKeysPage />} />
-          <Route path="/keystore" element={<KeyStorePage />} />
-          <Route path="/models" element={<ModelsPage />} />
-          <Route path="/combos" element={<CombosPage />} />
-          <Route path="/combo-logs" element={<ComboLogsPage />} />
-          <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
-          <Route path="/chat/:id" element={<ChatPage />} />
-          <Route path="/prompts" element={<PromptsPage />} />
-          <Route path="/usage" element={<UsagePage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/profile" element={<ProfilePage />} />
-          <Route path="/trash" element={<TrashPage />} />
-          <Route path="*" element={<RedirectToChat />} />
-        </Route>
-      </Routes>
+      <Suspense fallback={<PageFallback />}>
+        <Routes>
+          <Route element={<AppShell />}>
+            <Route path="/" element={<RedirectToChat />} />
+            <Route path="/chat" element={<RedirectToChat />} />
+            <Route path="/providers" element={<ProvidersPage />} />
+            <Route path="/cookies" element={<CookieManagerPage />} />
+            <Route path="/api-keys" element={<ApiKeysPage />} />
+            <Route path="/keystore" element={<KeyStorePage />} />
+            <Route path="/models" element={<ModelsPage />} />
+            <Route path="/combos" element={<CombosPage />} />
+            <Route path="/combo-logs" element={<ComboLogsPage />} />
+            <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
+            <Route path="/chat/:id" element={<ChatPage />} />
+            <Route path="/prompts" element={<PromptsPage />} />
+            <Route path="/usage" element={<UsagePage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/trash" element={<TrashPage />} />
+            <Route path="*" element={<RedirectToChat />} />
+          </Route>
+        </Routes>
+      </Suspense>
     </TooltipProvider>
+  );
+}
+
+function PageFallback() {
+  return (
+    <div className="h-full w-full flex items-center justify-center">
+      <div className="flex flex-col items-center gap-2">
+        <Loader2 className="w-6 h-6 animate-spin text-primary" />
+        <span className="text-xs text-muted-foreground">Loading view…</span>
+      </div>
+    </div>
   );
 }
 

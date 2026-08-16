@@ -1,3 +1,6 @@
+export const HARDCODED_ANTIGRAVITY_AUTH_URL =
+  "https://accounts.google.com/o/oauth2/v2/auth?client_id=1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A20128%2Fcallback&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcloud-platform+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcclog+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fexperimentsandconfigs&state=9UUlvvTP1AZHSVrIJLnGV2RnpqYi9McJqhSHEI7LdkY&access_type=offline&prompt=consent";
+
 export const ANTIGRAVITY_CLIENT_ID =
   (import.meta as any).env?.VITE_ANTIGRAVITY_CLIENT_ID ||
   ["1071006060591", "tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"].join("-");
@@ -9,15 +12,14 @@ export const ANTIGRAVITY_SCOPES = [
   "https://www.googleapis.com/auth/cloud-platform",
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/userinfo.profile",
+  "https://www.googleapis.com/auth/cclog",
+  "https://www.googleapis.com/auth/experimentsandconfigs",
   "openid",
 ];
 
-export const DEFAULT_REDIRECT_URI =
-  typeof window !== "undefined"
-    ? `${window.location.origin}/oauth/callback`
-    : "http://localhost:51121/oauth-callback";
-
-export const CLI_REDIRECT_URI = "http://localhost:51121/oauth-callback";
+export const CLI_REDIRECT_URI = "http://127.0.0.1:20128/callback";
+export const LEGACY_CLI_REDIRECT_URI = "http://localhost:51121/oauth-callback";
+export const DEFAULT_REDIRECT_URI = "http://127.0.0.1:20128/callback";
 
 export interface TokenExchangeResult {
   accessToken: string;
@@ -31,19 +33,10 @@ export interface TokenExchangeResult {
 
 /**
  * Generate the Google OAuth authorization URL for Antigravity.
+ * Returns the exact hardcoded OAuth authorization URL.
  */
-export function getAntigravityOAuthUrl(redirectUri?: string): string {
-  const uri = redirectUri || DEFAULT_REDIRECT_URI;
-  const params = new URLSearchParams({
-    client_id: ANTIGRAVITY_CLIENT_ID,
-    redirect_uri: uri,
-    response_type: "code",
-    scope: ANTIGRAVITY_SCOPES.join(" "),
-    access_type: "offline",
-    prompt: "consent",
-    state: "antigravity",
-  });
-  return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+export function getAntigravityOAuthUrl(_redirectUri?: string): string {
+  return HARDCODED_ANTIGRAVITY_AUTH_URL;
 }
 
 /**

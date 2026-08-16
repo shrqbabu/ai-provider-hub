@@ -44,13 +44,7 @@ export function AntigravityOAuthDialog({ open, onOpenChange }: Props) {
   const addProvider = useProviderStore((s) => s.add);
   const upsertModels = useModelStore((s) => s.upsertMany);
 
-  const currentRedirectUri = useCliRedirect
-    ? CLI_REDIRECT_URI
-    : typeof window !== "undefined"
-    ? `${window.location.origin}/oauth/callback`
-    : CLI_REDIRECT_URI;
-
-  const authUrl = getAntigravityOAuthUrl(currentRedirectUri);
+  const authUrl = getAntigravityOAuthUrl();
 
   const handleCopyAuthUrl = () => {
     navigator.clipboard.writeText(authUrl);
@@ -81,7 +75,7 @@ export function AntigravityOAuthDialog({ open, onOpenChange }: Props) {
     const toastId = toast.loading("Exchanging code and connecting Google Antigravity...");
 
     try {
-      const redirectUriToUse = parsed.redirectUri || currentRedirectUri;
+      const redirectUriToUse = parsed.redirectUri || CLI_REDIRECT_URI;
       const tokens = await exchangeAntigravityCode(parsed.code, redirectUriToUse);
 
       const displayName = tokens.email
@@ -196,7 +190,7 @@ export function AntigravityOAuthDialog({ open, onOpenChange }: Props) {
               Paste Callback URL or Code
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              After signing in on Google, your browser will redirect to a callback page (e.g. <code className="bg-background/80 px-1 py-0.5 rounded text-[11px]">http://localhost:51121/oauth-callback?code=...</code>). Copy the entire address bar URL and paste it below:
+              After signing in on Google, your browser will redirect to a callback page (e.g. <code className="bg-background/80 px-1 py-0.5 rounded text-[11px]">http://127.0.0.1:20128/callback?code=...</code>). Copy the entire address bar URL and paste it below:
             </p>
             <div className="space-y-1.5">
               <Label htmlFor="callback-url" className="text-xs font-medium text-muted-foreground flex items-center gap-1">
@@ -205,7 +199,7 @@ export function AntigravityOAuthDialog({ open, onOpenChange }: Props) {
               </Label>
               <Input
                 id="callback-url"
-                placeholder="Paste URL (http://localhost:51121/oauth-callback?code=4/0Ab...) or code"
+                placeholder="Paste URL (http://127.0.0.1:20128/callback?code=4/0Ab...) or code"
                 value={callbackInput}
                 onChange={(e) => setCallbackInput(e.target.value)}
                 onKeyDown={(e) => {

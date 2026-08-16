@@ -11,7 +11,8 @@ const ANTIGRAVITY_CLIENT_SECRET =
   process.env.ANTIGRAVITY_CLIENT_SECRET ||
   process.env.VITE_ANTIGRAVITY_CLIENT_SECRET ||
   ["GOCSPX", "K58FWR486LdLJ1mLB8sXC4z6qDAf"].join("-");
-const CLI_REDIRECT_URI = "http://localhost:51121/oauth-callback";
+const CLI_REDIRECT_URI = "http://127.0.0.1:20128/callback";
+const LEGACY_CLI_REDIRECT_URI = "http://localhost:51121/oauth-callback";
 
 export const config = { runtime: "nodejs" };
 
@@ -103,6 +104,7 @@ export default async function handler(
         body: params.toString(),
       });
 
+      // Fallback 1: CLI_REDIRECT_URI (http://127.0.0.1:20128/callback)
       if (!tokenRes.ok && targetRedirectUri !== CLI_REDIRECT_URI) {
         const fallbackParams = new URLSearchParams({
           code,
@@ -120,6 +122,27 @@ export default async function handler(
 
         if (fbRes.ok) {
           tokenRes = fbRes;
+        }
+      }
+
+      // Fallback 2: LEGACY_CLI_REDIRECT_URI (http://localhost:51121/oauth-callback)
+      if (!tokenRes.ok) {
+        const legacyParams = new URLSearchParams({
+          code,
+          client_id: ANTIGRAVITY_CLIENT_ID,
+          client_secret: ANTIGRAVITY_CLIENT_SECRET,
+          redirect_uri: LEGACY_CLI_REDIRECT_URI,
+          grant_type: "authorization_code",
+        });
+
+        const legRes = await fetch("https://oauth2.googleapis.com/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: legacyParams.toString(),
+        });
+
+        if (legRes.ok) {
+          tokenRes = legRes;
         }
       }
 

@@ -23,26 +23,35 @@ export function KeyStorePage() {
   const add = useKeyStoreStore((s) => s.add);
   const remove = useKeyStoreStore((s) => s.remove);
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!hydrated);
   const [adding, setAdding] = useState(false);
   const [label, setLabel] = useState("");
   const [keyValue, setKeyValue] = useState("");
   const [showKeyValue, setShowKeyValue] = useState(false);
+  const [revealedIds, setRevealedIds] = useState<Record<string, boolean>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   useEffect(() => {
+    let mounted = true;
     const load = async () => {
-      setLoading(true);
-      try {
-        await hydrate();
-      } catch (err) {
-        toast.error("Failed to load Key Store");
-      } finally {
+      if (!hydrated) {
+        setLoading(true);
+        try {
+          await hydrate();
+        } catch (err) {
+          toast.error("Failed to load Key Store");
+        } finally {
+          if (mounted) setLoading(false);
+        }
+      } else {
         setLoading(false);
       }
     };
     load();
-  }, [hydrate]);
+    return () => {
+      mounted = false;
+    };
+  }, [hydrated, hydrate]);
 
   const handleAdd = async () => {
     if (!keyValue.trim()) {
@@ -51,7 +60,7 @@ export function KeyStorePage() {
     }
     setAdding(true);
     try {
-      add(label || "API Key", keyValue);
+      await add(label || "API Key", keyValue);
       setLabel("");
       setKeyValue("");
       toast.success("Key successfully saved to database.");
@@ -69,14 +78,18 @@ export function KeyStorePage() {
     setTimeout(() => setCopiedId(null), 1500);
   };
 
-  const handleDelete = (id: string, label: string) => {
+  const handleDelete = async (id: string, label: string) => {
     if (!confirm(`Delete key "${label}" from database?`)) return;
     try {
-      remove(id);
+      await remove(id);
       toast.success("Key removed successfully.");
     } catch (err) {
       toast.error("Failed to delete key.");
     }
+  };
+
+  const toggleReveal = (id: string) => {
+    setRevealedIds((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
   return (
@@ -153,44 +166,69 @@ export function KeyStorePage() {
             </div>
           ) : (
             <div className="grid gap-3">
-              {items.map((k) => (
-                <div
-                  key={k.id}
-                  className="flex items-center justify-between rounded-xl border border-dashed border-border/80 bg-card/20 px-4 py-4"
-                >
-                  <div className="min-w-0 pr-4 flex-1">
-                    <div className="text-sm font-semibold flex items-center gap-2 text-foreground">
-                      <KeyRound className="w-4 h-4 text-primary shrink-0" />
-                      {k.label}
+              {items.map((k) => {
+                const isRevealed = Boolean(revealedIds[k.id]);
+                const maskedValue = k.keyValue.length > 8
+                  ? `${k.keyValue.slice(0, 4)}••••••••${k.keyValue.slice(-4)}`
+                  : "••••••••••••";
+
+                return (
+                  <div
+                    key={k.id}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-border/70 bg-card/40 p-4 hover:border-primary/40 transition shadow-sm"
+                  >
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="text-sm font-semibold flex items-center gap-2 text-foreground">
+                        <KeyRound className="w-4 h-4 text-primary shrink-0" />
+                        <span>{k.label}</span>
+                        <span className="text-[11px] text-muted-foreground font-normal">
+                          • {timeAgo(k.createdAt)}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="text-xs text-muted-foreground font-mono bg-background/80 border border-border/60 px-2.5 py-1 rounded-lg select-all selection:bg-primary/20 flex-1 sm:flex-initial">
+                          {isRevealed ? k.keyValue : maskedValue}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => toggleReveal(k.id)}
+                          className="p-1 text-muted-foreground hover:text-foreground hover:bg-secondary/60 rounded-md transition"
+                          title={isRevealed ? "Hide key" : "Show key"}
+                        >
+                          {isRevealed ? (
+                            <EyeOff className="w-3.5 h-3.5" />
+                          ) : (
+                            <Eye className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      </div>
                     </div>
-                    <div className="text-xs text-muted-foreground mt-1 truncate max-w-full font-mono bg-background border border-border/40 px-2 py-1 rounded select-all selection:bg-primary/20">
-                      {k.keyValue}
+                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleCopy(k.id, k.keyValue)}
+                        className="gap-1.5 rounded-xl h-8 text-xs"
+                      >
+                        {copiedId === k.id ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-500" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                        {copiedId === k.id ? "Copied" : "Copy"}
+                      </Button>
+                      <button
+                        onClick={() => handleDelete(k.id, k.label)}
+                        className="p-2 rounded-xl text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition shrink-0"
+                        aria-label="Delete key"
+                        title="Delete key"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleCopy(k.id, k.keyValue)}
-                    >
-                      {copiedId === k.id ? (
-                        <Check className="w-3.5 h-3.5 text-emerald-500" />
-                      ) : (
-                        <Copy className="w-3.5 h-3.5" />
-                      )}
-                      {copiedId === k.id ? "Copied" : "Copy"}
-                    </Button>
-                    <button
-                      onClick={() => handleDelete(k.id, k.label)}
-                      className="p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-secondary transition shrink-0"
-                      aria-label="Delete key"
-                      title="Delete key"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

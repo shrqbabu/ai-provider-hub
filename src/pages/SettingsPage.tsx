@@ -43,14 +43,11 @@ export function SettingsPage() {
       providers: useProviderStore.getState().providers,
       models: useModelStore.getState().models,
       combos: useComboStore.getState().combos,
-      chats: useChatStore.getState().chats,
-      prompts: usePromptStore.getState().prompts,
       keystore: useKeyStoreStore.getState().items,
-      usage: useUsageStore.getState().usage,
-      settings: useSettingsStore.getState().settings,
+      chats: useChatStore.getState().chats,
     };
 
-    const countSummary = `${backupData.providers.length} providers, ${backupData.models.length} models, ${backupData.combos.length} combos, ${backupData.chats.length} chats`;
+    const countSummary = `${backupData.providers.length} providers, ${backupData.models.length} models, ${backupData.combos.length} combos, ${backupData.keystore.length} keys, ${backupData.chats.length} chats`;
 
     const blob = new Blob([JSON.stringify(backupData, null, 2)], {
       type: "application/json",
@@ -62,7 +59,7 @@ export function SettingsPage() {
     a.download = `ai-provider-hub-backup-${dateStr}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    toast.success(`Exported complete backup (${countSummary})`);
+    toast.success(`Exported backup (${countSummary})`);
   };
 
   const importAll = async (file: File) => {
@@ -281,7 +278,7 @@ export function SettingsPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center text-xs">
                 <div className="p-2 rounded-lg bg-secondary/50 border border-border/40">
                   <div className="text-muted-foreground text-[10px] uppercase">Providers</div>
                   <div className="font-semibold text-sm mt-0.5">{providers.length}</div>
@@ -295,13 +292,17 @@ export function SettingsPage() {
                   <div className="font-semibold text-sm mt-0.5">{combos.length}</div>
                 </div>
                 <div className="p-2 rounded-lg bg-secondary/50 border border-border/40">
+                  <div className="text-muted-foreground text-[10px] uppercase">Key Store</div>
+                  <div className="font-semibold text-sm mt-0.5">{keystore.length}</div>
+                </div>
+                <div className="p-2 rounded-lg bg-secondary/50 border border-border/40">
                   <div className="text-muted-foreground text-[10px] uppercase">Chats</div>
                   <div className="font-semibold text-sm mt-0.5">{chats.length}</div>
                 </div>
               </div>
 
               <p className="text-xs text-muted-foreground">
-                All your providers, API keys, models, chats, prompt templates, and gateway keys are safely stored in your VPS SQLite / local persistent database (<code>./data/hub_store.json</code>).
+                Exports and restores only your essential configuration: <strong>Connected Providers, Models, Combos, Key Store (API Keys), and Chat Conversations</strong>.
               </p>
 
               <div className="flex flex-wrap gap-2 pt-1">

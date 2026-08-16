@@ -8,12 +8,8 @@ const STORE_KEYS = [
   "providers",
   "models",
   "combos",
-  "chats",
-  "prompts",
-  "usage",
-  "settings",
   "keystore",
-  "combo_logs",
+  "chats",
 ];
 
 export async function handleBackup(

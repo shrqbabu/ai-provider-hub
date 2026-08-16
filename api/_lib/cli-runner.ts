@@ -73,17 +73,16 @@ const SUPPORTED_TOOLS: Array<{ name: string; command: string; versionFlag: strin
     versionFlag: "--version",
     runArgs: (model, prompt, isContinue = false) => {
       let cleanModel = (model || "gemini-3.7-flash").replace(/^(cli|antigravity)\//, "").trim();
-      let effort = "medium";
+      let effort = "low"; // Default to ultra-fast low reasoning effort (1-2s latency)
       if (cleanModel.includes("high")) effort = "high";
-      if (cleanModel.includes("low")) effort = "low";
+      else if (cleanModel.includes("medium")) effort = "medium";
+      else if (cleanModel.includes("low")) effort = "low";
+
       cleanModel = cleanModel.replace(/-(high|medium|low)$/, "");
 
       if (cleanModel.includes("opus")) cleanModel = "claude-opus-4-6-thinking";
       else if (cleanModel.includes("sonnet")) cleanModel = "claude-sonnet-4-6-thinking";
       else if (cleanModel.includes("gpt-oss")) cleanModel = "gpt-oss-120b";
-      else if (cleanModel.startsWith("gemini")) {
-        // Keep clean Gemini model name
-      }
 
       const args = ["-p", prompt, "--model", cleanModel, "--dangerously-skip-permissions"];
       if (

@@ -135,7 +135,11 @@ function serveStaticFile(req: IncomingMessage, res: ServerResponse, filePath: st
     res.setHeader("Content-Type", mime);
     res.setHeader("Content-Length", stat.size);
 
-    if (filePath.includes("/assets/")) {
+    if (filePath.endsWith("index.html")) {
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+    } else if (filePath.includes("/assets/") || filePath.includes("\\assets\\")) {
       res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
     } else {
       res.setHeader("Cache-Control", "public, max-age=3600");

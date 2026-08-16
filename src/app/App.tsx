@@ -5,21 +5,44 @@ import { AppShell } from "@/layouts/AppShell";
 import { AuthPage } from "@/pages/AuthPage";
 import { Sparkles, Loader2 } from "lucide-react";
 
+// Helper that catches chunk load errors (e.g. after fresh deploy) and reloads once automatically
+function lazyRetry<T extends React.ComponentType<any>>(
+  factory: () => Promise<{ default: T }>
+) {
+  return lazy(async () => {
+    try {
+      return await factory();
+    } catch (err: any) {
+      const isChunkError =
+        err?.message?.includes("Failed to fetch dynamically imported module") ||
+        err?.message?.includes("dynamically imported module") ||
+        err?.name === "ChunkLoadError";
+
+      if (isChunkError && !sessionStorage.getItem("chunk_retry_reload")) {
+        sessionStorage.setItem("chunk_retry_reload", "1");
+        window.location.reload();
+        return new Promise<{ default: T }>(() => {});
+      }
+      throw err;
+    }
+  });
+}
+
 // Lazy-loaded route pages for minimal initial bundle size & fast loading
-const ProvidersPage = lazy(() => import("@/pages/ProvidersPage").then((m) => ({ default: m.ProvidersPage })));
-const ModelsPage = lazy(() => import("@/pages/ModelsPage").then((m) => ({ default: m.ModelsPage })));
-const CombosPage = lazy(() => import("@/pages/CombosPage").then((m) => ({ default: m.CombosPage })));
-const ChatPage = lazy(() => import("@/pages/ChatPage").then((m) => ({ default: m.ChatPage })));
-const PromptsPage = lazy(() => import("@/pages/PromptsPage").then((m) => ({ default: m.PromptsPage })));
-const UsagePage = lazy(() => import("@/pages/UsagePage").then((m) => ({ default: m.UsagePage })));
-const SettingsPage = lazy(() => import("@/pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
-const TrashPage = lazy(() => import("@/pages/TrashPage").then((m) => ({ default: m.TrashPage })));
-const OAuthCallbackPage = lazy(() => import("@/pages/OAuthCallbackPage").then((m) => ({ default: m.OAuthCallbackPage })));
-const ApiKeysPage = lazy(() => import("@/pages/ApiKeysPage").then((m) => ({ default: m.ApiKeysPage })));
-const KeyStorePage = lazy(() => import("@/pages/KeyStorePage").then((m) => ({ default: m.KeyStorePage })));
-const ComboLogsPage = lazy(() => import("@/pages/ComboLogsPage").then((m) => ({ default: m.ComboLogsPage })));
-const CookieManagerPage = lazy(() => import("@/pages/CookieManagerPage").then((m) => ({ default: m.CookieManagerPage })));
-const ProfilePage = lazy(() => import("@/pages/ProfilePage").then((m) => ({ default: m.ProfilePage })));
+const ProvidersPage = lazyRetry(() => import("@/pages/ProvidersPage").then((m) => ({ default: m.ProvidersPage })));
+const ModelsPage = lazyRetry(() => import("@/pages/ModelsPage").then((m) => ({ default: m.ModelsPage })));
+const CombosPage = lazyRetry(() => import("@/pages/CombosPage").then((m) => ({ default: m.CombosPage })));
+const ChatPage = lazyRetry(() => import("@/pages/ChatPage").then((m) => ({ default: m.ChatPage })));
+const PromptsPage = lazyRetry(() => import("@/pages/PromptsPage").then((m) => ({ default: m.PromptsPage })));
+const UsagePage = lazyRetry(() => import("@/pages/UsagePage").then((m) => ({ default: m.UsagePage })));
+const SettingsPage = lazyRetry(() => import("@/pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
+const TrashPage = lazyRetry(() => import("@/pages/TrashPage").then((m) => ({ default: m.TrashPage })));
+const OAuthCallbackPage = lazyRetry(() => import("@/pages/OAuthCallbackPage").then((m) => ({ default: m.OAuthCallbackPage })));
+const ApiKeysPage = lazyRetry(() => import("@/pages/ApiKeysPage").then((m) => ({ default: m.ApiKeysPage })));
+const KeyStorePage = lazyRetry(() => import("@/pages/KeyStorePage").then((m) => ({ default: m.KeyStorePage })));
+const ComboLogsPage = lazyRetry(() => import("@/pages/ComboLogsPage").then((m) => ({ default: m.ComboLogsPage })));
+const CookieManagerPage = lazyRetry(() => import("@/pages/CookieManagerPage").then((m) => ({ default: m.CookieManagerPage })));
+const ProfilePage = lazyRetry(() => import("@/pages/ProfilePage").then((m) => ({ default: m.ProfilePage })));
 import { useAuthStore } from "@/store/auth-store";
 import { useProviderStore } from "@/store/provider-store";
 import { useModelStore } from "@/store/model-store";

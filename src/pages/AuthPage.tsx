@@ -93,15 +93,15 @@ export function AuthPage() {
   };
 
   return (
-    <div className="h-full w-full aurora flex items-center justify-center p-4">
-      <div className="w-full max-w-md space-y-6">
+    <div className="min-h-full h-full w-full aurora flex items-center justify-center p-4 sm:p-6 overflow-y-auto scrollbar-thin">
+      <div className="w-full max-w-md my-auto space-y-6">
         {/* Logo */}
         <div className="flex flex-col items-center gap-3">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center shadow-xl shadow-primary/20">
-            <Sparkles className="w-8 h-8 text-primary-foreground" />
+          <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center shadow-xl shadow-primary/20">
+            <Sparkles className="w-7 h-7 sm:w-8 sm:h-8 text-primary-foreground" />
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold">AI Provider Hub</div>
+            <div className="text-xl sm:text-2xl font-bold">AI Provider Hub</div>
             <div className="text-sm text-muted-foreground">
               {isSignup ? "Create your account" : "Sign in to continue"}
             </div>
@@ -109,12 +109,12 @@ export function AuthPage() {
         </div>
 
         {/* Form */}
-        <div className="rounded-2xl border border-border/60 bg-card/40 backdrop-blur-xl p-6 shadow-2xl space-y-4">
+        <div className="rounded-2xl border border-border/60 bg-card/40 backdrop-blur-xl p-5 sm:p-6 shadow-2xl space-y-4">
           <Button
             type="button"
             variant="outline"
             onClick={handleGoogleSignIn}
-            className="w-full flex items-center justify-center gap-2 h-11"
+            className="w-full flex items-center justify-center gap-2.5 h-11 text-sm font-medium hover:bg-secondary/60 transition-colors"
             disabled={loading}
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24">

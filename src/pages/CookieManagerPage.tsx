@@ -104,9 +104,10 @@ export function CookieManagerPage() {
   const selectedProviderMeta = PROVIDERS.find((p) => p.id === selectedProvider);
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+    <div className="h-full overflow-y-auto scrollbar-thin">
+      <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-2xl bg-primary/10 text-primary">
             <Cookie className="w-6 h-6" />
           </div>
@@ -247,5 +248,6 @@ export function CookieManagerPage() {
         </div>
       </div>
     </div>
-  );
+  </div>
+);
 }

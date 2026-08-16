@@ -337,10 +337,10 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-[95vw] sm:max-w-xl max-h-[85vh] overflow-y-auto p-4 sm:p-6 scrollbar-thin">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <ProviderLogo provider={form.key} className="w-8 h-8" />
+          <DialogTitle className="flex items-center gap-2 text-lg sm:text-xl">
+            <ProviderLogo provider={form.key} className="w-7 h-7 sm:w-8 sm:h-8" />
             {existing ? "Edit provider" : "Connect a provider"}
           </DialogTitle>
           <DialogDescription>

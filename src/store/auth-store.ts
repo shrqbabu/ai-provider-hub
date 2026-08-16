@@ -3,6 +3,8 @@ import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
   signInWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
   signOut,
   type User,
 } from "firebase/auth";
@@ -19,6 +21,7 @@ interface Actions {
   init: () => void;
   signup: (email: string, password: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
+  loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -49,6 +52,12 @@ export const useAuthStore = create<State & Actions>((set) => ({
   login: async (email, password) => {
     const auth = getFirebaseAuth();
     await signInWithEmailAndPassword(auth, email, password);
+  },
+
+  loginWithGoogle: async () => {
+    const auth = getFirebaseAuth();
+    const provider = new GoogleAuthProvider();
+    await signInWithPopup(auth, provider);
   },
 
   logout: async () => {

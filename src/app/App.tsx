@@ -37,7 +37,6 @@ const PromptsPage = lazyRetry(() => import("@/pages/PromptsPage").then((m) => ({
 const UsagePage = lazyRetry(() => import("@/pages/UsagePage").then((m) => ({ default: m.UsagePage })));
 const SettingsPage = lazyRetry(() => import("@/pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
 const TrashPage = lazyRetry(() => import("@/pages/TrashPage").then((m) => ({ default: m.TrashPage })));
-const OAuthCallbackPage = lazyRetry(() => import("@/pages/OAuthCallbackPage").then((m) => ({ default: m.OAuthCallbackPage })));
 const ApiKeysPage = lazyRetry(() => import("@/pages/ApiKeysPage").then((m) => ({ default: m.ApiKeysPage })));
 const KeyStorePage = lazyRetry(() => import("@/pages/KeyStorePage").then((m) => ({ default: m.KeyStorePage })));
 const ComboLogsPage = lazyRetry(() => import("@/pages/ComboLogsPage").then((m) => ({ default: m.ComboLogsPage })));
@@ -105,22 +104,24 @@ export default function App() {
       hydrateKeyStore(),
       hydrateComboLogs(),
     ]).then(() => {
-      // Purge orphaned CLI providers and models
+      // Purge orphaned CLI and Antigravity providers and models
       const providerState = useProviderStore.getState();
-      const validProviders = providerState.providers.filter((p) => (p.key as string) !== "cli");
+      const validProviders = providerState.providers.filter(
+        (p) => (p.key as string) !== "cli" && (p.key as string) !== "antigravity"
+      );
       if (validProviders.length !== providerState.providers.length) {
         useProviderStore.setState({ providers: validProviders });
         storage.set("providers", validProviders).catch(() => {});
       }
 
-      // Re-run tier inference and purge legacy discount/deprecated/cli models on load
+      // Re-run tier inference and purge legacy discount/deprecated/cli/antigravity models on load
       const modelState = useModelStore.getState();
       const providerMap = new Map(
         validProviders.map((p) => [p.id, p])
       );
 
       const validModels = modelState.models.filter((m) => {
-        if ((m.providerKey as string) === "cli") return false;
+        if ((m.providerKey as string) === "cli" || (m.providerKey as string) === "antigravity") return false;
         const id = (m.modelId || "").toLowerCase();
         if (
           id.includes(":discount") ||
@@ -224,7 +225,6 @@ export default function App() {
             <Route path="/models" element={<ModelsPage />} />
             <Route path="/combos" element={<CombosPage />} />
             <Route path="/combo-logs" element={<ComboLogsPage />} />
-            <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
             <Route path="/chat/:id" element={<ChatPage />} />
             <Route path="/prompts" element={<PromptsPage />} />
             <Route path="/usage" element={<UsagePage />} />

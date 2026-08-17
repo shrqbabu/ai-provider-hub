@@ -81,11 +81,6 @@ export async function handleGateway(
     uid = await requireUser(req);
   }
 
-  // If called directly with x-connection-id (like OmniRoute) or OAuth token
-  if (!uid && (connectionId === "antigravity" || (raw && (raw.startsWith("ya29.") || raw === "antigravity")) || (providerKeyHeader && providerKeyHeader.startsWith("ya29.")))) {
-    uid = "oauth_direct_user";
-  }
-
   if (!uid) {
     return formatGatewayError(401, "Invalid or revoked API key.", isAnthropicReq);
   }
@@ -93,28 +88,11 @@ export async function handleGateway(
   const path = req.subPath.replace(/^\/+/, "").replace(/\/+$/, "").toLowerCase();
 
   // Load the user's connected providers + models + combos
-  let [providers, models, combos] = await Promise.all([
+  const [providers, models, combos] = await Promise.all([
     readKV<GwProvider[]>(uid, "providers", []),
     readKV<GwModel[]>(uid, "models", []),
     readKV<GwCombo[]>(uid, "combos", []),
   ]);
-
-  if (connectionId === "antigravity" || (raw && raw.startsWith("ya29.")) || (providerKeyHeader && providerKeyHeader.startsWith("ya29."))) {
-    const hasAntigravity = providers.some((p) => p.key === "antigravity" || p.id === connectionId);
-    if (!hasAntigravity) {
-      providers = [
-        ...providers,
-        {
-          id: "antigravity",
-          key: "antigravity",
-          displayName: "Antigravity (Google OAuth)",
-          authMode: "oauth",
-          apiKey: (providerKeyHeader || raw || "").trim(),
-          baseURL: "https://cloudcode-pa.googleapis.com/v1internal",
-        },
-      ];
-    }
-  }
 
   // â”€â”€ GET models: return the user's saved models + combos in list shape â”€â”€â”€â”€
   if (path === "models" || path === "v1/models") {
@@ -229,18 +207,16 @@ export async function handleGateway(
       endpoint === "/chat/completions" && isAnthropicProvider;
     const isGoogleProvider =
       provider.key === "google" ||
-      provider.key === "antigravity" ||
       (provider.baseURL ?? "").includes("generativelanguage.googleapis.com");
     const isOAuth =
       provider.authMode === "oauth" ||
-      provider.key === "antigravity" ||
       cred.startsWith("ya29.");
 
     let actualEndpoint: string;
     let targetURL: string;
     let upstreamBody: string;
 
-    const cleanModelId = modelId.replace(/^(antigravity\/|google\/|aip\/)/i, "");
+    const cleanModelId = modelId.replace(/^(google\/|aip\/)/i, "");
     const candidateUrls: string[] = [];
 
     if (needsTranslation && isGoogleProvider) {
@@ -483,7 +459,7 @@ function buildUpstreamHeaders(
   // client mislabeled and render as garbage.
   headers.set("Accept-Encoding", "identity");
 
-  if (provider.key === "antigravity" || provider.key === "google") {
+  if (provider.key === "google") {
     headers.set("User-Agent", "antigravity/1.0.0");
     headers.set("x-goog-api-client", "gl-js/ antigravity/1.0.0");
   }

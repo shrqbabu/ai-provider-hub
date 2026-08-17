@@ -4,8 +4,6 @@ export type ProviderKey =
   | "anthropic"
   | "openrouter"
   | "google"
-  | "antigravity"
-  | "cli"
   | "custom";
 
 export interface ProviderDefinition {

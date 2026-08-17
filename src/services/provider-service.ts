@@ -1,6 +1,5 @@
 import OpenAI from "openai";
 import type { ConnectedProvider } from "@/types";
-import { getAntigravityDefaultModels, refreshAntigravityToken } from "./antigravity-oauth";
 import { useProviderStore } from "@/store/provider-store";
 
 // All hosted providers go through /api/proxy — same URL in dev (via Vite
@@ -25,16 +24,9 @@ function isLocalhost(url: string): boolean {
   return /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])/i.test(url);
 }
 
-function resolveBaseURL(url: string, providerKey?: string): Resolved {
+function resolveBaseURL(url: string, _providerKey?: string): Resolved {
   if (isLocalhost(url)) return { baseURL: url, proxied: false };
   const origin = window.location.origin;
-
-  if (providerKey === "antigravity") {
-    return {
-      baseURL: `${origin}/api/proxy/antigravity`,
-      proxied: true,
-    };
-  }
 
 
 
@@ -110,10 +102,6 @@ export function resolveRawRequest(
     if (authMode === "cookie") headers["x-provider-cookie"] = cookie;
     else headers["x-provider-key"] = key;
 
-    if (authMode === "oauth" || provider.key === "antigravity" || key.startsWith("ya29.")) {
-      headers["x-auth-mode"] = "oauth";
-    }
-
     // Rewrite path-based proxy URL to query-param format for Vercel.
     const u = new URL(url);
     const proxyMatch = u.pathname.match(/^\/api\/proxy\/(.+)$/);
@@ -152,7 +140,7 @@ export function createClient(provider: ConnectedProvider): OpenAI {
     }
   } else if (!key) {
     throw new Error(
-      "API key or OAuth token is missing. Edit the provider and re-connect."
+      "API key is missing. Edit the provider and re-connect."
     );
   }
 
@@ -178,10 +166,6 @@ export function createClient(provider: ConnectedProvider): OpenAI {
           headers.set("x-provider-cookie", cookie);
         } else {
           headers.set("x-provider-key", key);
-        }
-
-        if (authMode === "oauth" || provider.key === "antigravity" || key.startsWith("ya29.")) {
-          headers.set("x-auth-mode", "oauth");
         }
 
         // Rewrite path-based proxy URL to query-param format.
@@ -243,76 +227,7 @@ export async function testSingleModel(
     const rawId = modelId.replace(/^aip\//, "");
     const candidateIds = Array.from(new Set([rawId, modelId].filter(Boolean)));
 
-    if (provider.key === "antigravity" || provider.authMode === "oauth" || (provider.apiKey ?? "").startsWith("ya29.")) {
-      let token = (provider.apiKey ?? "").trim();
-      const origin = window.location.origin;
-
-      // Auto-refresh token if expired or near expiry
-      if (provider.refreshToken && provider.tokenExpiry && Date.now() >= provider.tokenExpiry - 60_000) {
-        try {
-          const refreshed = await refreshAntigravityToken(provider.refreshToken);
-          token = refreshed.accessToken;
-          useProviderStore.getState().update(provider.id, {
-            apiKey: refreshed.accessToken,
-            tokenExpiry: refreshed.tokenExpiry,
-          });
-        } catch {
-          // ignore and try current token
-        }
-      }
-
-      if (!token) return false;
-
-      let res = await fetch(`${origin}/api/proxy/antigravity/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-provider-key": token,
-          "x-auth-mode": "oauth",
-          "x-connection-id": "antigravity",
-        },
-        body: JSON.stringify({
-          model: rawId,
-          messages: [{ role: "user", content: "hi" }],
-          max_tokens: 16,
-        }),
-      });
-
-      // If 401 Unauthorized and we have a refreshToken, refresh and retry once
-      if (res.status === 401 && provider.refreshToken) {
-        try {
-          const refreshed = await refreshAntigravityToken(provider.refreshToken);
-          token = refreshed.accessToken;
-          useProviderStore.getState().update(provider.id, {
-            apiKey: refreshed.accessToken,
-            tokenExpiry: refreshed.tokenExpiry,
-          });
-
-          res = await fetch(`${origin}/api/proxy/antigravity/chat/completions`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-provider-key": token,
-              "x-auth-mode": "oauth",
-              "x-connection-id": "antigravity",
-            },
-            body: JSON.stringify({
-              model: rawId,
-              messages: [{ role: "user", content: "hi" }],
-              max_tokens: 16,
-            }),
-          });
-        } catch {
-          // ignore
-        }
-      }
-
-      return res.ok;
-    }
-
-
-
-    if (provider.key === "google" && provider.baseURL.includes("generativelanguage.googleapis.com")) {
+    if (provider.key === "google" || provider.baseURL.includes("generativelanguage.googleapis.com")) {
       const key = (provider.apiKey ?? "").trim();
       if (!key) return false;
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(rawId)}:generateContent?key=${encodeURIComponent(key)}`;
@@ -381,48 +296,6 @@ export async function testConnection(
   provider: ConnectedProvider
 ): Promise<TestResult> {
   try {
-    const isOAuth =
-      provider.key === "antigravity" ||
-      provider.authMode === "oauth" ||
-      (provider.apiKey ?? "").startsWith("ya29.");
-
-    if (isOAuth) {
-      let token = (provider.apiKey ?? "").trim();
-      if (!token) {
-        throw new Error("OAuth access token is missing. Please re-authenticate.");
-      }
-
-      // Auto-refresh token if expired
-      if (provider.refreshToken && provider.tokenExpiry && Date.now() >= provider.tokenExpiry - 60_000) {
-        try {
-          const refreshed = await refreshAntigravityToken(provider.refreshToken);
-          token = refreshed.accessToken;
-          useProviderStore.getState().update(provider.id, {
-            apiKey: refreshed.accessToken,
-            tokenExpiry: refreshed.tokenExpiry,
-          });
-        } catch {
-          // ignore
-        }
-      }
-
-      const testUrl = "https://www.googleapis.com/oauth2/v3/userinfo";
-      const res = await fetch(testUrl, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`Google OAuth error: ${res.status} ${res.statusText} - ${text}`);
-      }
-
-      const data = await res.json();
-      return {
-        ok: true,
-        message: `Connected — ${data.email || "Google Account"} verified via Antigravity OAuth (27 Models Active).`,
-        modelCount: 27,
-      };
-    }
-
     // Google's Generative Language API with API key (AIza...)
     if (provider.key === "google" || provider.baseURL.includes("generativelanguage.googleapis.com")) {
       const key = (provider.apiKey ?? "").trim();
@@ -541,82 +414,8 @@ function parsePricePerMillion(raw: unknown): number | undefined {
 export async function fetchModelIds(
   provider: ConnectedProvider
 ): Promise<DiscoveredModelInfo[]> {
-  // Host CLI Runner Bridge
-  if (provider.key === "cli") {
-    return [
-      { id: "gemini-3.7-flash", contextLength: 1_047_576, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
-      { id: "gemini-3.6-flash", contextLength: 1_047_576, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
-      { id: "gemini-3.5-flash", contextLength: 1_047_576, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
-      { id: "gemini-3.1-pro", contextLength: 2_097_152, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
-      { id: "claude-sonnet-4-6-thinking", contextLength: 200_000, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
-      { id: "claude-opus-4-6-thinking", contextLength: 200_000, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
-      { id: "gpt-oss-120b", contextLength: 131_072, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: false },
-      { id: "gemini-2.5-flash", contextLength: 1_047_576, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
-      { id: "gemini-2.5-pro", contextLength: 2_097_152, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
-      { id: "claude-3-7-sonnet", contextLength: 200_000, inputPrice: 0, outputPrice: 0, isFree: true, supportsVision: true },
-    ];
-  }
-
-  // Antigravity (Google OAuth)
-  if (provider.key === "antigravity" || provider.authMode === "oauth" || (provider.apiKey ?? "").startsWith("ya29.")) {
-    const token = (provider.apiKey ?? "").trim();
-    if (!token) {
-      throw new Error("OAuth access token is missing.");
-    }
-
-    const testUrl = "https://generativelanguage.googleapis.com/v1beta/models";
-    const fetchedModels: DiscoveredModelInfo[] = [];
-
-    try {
-      const res = await fetch(testUrl, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const apiModels = (data.models ?? [])
-          .filter((m: any) => m.supportedGenerationMethods?.includes("generateContent"))
-          .map((m: any) => ({
-            id: m.name?.replace("models/", "") ?? m.name,
-            created: undefined,
-            contextLength: undefined,
-            inputPrice: 0,
-            outputPrice: 0,
-            supportsVision: true,
-            isFree: true,
-          }));
-        fetchedModels.push(...apiModels);
-      }
-    } catch {
-      // ignore network issue, fallback to default curated models
-    }
-
-    // Always include the full curated list of Antigravity Claude and Gemini models
-    const defaultModels = getAntigravityDefaultModels();
-    const existingIds = new Set(fetchedModels.map((m) => m.id));
-
-    for (const def of defaultModels) {
-      if (!existingIds.has(def.modelId)) {
-        fetchedModels.unshift({
-          id: def.modelId,
-          created: undefined,
-          contextLength: def.contextWindow,
-          inputPrice: 0,
-          outputPrice: 0,
-          supportsVision: def.vision,
-          isFree: true,
-        });
-      }
-    }
-
-    return fetchedModels;
-  }
-
   // Google's Generative Language API with API key (AIza...)
-  if (
-    (provider.key === "google" || provider.baseURL.includes("generativelanguage.googleapis.com")) &&
-    !(provider.apiKey ?? "").startsWith("ya29.") &&
-    provider.authMode !== "oauth"
-  ) {
+  if (provider.key === "google" || provider.baseURL.includes("generativelanguage.googleapis.com")) {
     const key = (provider.apiKey ?? "").trim();
     if (!key) {
       throw new Error("API key is missing.");

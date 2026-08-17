@@ -56,17 +56,6 @@ export const PROVIDERS: Record<ProviderKey, ProviderDefinition> = {
     supportsModelsList: true,
     logo: "google",
   },
-  antigravity: {
-    key: "antigravity",
-    name: "Antigravity (Google OAuth)",
-    description:
-      "Google Antigravity OAuth — Access Gemini 2.5 Pro, Claude Sonnet 3.7/3.5, and Flash models with Google OAuth authentication.",
-    baseURL: "https://generativelanguage.googleapis.com/v1",
-    docsURL: "https://cloud.google.com",
-    gradient: "from-blue-500 via-indigo-500 to-violet-600",
-    supportsModelsList: true,
-    logo: "google",
-  },
   custom: {
     key: "custom",
     name: "OpenAI Compatible",
@@ -193,7 +182,7 @@ export function inferTier(params: {
   }
 
   // NVIDIA "build" tier — all models on integrate.api.nvidia.com are free with rate limits.
-  if (providerKey === "nvidia" || providerKey === "antigravity") return "free";
+  if (providerKey === "nvidia") return "free";
 
   // Big paid clouds.
   if (providerKey === "openai" || providerKey === "anthropic") return "paid";

@@ -34,24 +34,20 @@ export function KeyStorePage() {
   useEffect(() => {
     let mounted = true;
     const load = async () => {
-      if (!hydrated) {
-        setLoading(true);
-        try {
-          await hydrate();
-        } catch (err) {
-          toast.error("Failed to load Key Store");
-        } finally {
-          if (mounted) setLoading(false);
-        }
-      } else {
-        setLoading(false);
+      setLoading(true);
+      try {
+        await hydrate();
+      } catch (err) {
+        toast.error("Failed to load Key Store");
+      } finally {
+        if (mounted) setLoading(false);
       }
     };
     load();
     return () => {
       mounted = false;
     };
-  }, [hydrated, hydrate]);
+  }, [hydrate]);
 
   const handleAdd = async () => {
     if (!keyValue.trim()) {

@@ -9,7 +9,6 @@ import { handleBackup } from "./api/_lib/backup-core.js";
 import { toCoreRequest, sendCoreResponse, sendError } from "./api/_lib/node-adapter.js";
 import handleProxy from "./api/proxy.js";
 import handleAntigravityOAuth from "./api/oauth/antigravity.js";
-import { detectInstalledCliTools, executeCliCompletion } from "./api/_lib/cli-runner.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -228,76 +227,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // 8. CLI Runner Bridge: /api/cli/status and /api/cli/chat/completions
-    if (pathname === "/api/cli/status") {
-      const tools = detectInstalledCliTools();
-      res.statusCode = 200;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({
-        available: tools.some((t) => t.installed),
-        tools,
-      }));
-      return;
-    }
 
-    if (pathname === "/api/cli/chat/completions" || pathname === "/api/cli/v1/chat/completions") {
-      let rawBody = "";
-      for await (const chunk of req) {
-        rawBody += typeof chunk === "string" ? chunk : chunk.toString("utf-8");
-      }
-      const parsed = JSON.parse(rawBody || "{}");
-      const command = (req.headers["x-cli-command"] as string) || parsed.command || "agy";
-      const model = parsed.model || "gemini-3.7-flash";
-      const stream = Boolean(parsed.stream);
-      const sessionId = (req.headers["x-session-id"] as string) || (req.headers["x-user-uid"] as string) || parsed.sessionId || parsed.chatId || "cli_active_session";
-
-      if (stream) {
-        res.statusCode = 200;
-        res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-        res.setHeader("Cache-Control", "no-cache, no-transform");
-        res.setHeader("Connection", "keep-alive");
-        res.setHeader("X-Accel-Buffering", "no");
-
-        const result = executeCliCompletion({
-          command,
-          model,
-          messages: parsed.messages || [],
-          stream: true,
-          sessionId,
-        });
-
-        if ("stream" in result) {
-          const reader = result.stream.getReader();
-          const decoder = new TextDecoder();
-          req.on("close", () => {
-            result.cancel();
-          });
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            res.write(decoder.decode(value));
-          }
-          res.end();
-          return;
-        }
-      } else {
-        const result = executeCliCompletion({
-          command,
-          model,
-          messages: parsed.messages || [],
-          stream: false,
-          sessionId,
-        });
-
-        if ("promise" in result) {
-          const completion = await result.promise;
-          res.statusCode = 200;
-          res.setHeader("Content-Type", "application/json");
-          res.end(JSON.stringify(completion));
-          return;
-        }
-      }
-    }
 
     // 7. Static files and SPA fallback
     if (fs.existsSync(DIST_DIR)) {

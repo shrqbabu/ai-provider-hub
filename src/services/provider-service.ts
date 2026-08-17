@@ -36,12 +36,7 @@ function resolveBaseURL(url: string, providerKey?: string): Resolved {
     };
   }
 
-  if (providerKey === "cli") {
-    return {
-      baseURL: `${origin}/api/cli`,
-      proxied: false,
-    };
-  }
+
 
   // Known hosted providers → dedicated proxy prefix.
   for (const [pattern, replacement] of HOSTED_PROXY_MAP) {
@@ -315,22 +310,7 @@ export async function testSingleModel(
       return res.ok;
     }
 
-    if (provider.key === "cli") {
-      const origin = window.location.origin;
-      const res = await fetch(`${origin}/api/cli/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-cli-command": provider.apiKey || "agy",
-        },
-        body: JSON.stringify({
-          model: rawId,
-          messages: [{ role: "user", content: "hi" }],
-          stream: false,
-        }),
-      });
-      return res.ok;
-    }
+
 
     if (provider.key === "google" && provider.baseURL.includes("generativelanguage.googleapis.com")) {
       const key = (provider.apiKey ?? "").trim();
@@ -466,26 +446,7 @@ export async function testConnection(
       };
     }
 
-    if (provider.key === "cli") {
-      const origin = window.location.origin;
-      const res = await fetch(`${origin}/api/cli/status`);
-      if (!res.ok) throw new Error("CLI Bridge endpoint not responding");
-      const data = await res.json();
-      const installed = data.tools?.filter((t: any) => t.installed) || [];
-      if (!installed.length) {
-        return {
-          ok: true,
-          message: "CLI Bridge ready on host (Install agy, gemini, or claude CLI on VPS for native execution).",
-          modelCount: 4,
-        };
-      }
-      const names = installed.map((t: any) => t.name).join(", ");
-      return {
-        ok: true,
-        message: `Connected — ${installed.length} CLI tool(s) active on host (${names}).`,
-        modelCount: 6,
-      };
-    }
+
 
     const client = createClient(provider);
     const res = await client.models.list();

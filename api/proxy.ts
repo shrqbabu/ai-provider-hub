@@ -320,27 +320,7 @@ async function handleGoogleChatCompletion(
     }
   }
 
-  // If cloud endpoints fail and we're on host, execute via Host CLI bridge as ultimate fallback
-  if (isOAuth) {
-    try {
-      const { executeCliCompletion } = await import("./_lib/cli-runner.js");
-      const cliResult = executeCliCompletion({ model, messages, stream });
-      if ("stream" in cliResult) {
-        return new Response(cliResult.stream, {
-          headers: {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-          },
-        });
-      } else {
-        const data = await cliResult.promise;
-        return json(data);
-      }
-    } catch (cliErr) {
-      console.error("[CLI Fallback Error]", cliErr);
-    }
-  }
+
 
   try {
     const errorJson = JSON.parse(lastErrorText);

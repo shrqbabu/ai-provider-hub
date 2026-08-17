@@ -379,6 +379,32 @@ function restoreToolName(rawName: string, map: Map<string, string>): string {
   return map.get(trimmed) || map.get(lower) || map.get(normalized) || KNOWN_CLAUDE_TOOLS[lower] || trimmed;
 }
 
+function sanitizeGoogleOutputText(text: string): string {
+  if (!text) return text;
+  if (text.includes("<GenerateWidget")) {
+    text = text.replace(/<GenerateWidget[^>]*>([\s\S]*?)<\/GenerateWidget>/gi, (_, inner) => {
+      try {
+        const parsed = JSON.parse(inner.trim());
+        if (parsed.widgetSpec?.prompt) {
+          return parsed.widgetSpec.prompt;
+        }
+      } catch {}
+      return "";
+    });
+    text = text.replace(/<GenerateWidget[^>]*>[\s\S]*/gi, (match) => {
+      const jsonStart = match.indexOf("{");
+      if (jsonStart !== -1) {
+        try {
+          const parsed = JSON.parse(match.slice(jsonStart).trim());
+          if (parsed.widgetSpec?.prompt) return parsed.widgetSpec.prompt;
+        } catch {}
+      }
+      return "";
+    });
+  }
+  return text;
+}
+
 function convertGoogleResponse(googleResp: any, modelName: string = "gemini-2.5-flash", openaiBody?: any): Response {
   const candidate = googleResp.candidates?.[0];
   const parts = candidate?.content?.parts || [];
@@ -387,7 +413,10 @@ function convertGoogleResponse(googleResp: any, modelName: string = "gemini-2.5-
   const toolNameMap = extractToolNameMap(openaiBody);
 
   for (const p of parts) {
-    if (p.text) textParts.push(p.text);
+    if (p.text) {
+      const clean = sanitizeGoogleOutputText(p.text);
+      if (clean) textParts.push(clean);
+    }
     if (p.functionCall) {
       const exactName = restoreToolName(p.functionCall.name || "", toolNameMap);
       toolCalls.push({
@@ -403,12 +432,12 @@ function convertGoogleResponse(googleResp: any, modelName: string = "gemini-2.5-
 
   let text = textParts.join("");
   if (!text && !toolCalls.length) {
-    if (typeof candidate?.message?.content === "string") text = candidate.message.content;
-    else if (typeof googleResp.reply === "string") text = googleResp.reply;
-    else if (typeof googleResp.message === "string") text = googleResp.message;
-    else if (typeof googleResp.response === "string") text = googleResp.response;
+    if (typeof candidate?.message?.content === "string") text = sanitizeGoogleOutputText(candidate.message.content);
+    else if (typeof googleResp.reply === "string") text = sanitizeGoogleOutputText(googleResp.reply);
+    else if (typeof googleResp.message === "string") text = sanitizeGoogleOutputText(googleResp.message);
+    else if (typeof googleResp.response === "string") text = sanitizeGoogleOutputText(googleResp.response);
     else if (Array.isArray(googleResp.predictions) && googleResp.predictions[0]) {
-      text = typeof googleResp.predictions[0] === "string" ? googleResp.predictions[0] : JSON.stringify(googleResp.predictions[0]);
+      text = typeof googleResp.predictions[0] === "string" ? sanitizeGoogleOutputText(googleResp.predictions[0]) : JSON.stringify(googleResp.predictions[0]);
     }
   }
 
@@ -476,7 +505,8 @@ function streamGoogleResponse(upstream: Response, modelName: string = "gemini-2.
               const candidate = googleChunk.candidates?.[0];
               if (candidate) {
                 const parts = candidate?.content?.parts || [];
-                const text = parts.map((p: any) => p.text || "").join("");
+                const rawText = parts.map((p: any) => p.text || "").join("");
+                const text = sanitizeGoogleOutputText(rawText);
                 if (text) {
                   await writer.write(encoder.encode(`data: ${JSON.stringify({
                     id: chatId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: effectiveModel,

@@ -797,6 +797,32 @@ const KNOWN_CLAUDE_TOOLS: Record<string, string> = {
   execute_command: "Bash",
 };
 
+function sanitizeGoogleOutputText(text: string): string {
+  if (!text) return text;
+  if (text.includes("<GenerateWidget")) {
+    text = text.replace(/<GenerateWidget[^>]*>([\s\S]*?)<\/GenerateWidget>/gi, (_, inner) => {
+      try {
+        const parsed = JSON.parse(inner.trim());
+        if (parsed.widgetSpec?.prompt) {
+          return parsed.widgetSpec.prompt;
+        }
+      } catch {}
+      return "";
+    });
+    text = text.replace(/<GenerateWidget[^>]*>[\s\S]*/gi, (match) => {
+      const jsonStart = match.indexOf("{");
+      if (jsonStart !== -1) {
+        try {
+          const parsed = JSON.parse(match.slice(jsonStart).trim());
+          if (parsed.widgetSpec?.prompt) return parsed.widgetSpec.prompt;
+        } catch {}
+      }
+      return "";
+    });
+  }
+  return text;
+}
+
 function extractToolNameMap(body?: Record<string, unknown>): Map<string, string> {
   const map = new Map<string, string>();
   for (const [k, v] of Object.entries(KNOWN_CLAUDE_TOOLS)) {
@@ -925,17 +951,15 @@ function anthropicToGoogle(
   const googleBody: Record<string, unknown> = { contents };
 
   const sys = body.system;
-  if (sys) {
-    const sysText =
-      typeof sys === "string"
-        ? sys
-        : Array.isArray(sys)
-        ? (sys as Array<{ text?: string }>).map((b) => b.text ?? "").join("\n")
-        : "";
-    if (sysText) {
-      googleBody.systemInstruction = { parts: [{ text: sysText }] };
-    }
-  }
+  let sysText =
+    typeof sys === "string"
+      ? sys
+      : Array.isArray(sys)
+      ? (sys as Array<{ text?: string }>).map((b) => b.text ?? "").join("\n")
+      : "";
+  const noWidgetInstruction = "You are an AI assistant. Output standard markdown text or execute tools. Never output frontend web UI tags like <GenerateWidget>, widgetSpec, or internal component placeholders.";
+  sysText = sysText ? `${sysText}\n\n${noWidgetInstruction}` : noWidgetInstruction;
+  googleBody.systemInstruction = { parts: [{ text: sysText }] };
 
   const tools = body.tools as Array<Record<string, unknown>> | undefined;
   if (Array.isArray(tools) && tools.length) {
@@ -1013,7 +1037,8 @@ async function translateGoogleResponseToAnthropic(
 
   for (const p of parts) {
     if (p.text) {
-      content.push({ type: "text", text: p.text });
+      const clean = sanitizeGoogleOutputText(p.text);
+      if (clean) content.push({ type: "text", text: clean });
     }
     if (p.functionCall) {
       hasToolCall = true;
@@ -1131,6 +1156,8 @@ function translateGoogleStreamToAnthropic(
               const parts = chunk.candidates?.[0]?.content?.parts ?? [];
               for (const p of parts) {
                 if (p.text) {
+                  const clean = sanitizeGoogleOutputText(p.text);
+                  if (!clean) continue;
                   if (!textOpen) {
                     textIndex = nextIndex++;
                     textOpen = true;
@@ -1150,7 +1177,7 @@ function translateGoogleStreamToAnthropic(
                       {
                         type: "content_block_delta",
                         index: textIndex,
-                        delta: { type: "text_delta", text: p.text },
+                        delta: { type: "text_delta", text: clean },
                       },
                       "content_block_delta"
                     )
@@ -1321,9 +1348,9 @@ function openAIToGoogle(
   }
 
   const googleBody: Record<string, unknown> = { contents };
-  if (systemInstruction) {
-    googleBody.systemInstruction = { parts: [{ text: systemInstruction }] };
-  }
+  const noWidgetInstruction = "You are an AI assistant. Output standard markdown text or execute tools. Never output frontend web UI tags like <GenerateWidget>, widgetSpec, or internal component placeholders.";
+  const finalSys = systemInstruction ? `${systemInstruction}\n\n${noWidgetInstruction}` : noWidgetInstruction;
+  googleBody.systemInstruction = { parts: [{ text: finalSys }] };
 
   if (Array.isArray(body.tools) && body.tools.length > 0) {
     googleBody.tools = [
@@ -1384,7 +1411,10 @@ async function translateGoogleResponseToOpenAI(
   const toolNameMap = extractToolNameMap(requestBody);
 
   for (const p of parts) {
-    if (p.text) textParts.push(p.text);
+    if (p.text) {
+      const clean = sanitizeGoogleOutputText(p.text);
+      if (clean) textParts.push(clean);
+    }
     if (p.functionCall) {
       const exactName = restoreToolName(p.functionCall.name || "", toolNameMap);
       toolCalls.push({
@@ -1485,8 +1515,9 @@ function translateGoogleStreamToOpenAI(
                 const candidate = googleChunk.candidates?.[0];
                 if (candidate) {
                   const parts = candidate?.content?.parts || [];
-                  const text = parts.map((p: any) => p.text || "").join("");
-                  if (text) {
+                  const rawText = parts.map((p: any) => p.text || "").join("");
+                  const cleanText = sanitizeGoogleOutputText(rawText);
+                  if (cleanText) {
                     controller.enqueue(
                       encoder.encode(
                         `data: ${JSON.stringify({
@@ -1495,7 +1526,7 @@ function translateGoogleStreamToOpenAI(
                           created: Math.floor(Date.now() / 1000),
                           model: modelId,
                           choices: [
-                            { index: 0, delta: { content: text }, finish_reason: null },
+                            { index: 0, delta: { content: cleanText }, finish_reason: null },
                           ],
                         })}\n\n`
                       )

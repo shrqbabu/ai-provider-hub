@@ -6,6 +6,7 @@ import { handleGateway } from "./api/_lib/gateway-core.js";
 import { handleKeys } from "./api/_lib/keys-core.js";
 import { handleData } from "./api/_lib/data-core.js";
 import { handleBackup } from "./api/_lib/backup-core.js";
+import { handleOAuth } from "./api/_lib/oauth/oauth-core.js";
 import { toCoreRequest, sendCoreResponse, sendError } from "./api/_lib/node-adapter.js";
 import handleProxy from "./api/proxy.js";
 
@@ -213,6 +214,15 @@ const server = http.createServer(async (req, res) => {
     }
 
 
+
+    // 6. OAuth & Device Flow: /api/oauth/*
+    if (pathname.startsWith("/api/oauth")) {
+      const subPath = pathname.replace(/^\/api\/oauth\/?/, "");
+      const core = toCoreRequest(req, subPath, query);
+      const result = await handleOAuth(core);
+      await sendCoreResponse(res, result);
+      return;
+    }
 
     // 7. Full Backup & Restore: /api/backup
     if (pathname.startsWith("/api/backup")) {

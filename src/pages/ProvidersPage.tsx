@@ -6,11 +6,13 @@ import { useProviderStore } from "@/store/provider-store";
 import { useModelStore } from "@/store/model-store";
 import { ProviderCard } from "@/features/providers/ProviderCard";
 import { AddProviderDialog } from "@/features/providers/AddProviderDialog";
+import { OAuthLoginDialog } from "@/features/providers/OAuthLoginDialog";
 import { toast } from "sonner";
 import { fetchModelIds } from "@/services/provider-service";
 import { inferCapabilities, inferTier } from "@/constants/providers";
 import type { ConnectedProvider } from "@/types";
 import { AddModelDialog } from "@/features/models/AddModelDialog";
+import { ShieldCheck } from "lucide-react";
 
 export function ProvidersPage() {
   const providers = useProviderStore((s) => s.providers);
@@ -21,6 +23,7 @@ export function ProvidersPage() {
   const upsertModels = useModelStore((s) => s.upsertMany);
   const removeByProvider = useModelStore((s) => s.removeByProvider);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [oauthOpen, setOauthOpen] = useState(false);
   const [editing, setEditing] = useState<ConnectedProvider | undefined>();
   const [modelDialogFor, setModelDialogFor] = useState<ConnectedProvider | undefined>();
 
@@ -115,6 +118,14 @@ export function ProvidersPage() {
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <Button
+              variant="outline"
+              onClick={() => setOauthOpen(true)}
+              className="gap-2 border-emerald-600/40 text-emerald-400 hover:bg-emerald-950/30 hover:border-emerald-500"
+            >
+              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              OAuth Login
+            </Button>
+            <Button
               onClick={() => {
                 setEditing(undefined);
                 setDialogOpen(true);
@@ -137,9 +148,17 @@ export function ProvidersPage() {
             </div>
             <h3 className="mt-4 text-lg font-semibold">No providers yet</h3>
             <p className="mt-1 text-sm text-muted-foreground max-w-sm mx-auto">
-              Add your AI providers (Google AI Studio, OpenAI, Anthropic, OpenRouter, NVIDIA, or Custom).
+              Add your AI providers (GitHub Copilot, Google AI Studio, OpenAI, Anthropic, OpenRouter, NVIDIA, or Custom).
             </p>
             <div className="mt-6 flex items-center justify-center gap-3 flex-wrap">
+              <Button
+                variant="outline"
+                onClick={() => setOauthOpen(true)}
+                className="gap-2 border-emerald-600/40 text-emerald-400 hover:bg-emerald-950/30"
+              >
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                OAuth / Device Login
+              </Button>
               <Button onClick={() => setDialogOpen(true)}>
                 <Plus className="w-4 h-4" />
                 Add provider
@@ -183,6 +202,10 @@ export function ProvidersPage() {
             if (!v) setEditing(undefined);
           }}
           existing={editing}
+        />
+        <OAuthLoginDialog
+          open={oauthOpen}
+          onOpenChange={setOauthOpen}
         />
         {modelDialogFor && (
           <AddModelDialog

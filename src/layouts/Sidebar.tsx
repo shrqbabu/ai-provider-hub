@@ -54,14 +54,30 @@ export function Sidebar() {
   const mobileOpen = useUIStore((s) => s.sidebarOpen);
   const setMobileOpen = useUIStore((s) => s.setSidebarOpen);
 
-  // Automatically close mobile drawer when route changes
+  // Automatically close mobile drawer when route changes, window resizes, or on Escape
   useEffect(() => {
     setMobileOpen(false);
   }, [location.pathname, location.search, setMobileOpen]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMobileOpen(false);
+    };
+    const handleResize = () => {
+      if (window.innerWidth >= 768) setMobileOpen(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [setMobileOpen]);
+
   const handleLogout = async () => {
     try {
       await logout();
+      setMobileOpen(false);
       toast.success("Signed out.");
       navigate("/");
     } catch {
@@ -106,11 +122,16 @@ export function Sidebar() {
             </div>
           </NavLink>
           <button
+            type="button"
             onClick={() => setMobileOpen(false)}
-            className="md:hidden p-1.5 rounded-lg hover:bg-secondary"
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              setMobileOpen(false);
+            }}
+            className="md:hidden p-2 rounded-xl bg-secondary/80 hover:bg-secondary active:scale-95 transition text-foreground"
             aria-label="Close sidebar"
           >
-            <X className="w-4 h-4" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
@@ -124,7 +145,10 @@ export function Sidebar() {
         </motion.button>
 
         <button
-          onClick={() => setSearchOpen(true)}
+          onClick={() => {
+            setMobileOpen(false);
+            setSearchOpen(true);
+          }}
           className="mt-2 w-full flex items-center gap-2 rounded-xl bg-secondary/70 hover:bg-secondary px-3 py-2 text-sm text-muted-foreground transition"
         >
           <Search className="w-4 h-4" />
@@ -248,15 +272,25 @@ export function Sidebar() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setMobileOpen(false)}
-              className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm md:hidden"
+              onTouchStart={() => setMobileOpen(false)}
+              className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm md:hidden cursor-pointer"
+              style={{ WebkitTapHighlightColor: "transparent" }}
             />
             <motion.aside
               key="drawer"
               initial={{ x: "-100%" }}
               animate={{ x: 0 }}
               exit={{ x: "-100%" }}
-              transition={{ type: "spring", damping: 30, stiffness: 300 }}
-              className="fixed z-50 top-0 left-0 h-full w-[85%] max-w-[320px] bg-card/95 backdrop-blur-2xl border-r border-border/60 flex flex-col md:hidden"
+              drag="x"
+              dragConstraints={{ left: -320, right: 0 }}
+              dragElastic={0.1}
+              onDragEnd={(_e, info) => {
+                if (info.offset.x < -60 || info.velocity.x < -200) {
+                  setMobileOpen(false);
+                }
+              }}
+              transition={{ type: "spring", damping: 28, stiffness: 280 }}
+              className="fixed z-50 top-0 left-0 h-full w-[85%] max-w-[320px] bg-card/95 backdrop-blur-2xl border-r border-border/60 flex flex-col md:hidden shadow-2xl"
             >
               {inner}
             </motion.aside>

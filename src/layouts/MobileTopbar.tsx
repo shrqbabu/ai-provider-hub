@@ -4,16 +4,18 @@ import { useUIStore } from "@/store/ui-store";
 import { useChatStore } from "@/store/chat-store";
 
 export function MobileTopbar() {
-  const setOpen = useUIStore((s) => s.setSidebarOpen);
+  const toggle = useUIStore((s) => s.toggleSidebar);
+  const isOpen = useUIStore((s) => s.sidebarOpen);
   const create = useChatStore((s) => s.create);
   const navigate = useNavigate();
 
   return (
     <header className="md:hidden sticky top-0 z-30 flex items-center gap-2 px-3 h-14 bg-card/60 backdrop-blur-xl border-b border-border/60">
       <button
-        onClick={() => setOpen(true)}
-        className="p-2 rounded-xl hover:bg-secondary transition"
-        aria-label="Open sidebar"
+        onClick={toggle}
+        aria-expanded={isOpen}
+        className="p-2 rounded-xl hover:bg-secondary active:scale-95 transition"
+        aria-label="Toggle sidebar"
       >
         <Menu className="w-5 h-5" />
       </button>

@@ -54,7 +54,7 @@ import { useUsageStore } from "@/store/usage-store";
 import { useSettingsStore } from "@/store/settings-store";
 import { useKeyStoreStore } from "@/store/keystore-store";
 import { useComboLogStore } from "@/store/combo-log-store";
-import { Sparkles, Loader2 } from "lucide-react";
+import { storage } from "@/services/storage";
 
 export default function App() {
   const [ready, setReady] = useState(false);

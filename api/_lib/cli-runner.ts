@@ -71,7 +71,7 @@ const SUPPORTED_TOOLS: Array<{ name: string; command: string; versionFlag: strin
     name: "Antigravity CLI (agy)",
     command: "agy",
     versionFlag: "--version",
-    runArgs: (model, prompt, isContinue = false) => {
+    runArgs: (model, prompt, _isContinue = false) => {
       let cleanModel = (model || "gemini-3.7-flash").replace(/^(cli|antigravity)\//, "").trim();
       let effort = "low"; // Default to ultra-fast low reasoning effort (1-2s latency)
       if (cleanModel.includes("high")) effort = "high";
@@ -99,9 +99,6 @@ const SUPPORTED_TOOLS: Array<{ name: string; command: string; versionFlag: strin
         cleanModel.includes("pro")
       ) {
         args.push("--effort", effort);
-      }
-      if (isContinue) {
-        args.unshift("-c");
       }
       return args;
     },
@@ -185,30 +182,49 @@ export function executeCliCompletion(options: {
   signal?: AbortSignal;
   sessionId?: string;
 }): { stream: ReadableStream<Uint8Array>; cancel: () => void } | { promise: Promise<any>; cancel: () => void } {
-  const { command = "agy", model = "gemini-3.7-flash", messages, stream = false, signal, sessionId = "default_cli_session" } = options;
+  const { command = "agy", model = "gemini-3.7-flash", messages = [], stream = false, signal, sessionId = "default_cli_session" } = options;
 
   const { dir: sessionCwd, isNewSession } = getOrCreateSession(sessionId, model);
 
-  // Extract prompt text from messages
-  const lastUserMsg = messages.filter((m) => m.role === "user").pop();
-  const prompt = typeof lastUserMsg?.content === "string" ? lastUserMsg.content : "hello";
+  // Extract clean prompt text from messages
+  let prompt = "";
+  if (!messages || messages.length === 0) {
+    prompt = "Hello";
+  } else if (messages.length === 1) {
+    const m = messages[0];
+    prompt = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
+  } else {
+    const nonSystem = messages.filter((m) => m.role !== "system");
+    if (nonSystem.length === 1 && nonSystem[0].role === "user") {
+      const u = nonSystem[0];
+      prompt = typeof u.content === "string" ? u.content : JSON.stringify(u.content);
+    } else {
+      prompt = messages
+        .map((m) => {
+          const role = m.role === "assistant" ? "Assistant" : m.role === "system" ? "System" : "User";
+          const text = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
+          return `${role}: ${text}`;
+        })
+        .join("\n\n") + "\n\nAssistant:";
+    }
+  }
 
   // Match tool config or use generic spawn
   const toolConfig = SUPPORTED_TOOLS.find((t) => t.command === command) || {
     name: command,
     command,
     versionFlag: "--version",
-    runArgs: (m: string, p: string, isContinue?: boolean) => [
-      ...(isContinue ? ["-c"] : []),
+    runArgs: (m: string, p: string) => [
       "-p",
       p,
       "--model",
       m,
       "--dangerously-skip-permissions",
+      "--disable-slash-commands",
     ],
   };
 
-  const args = toolConfig.runArgs(model, prompt, !isNewSession);
+  const args = toolConfig.runArgs(model, prompt, false);
   let child: ChildProcessWithoutNullStreams | null = null;
 
   const cancel = () => {

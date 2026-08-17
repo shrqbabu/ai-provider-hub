@@ -27,6 +27,7 @@ import { useModelStore } from "@/store/model-store";
 import { inferCapabilities, inferTier } from "@/constants/providers";
 import { withClaudePrefix } from "@/utils/model-prefix";
 import { ProviderLogo } from "@/components/ProviderLogo";
+import { normalizeSessionCookieHeader } from "@/utils/cookie-utils";
 
 interface Props {
   open: boolean;
@@ -179,7 +180,7 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
       apiFormat: form.apiFormat,
       apiKey: keys[0] ?? "",
       apiKeys: keys,
-      cookie: form.authMode === "cookie" ? form.cookie.trim() : undefined,
+      cookie: form.authMode === "cookie" ? normalizeSessionCookieHeader(form.cookie.trim()) : undefined,
       baseURL: form.baseURL.trim(),
       organization: form.organization.trim() || undefined,
       extraHeaders: parseHeaders(),

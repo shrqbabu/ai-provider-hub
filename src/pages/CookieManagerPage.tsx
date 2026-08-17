@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { normalizeSessionCookieHeader } from "@/utils/cookie-utils";
 
 const PROVIDERS = [
   { id: "arena", name: "Arena AI", desc: "arena-auth-prod-v1.0 & v1.1 session cookies from arena.ai" },
@@ -73,6 +74,7 @@ export function CookieManagerPage() {
     setLoading(true);
     try {
       const cleanUrl = gatewayUrl.replace(/\/+$/, "");
+      const normalizedCookie = normalizeSessionCookieHeader(cookieValue.trim(), "session");
       const res = await fetch(`${cleanUrl}/v1/cookies`, {
         method: "POST",
         headers: {
@@ -81,7 +83,7 @@ export function CookieManagerPage() {
         },
         body: JSON.stringify({
           provider: selectedProvider,
-          cookie: cookieValue.trim(),
+          cookie: normalizedCookie,
         }),
       });
 

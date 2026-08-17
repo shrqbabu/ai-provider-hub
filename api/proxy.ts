@@ -405,6 +405,17 @@ function sanitizeGoogleOutputText(text: string): string {
   return text;
 }
 
+function isDeclaredTool(rawName: string, map: Map<string, string>): boolean {
+  if (!rawName) return false;
+  const trimmed = rawName.trim();
+  const lower = trimmed.toLowerCase();
+  const normalized = lower.replace(/[_\s-]/g, "");
+  if (trimmed.includes(":") || trimmed.startsWith("image_agent") || trimmed.startsWith("google_search") || trimmed.startsWith("python")) {
+    return false;
+  }
+  return map.has(trimmed) || map.has(lower) || map.has(normalized) || !!KNOWN_CLAUDE_TOOLS[lower];
+}
+
 function convertGoogleResponse(googleResp: any, modelName: string = "gemini-2.5-flash", openaiBody?: any): Response {
   const candidate = googleResp.candidates?.[0];
   const parts = candidate?.content?.parts || [];
@@ -417,8 +428,8 @@ function convertGoogleResponse(googleResp: any, modelName: string = "gemini-2.5-
       const clean = sanitizeGoogleOutputText(p.text);
       if (clean) textParts.push(clean);
     }
-    if (p.functionCall) {
-      const exactName = restoreToolName(p.functionCall.name || "", toolNameMap);
+    if (p.functionCall?.name && isDeclaredTool(p.functionCall.name, toolNameMap)) {
+      const exactName = restoreToolName(p.functionCall.name, toolNameMap);
       toolCalls.push({
         id: `call_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         type: "function",
@@ -514,7 +525,7 @@ function streamGoogleResponse(upstream: Response, modelName: string = "gemini-2.
                   })}\n\n`));
                 }
                 for (const p of parts) {
-                  if (p.functionCall?.name) {
+                  if (p.functionCall?.name && isDeclaredTool(p.functionCall.name, toolNameMap)) {
                     const exactName = restoreToolName(p.functionCall.name, toolNameMap);
                     await writer.write(encoder.encode(`data: ${JSON.stringify({
                       id: chatId,

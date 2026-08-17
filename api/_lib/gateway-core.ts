@@ -847,6 +847,17 @@ function extractToolNameMap(body?: Record<string, unknown>): Map<string, string>
   return map;
 }
 
+function isDeclaredTool(rawName: string, map: Map<string, string>): boolean {
+  if (!rawName) return false;
+  const trimmed = rawName.trim();
+  const lower = trimmed.toLowerCase();
+  const normalized = lower.replace(/[_\s-]/g, "");
+  if (trimmed.includes(":") || trimmed.startsWith("image_agent") || trimmed.startsWith("google_search") || trimmed.startsWith("python")) {
+    return false;
+  }
+  return map.has(trimmed) || map.has(lower) || map.has(normalized) || !!KNOWN_CLAUDE_TOOLS[lower];
+}
+
 function restoreToolName(rawName: string, map: Map<string, string>): string {
   if (!rawName) return rawName;
   const trimmed = rawName.trim();
@@ -957,7 +968,7 @@ function anthropicToGoogle(
       : Array.isArray(sys)
       ? (sys as Array<{ text?: string }>).map((b) => b.text ?? "").join("\n")
       : "";
-  const noWidgetInstruction = "You are an AI assistant. Output standard markdown text or execute tools. Never output frontend web UI tags like <GenerateWidget>, widgetSpec, or internal component placeholders.";
+  const noWidgetInstruction = "You are an AI assistant. Output standard markdown text or execute tools. Only call tools that have been explicitly provided in the tools/function declarations. Never call undeclared internal tools (such as image_agent, fetch_images, python, or web search). Never output frontend web UI tags like <GenerateWidget>, widgetSpec, or component placeholders.";
   sysText = sysText ? `${sysText}\n\n${noWidgetInstruction}` : noWidgetInstruction;
   googleBody.systemInstruction = { parts: [{ text: sysText }] };
 
@@ -1040,9 +1051,9 @@ async function translateGoogleResponseToAnthropic(
       const clean = sanitizeGoogleOutputText(p.text);
       if (clean) content.push({ type: "text", text: clean });
     }
-    if (p.functionCall) {
+    if (p.functionCall?.name && isDeclaredTool(p.functionCall.name, toolNameMap)) {
       hasToolCall = true;
-      const exactName = restoreToolName(p.functionCall.name ?? "", toolNameMap);
+      const exactName = restoreToolName(p.functionCall.name, toolNameMap);
       content.push({
         type: "tool_use",
         id: `toolu_g_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -1183,7 +1194,7 @@ function translateGoogleStreamToAnthropic(
                     )
                   );
                 }
-                if (p.functionCall?.name) {
+                if (p.functionCall?.name && isDeclaredTool(p.functionCall.name, toolNameMap)) {
                   closeText();
                   const anthIndex = nextIndex++;
                   toolCount += 1;
@@ -1348,7 +1359,7 @@ function openAIToGoogle(
   }
 
   const googleBody: Record<string, unknown> = { contents };
-  const noWidgetInstruction = "You are an AI assistant. Output standard markdown text or execute tools. Never output frontend web UI tags like <GenerateWidget>, widgetSpec, or internal component placeholders.";
+  const noWidgetInstruction = "You are an AI assistant. Output standard markdown text or execute tools. Only call tools that have been explicitly provided in the tools/function declarations. Never call undeclared internal tools (such as image_agent, fetch_images, python, or web search). Never output frontend web UI tags like <GenerateWidget>, widgetSpec, or component placeholders.";
   const finalSys = systemInstruction ? `${systemInstruction}\n\n${noWidgetInstruction}` : noWidgetInstruction;
   googleBody.systemInstruction = { parts: [{ text: finalSys }] };
 
@@ -1415,8 +1426,8 @@ async function translateGoogleResponseToOpenAI(
       const clean = sanitizeGoogleOutputText(p.text);
       if (clean) textParts.push(clean);
     }
-    if (p.functionCall) {
-      const exactName = restoreToolName(p.functionCall.name || "", toolNameMap);
+    if (p.functionCall?.name && isDeclaredTool(p.functionCall.name, toolNameMap)) {
+      const exactName = restoreToolName(p.functionCall.name, toolNameMap);
       toolCalls.push({
         id: `call_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         type: "function",
@@ -1533,7 +1544,7 @@ function translateGoogleStreamToOpenAI(
                     );
                   }
                   for (const p of parts) {
-                    if (p.functionCall?.name) {
+                    if (p.functionCall?.name && isDeclaredTool(p.functionCall.name, toolNameMap)) {
                       const exactName = restoreToolName(p.functionCall.name, toolNameMap);
                       controller.enqueue(
                         encoder.encode(

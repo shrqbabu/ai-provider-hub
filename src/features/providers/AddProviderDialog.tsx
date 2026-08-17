@@ -52,7 +52,8 @@ interface FormState {
 }
 
 const initial = (p?: ConnectedProvider): FormState => {
-  const key = p?.key ?? "openai";
+  const key = p?.key && PROVIDERS[p.key] ? p.key : "openai";
+  const def = PROVIDERS[key] || PROVIDERS.openai;
   return {
     key,
     displayName: p?.displayName ?? "",
@@ -62,7 +63,7 @@ const initial = (p?: ConnectedProvider): FormState => {
       ? dedupeKeys([p?.apiKey ?? "", ...(p?.apiKeys ?? [])])
       : [""],
     cookie: p?.cookie ?? "",
-    baseURL: p?.baseURL ?? PROVIDERS[key].baseURL,
+    baseURL: p?.baseURL ?? def.baseURL,
     organization: p?.organization ?? "",
     extraHeaders: p?.extraHeaders ? JSON.stringify(p.extraHeaders, null, 2) : "",
     customLogo: p?.customLogo ?? "",
@@ -135,10 +136,11 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
     setForm((s) => {
       const wasCustom = s.key === "custom";
       const nextCustom = key === "custom";
+      const def = PROVIDERS[key] || PROVIDERS.custom;
       return {
         ...s,
         key,
-        baseURL: PROVIDERS[key].baseURL || s.baseURL,
+        baseURL: def?.baseURL || s.baseURL,
         // Anthropic → Messages API by default; other built-ins → OpenAI.
         apiFormat: key === "anthropic" ? "anthropic" : "openai",
         // Custom endpoints: don't auto-fill display name — user provides it.
@@ -148,7 +150,7 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
             ? ""
             : s.displayName && !Object.values(PROVIDERS).some((p) => p.name === s.displayName)
               ? s.displayName
-              : PROVIDERS[key].name,
+              : def?.name || "Provider",
       };
     });
   };
@@ -168,10 +170,11 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
     "id" | "connectedAt"
   > => {
     const keys = dedupeKeys(form.apiKeys);
+    const def = PROVIDERS[form.key] || PROVIDERS.custom;
     return {
       key: form.key,
-      name: PROVIDERS[form.key].name,
-      displayName: form.displayName || PROVIDERS[form.key].name,
+      name: def?.name || "Provider",
+      displayName: form.displayName || def?.name || "Provider",
       authMode: form.authMode,
       apiFormat: form.apiFormat,
       apiKey: keys[0] ?? "",
@@ -227,7 +230,7 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
   };
 
   const handleSave = async () => {
-    if (form.key !== "cli" && (isCookie ? !form.cookie.trim() : !primaryKey)) {
+    if (isCookie ? !form.cookie.trim() : !primaryKey) {
       toast.error(
         isCookie
           ? "Cookie and base URL are required."
@@ -239,13 +242,11 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
       toast.error("Base URL is required.");
       return;
     }
-    if (form.key !== "cli") {
-      try {
-        new URL(form.baseURL);
-      } catch {
-        toast.error("Base URL must be a valid URL, e.g. https://integrate.api.nvidia.com/v1");
-        return;
-      }
+    try {
+      new URL(form.baseURL);
+    } catch {
+      toast.error("Base URL must be a valid URL, e.g. https://integrate.api.nvidia.com/v1");
+      return;
     }
     if (!form.displayName.trim() && isCustom) {
       toast.error("Give this provider a display name.");
@@ -275,7 +276,8 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
       }
 
       // Auto-fetch models
-      if (PROVIDERS[form.key].supportsModelsList) {
+      const providerDef = PROVIDERS[form.key] || PROVIDERS.custom;
+      if (providerDef?.supportsModelsList) {
         try {
           const list = await fetchModelIds({
             id: providerId,
@@ -375,7 +377,7 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
               value={form.displayName}
               onChange={(e) => set("displayName", e.target.value)}
               placeholder={
-                isCustom ? "e.g. NVIDIA NIM, Groq, Ollama…" : PROVIDERS[form.key].name
+                isCustom ? "e.g. NVIDIA NIM, Groq, Ollama…" : (PROVIDERS[form.key]?.name || "Provider")
               }
             />
           </div>
@@ -398,25 +400,7 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
             </div>
           )}
 
-          {form.key === "cli" ? (
-            <div className="space-y-1.5 p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-500/5">
-              <div className="flex items-center justify-between">
-                <Label className="text-emerald-400 font-medium">Host CLI Binary</Label>
-                <span className="text-[11px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
-                  Native Host Runner
-                </span>
-              </div>
-              <Input
-                value={form.apiKeys[0] || "agy"}
-                onChange={(e) => setKeyAt(0, e.target.value)}
-                placeholder="agy (or gemini / claude / ollama)"
-                className="border-emerald-500/30"
-              />
-              <p className="text-xs text-muted-foreground">
-                The server will directly invoke this CLI tool installed on your VPS (e.g. <code>agy</code> for Antigravity, <code>gemini</code>, <code>claude</code>, <code>ollama</code>). No API key needed!
-              </p>
-            </div>
-          ) : !isCookie ? (
+          {!isCookie ? (
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <Label>
@@ -537,7 +521,7 @@ export function AddProviderDialog({ open, onOpenChange, existing }: Props) {
               placeholder={
                 isCustom
                   ? "https://integrate.api.nvidia.com/v1"
-                  : PROVIDERS[form.key].baseURL
+                  : (PROVIDERS[form.key]?.baseURL || "")
               }
             />
           </div>

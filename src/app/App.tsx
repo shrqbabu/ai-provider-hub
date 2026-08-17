@@ -105,14 +105,22 @@ export default function App() {
       hydrateKeyStore(),
       hydrateComboLogs(),
     ]).then(() => {
-      // Re-run tier inference and purge legacy discount/deprecated models on load
-      const modelState = useModelStore.getState();
+      // Purge orphaned CLI providers and models
       const providerState = useProviderStore.getState();
+      const validProviders = providerState.providers.filter((p) => (p.key as string) !== "cli");
+      if (validProviders.length !== providerState.providers.length) {
+        useProviderStore.setState({ providers: validProviders });
+        storage.set("providers", validProviders).catch(() => {});
+      }
+
+      // Re-run tier inference and purge legacy discount/deprecated/cli models on load
+      const modelState = useModelStore.getState();
       const providerMap = new Map(
-        providerState.providers.map((p) => [p.id, p])
+        validProviders.map((p) => [p.id, p])
       );
 
       const validModels = modelState.models.filter((m) => {
+        if ((m.providerKey as string) === "cli") return false;
         const id = (m.modelId || "").toLowerCase();
         if (
           id.includes(":discount") ||

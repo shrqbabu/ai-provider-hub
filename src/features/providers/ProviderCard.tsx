@@ -33,7 +33,16 @@ export function ProviderCard({
   onDelete,
   onDisconnect,
 }: Props) {
-  const def = PROVIDERS[provider.key];
+  const def = PROVIDERS[provider.key] ?? PROVIDERS.custom ?? {
+    key: "custom" as const,
+    name: provider.displayName || provider.name || "Provider",
+    description: "AI Provider",
+    baseURL: "",
+    docsURL: "",
+    gradient: "from-slate-400 via-zinc-500 to-neutral-600",
+    supportsModelsList: true,
+    logo: "custom" as const,
+  };
   return (
     <motion.div
       layout
@@ -44,7 +53,7 @@ export function ProviderCard({
     >
       <Card className="overflow-hidden relative group">
         <div
-          className={`absolute inset-0 opacity-[0.06] bg-gradient-to-br ${def.gradient} pointer-events-none`}
+          className={`absolute inset-0 opacity-[0.06] bg-gradient-to-br ${def.gradient || "from-slate-400 via-zinc-500 to-neutral-600"} pointer-events-none`}
         />
         <CardContent className="p-5 pt-5 relative">
           <div className="flex items-start gap-4">

@@ -825,6 +825,7 @@ function extractToolNameMap(body?: Record<string, unknown>): Map<string, string>
   const map = new Map<string, string>();
   for (const [k, v] of Object.entries(KNOWN_CLAUDE_TOOLS)) {
     map.set(k.toLowerCase(), v);
+    map.set(k.toLowerCase().replace(/[_\s-]/g, ""), v);
   }
   if (!body) return map;
 
@@ -832,8 +833,12 @@ function extractToolNameMap(body?: Record<string, unknown>): Map<string, string>
     for (const t of body.tools as any[]) {
       const name = t?.function?.name || t?.name;
       if (typeof name === "string" && name.trim()) {
-        map.set(name.trim().toLowerCase(), name.trim());
-        map.set(name.trim(), name.trim());
+        const exact = name.trim();
+        const lower = exact.toLowerCase();
+        const normalized = lower.replace(/[_\s-]/g, "");
+        map.set(exact, exact);
+        map.set(lower, exact);
+        map.set(normalized, exact);
       }
     }
   }
@@ -843,7 +848,9 @@ function extractToolNameMap(body?: Record<string, unknown>): Map<string, string>
 function restoreToolName(rawName: string, map: Map<string, string>): string {
   if (!rawName) return rawName;
   const trimmed = rawName.trim();
-  return map.get(trimmed.toLowerCase()) || map.get(trimmed) || trimmed;
+  const lower = trimmed.toLowerCase();
+  const normalized = lower.replace(/[_\s-]/g, "");
+  return map.get(trimmed) || map.get(lower) || map.get(normalized) || KNOWN_CLAUDE_TOOLS[lower] || trimmed;
 }
 
 function anthropicToGoogle(

@@ -431,10 +431,10 @@ export async function handleGateway(
     }
 
     if (needsTranslation && isGoogleProvider) {
-      return await translateGoogleResponseToAnthropic(upstream, wantsStream, modelId);
+      return await translateGoogleResponseToAnthropic(upstream, wantsStream, modelId, body);
     }
     if (isGoogleProvider) {
-      return await translateGoogleResponseToOpenAI(upstream, wantsStream, cleanModelId);
+      return await translateGoogleResponseToOpenAI(upstream, wantsStream, cleanModelId, body);
     }
     if (needsTranslation) {
       return await translateResponseToAnthropic(upstream, wantsStream, modelId);
@@ -805,6 +805,47 @@ function cleanSchemaForGoogle(obj: unknown): unknown {
   return cleaned;
 }
 
+const KNOWN_CLAUDE_TOOLS: Record<string, string> = {
+  read: "Read",
+  write: "Write",
+  edit: "Edit",
+  bash: "Bash",
+  glob: "Glob",
+  grep: "Grep",
+  todomvc: "TodoMVC",
+  websearch: "WebSearch",
+  fetch: "Fetch",
+  read_file: "Read",
+  write_file: "Write",
+  edit_file: "Edit",
+  execute_command: "Bash",
+};
+
+function extractToolNameMap(body?: Record<string, unknown>): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const [k, v] of Object.entries(KNOWN_CLAUDE_TOOLS)) {
+    map.set(k.toLowerCase(), v);
+  }
+  if (!body) return map;
+
+  if (Array.isArray(body.tools)) {
+    for (const t of body.tools as any[]) {
+      const name = t?.function?.name || t?.name;
+      if (typeof name === "string" && name.trim()) {
+        map.set(name.trim().toLowerCase(), name.trim());
+        map.set(name.trim(), name.trim());
+      }
+    }
+  }
+  return map;
+}
+
+function restoreToolName(rawName: string, map: Map<string, string>): string {
+  if (!rawName) return rawName;
+  const trimmed = rawName.trim();
+  return map.get(trimmed.toLowerCase()) || map.get(trimmed) || trimmed;
+}
+
 function anthropicToGoogle(
   body: Record<string, unknown>,
   _modelId: string
@@ -814,6 +855,7 @@ function anthropicToGoogle(
     parts: Array<Record<string, unknown>>;
   }> = [];
 
+  const toolNameMap = extractToolNameMap(body);
   const toolUseMap = new Map<string, string>();
 
   const inMsgs = (body.messages ?? []) as Array<{
@@ -852,7 +894,12 @@ function anthropicToGoogle(
           });
         } else if (block.type === "tool_result") {
           const toolUseId = String(block.tool_use_id ?? "");
-          const name = toolUseMap.get(toolUseId) || "tool_result";
+          let name = toolUseMap.get(toolUseId);
+          if (!name) {
+            const firstDeclared = (body.tools as any[])?.[0]?.name;
+            name = firstDeclared || "tool_result";
+          }
+          name = restoreToolName(name, toolNameMap);
           let resultText = "";
           if (typeof block.content === "string") {
             resultText = block.content;
@@ -938,7 +985,8 @@ function anthropicToGoogle(
 async function translateGoogleResponseToAnthropic(
   upstream: Response,
   wantsStream: boolean,
-  modelId: string
+  modelId: string,
+  requestBody?: Record<string, unknown>
 ): Promise<CoreResponse> {
   if (upstream.status !== 200) {
     const errText = await safeText(upstream);
@@ -955,7 +1003,7 @@ async function translateGoogleResponseToAnthropic(
   }
 
   if (wantsStream) {
-    return translateGoogleStreamToAnthropic(upstream, modelId);
+    return translateGoogleStreamToAnthropic(upstream, modelId, requestBody);
   }
 
   const googleResp = (await upstream.json()) as {
@@ -974,6 +1022,7 @@ async function translateGoogleResponseToAnthropic(
     };
   };
 
+  const toolNameMap = extractToolNameMap(requestBody);
   const candidate = googleResp.candidates?.[0];
   const parts = candidate?.content?.parts ?? [];
   const content: Array<Record<string, unknown>> = [];
@@ -985,10 +1034,11 @@ async function translateGoogleResponseToAnthropic(
     }
     if (p.functionCall) {
       hasToolCall = true;
+      const exactName = restoreToolName(p.functionCall.name ?? "", toolNameMap);
       content.push({
         type: "tool_use",
         id: `toolu_g_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        name: p.functionCall.name ?? "",
+        name: exactName,
         input: p.functionCall.args ?? {},
       });
     }
@@ -1017,10 +1067,12 @@ async function translateGoogleResponseToAnthropic(
 
 function translateGoogleStreamToAnthropic(
   upstream: Response,
-  modelId: string
+  modelId: string,
+  requestBody?: Record<string, unknown>
 ): CoreResponse {
   const encoder = new TextEncoder();
   const msgId = `msg_${Date.now()}`;
+  const toolNameMap = extractToolNameMap(requestBody);
   const ev = (obj: unknown, name: string) =>
     encoder.encode(`event: ${name}\ndata: ${JSON.stringify(obj)}\n\n`);
 
@@ -1125,6 +1177,7 @@ function translateGoogleStreamToAnthropic(
                   closeText();
                   const anthIndex = nextIndex++;
                   toolCount += 1;
+                  const exactName = restoreToolName(p.functionCall.name, toolNameMap);
                   controller.enqueue(
                     ev(
                       {
@@ -1133,7 +1186,7 @@ function translateGoogleStreamToAnthropic(
                         content_block: {
                           type: "tool_use",
                           id: `toolu_g_${msgId}_${anthIndex}`,
-                          name: p.functionCall.name,
+                          name: exactName,
                           input: {},
                         },
                       },
@@ -1319,7 +1372,8 @@ function openAIToGoogle(
 async function translateGoogleResponseToOpenAI(
   upstream: Response,
   wantsStream: boolean,
-  modelId: string
+  modelId: string,
+  requestBody?: Record<string, unknown>
 ): Promise<CoreResponse> {
   if (upstream.status !== 200) {
     const errText = await safeText(upstream);
@@ -1336,7 +1390,7 @@ async function translateGoogleResponseToOpenAI(
   }
 
   if (wantsStream) {
-    return translateGoogleStreamToOpenAI(upstream, modelId);
+    return translateGoogleStreamToOpenAI(upstream, modelId, requestBody);
   }
 
   const googleResp = (await upstream.json()) as any;
@@ -1344,15 +1398,17 @@ async function translateGoogleResponseToOpenAI(
   const parts = candidate?.content?.parts ?? [];
   const textParts: string[] = [];
   const toolCalls: any[] = [];
+  const toolNameMap = extractToolNameMap(requestBody);
 
   for (const p of parts) {
     if (p.text) textParts.push(p.text);
     if (p.functionCall) {
+      const exactName = restoreToolName(p.functionCall.name || "", toolNameMap);
       toolCalls.push({
         id: `call_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         type: "function",
         function: {
-          name: p.functionCall.name || "",
+          name: exactName,
           arguments: JSON.stringify(p.functionCall.args || {}),
         },
       });
@@ -1396,11 +1452,13 @@ async function translateGoogleResponseToOpenAI(
 
 function translateGoogleStreamToOpenAI(
   upstream: Response,
-  modelId: string
+  modelId: string,
+  requestBody?: Record<string, unknown>
 ): CoreResponse {
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
   const chatId = `chatcmpl-${Date.now()}`;
+  const toolNameMap = extractToolNameMap(requestBody);
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -1412,6 +1470,7 @@ function translateGoogleStreamToOpenAI(
         }
 
         let buffer = "";
+        let toolIndex = 0;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -1459,7 +1518,42 @@ function translateGoogleStreamToOpenAI(
                       )
                     );
                   }
+                  for (const p of parts) {
+                    if (p.functionCall?.name) {
+                      const exactName = restoreToolName(p.functionCall.name, toolNameMap);
+                      controller.enqueue(
+                        encoder.encode(
+                          `data: ${JSON.stringify({
+                            id: chatId,
+                            object: "chat.completion.chunk",
+                            created: Math.floor(Date.now() / 1000),
+                            model: modelId,
+                            choices: [
+                              {
+                                index: 0,
+                                delta: {
+                                  tool_calls: [
+                                    {
+                                      index: toolIndex++,
+                                      id: `call_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+                                      type: "function",
+                                      function: {
+                                        name: exactName,
+                                        arguments: JSON.stringify(p.functionCall.args || {}),
+                                      },
+                                    },
+                                  ],
+                                },
+                                finish_reason: null,
+                              },
+                            ],
+                          })}\n\n`
+                        )
+                      );
+                    }
+                  }
                   if (candidate?.finishReason) {
+                    const hasTool = parts.some((p: any) => p.functionCall);
                     controller.enqueue(
                       encoder.encode(
                         `data: ${JSON.stringify({
@@ -1471,7 +1565,7 @@ function translateGoogleStreamToOpenAI(
                             {
                               index: 0,
                               delta: {},
-                              finish_reason: candidate.finishReason.toLowerCase(),
+                              finish_reason: hasTool ? "tool_calls" : candidate.finishReason.toLowerCase(),
                             },
                           ],
                         })}\n\n`

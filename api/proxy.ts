@@ -306,8 +306,8 @@ async function handleGoogleChatCompletion(
       });
 
       if (upstream.ok) {
-        if (stream) return streamGoogleResponse(upstream, model);
-        else return convertGoogleResponse(await upstream.json(), model);
+        if (stream) return streamGoogleResponse(upstream, model, openaiBody);
+        else return convertGoogleResponse(await upstream.json(), model, openaiBody);
       }
 
       lastStatus = upstream.status;
@@ -351,12 +351,71 @@ async function handleGoogleChatCompletion(
   }
 }
 
-function convertGoogleResponse(googleResp: any, modelName: string = "gemini-2.5-flash"): Response {
+const KNOWN_CLAUDE_TOOLS: Record<string, string> = {
+  read: "Read",
+  write: "Write",
+  edit: "Edit",
+  bash: "Bash",
+  glob: "Glob",
+  grep: "Grep",
+  todomvc: "TodoMVC",
+  websearch: "WebSearch",
+  fetch: "Fetch",
+  read_file: "Read",
+  write_file: "Write",
+  edit_file: "Edit",
+  execute_command: "Bash",
+};
+
+function extractToolNameMap(body?: any): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const [k, v] of Object.entries(KNOWN_CLAUDE_TOOLS)) {
+    map.set(k.toLowerCase(), v);
+  }
+  if (!body) return map;
+
+  if (Array.isArray(body.tools)) {
+    for (const t of body.tools as any[]) {
+      const name = t?.function?.name || t?.name;
+      if (typeof name === "string" && name.trim()) {
+        map.set(name.trim().toLowerCase(), name.trim());
+        map.set(name.trim(), name.trim());
+      }
+    }
+  }
+  return map;
+}
+
+function restoreToolName(rawName: string, map: Map<string, string>): string {
+  if (!rawName) return rawName;
+  const trimmed = rawName.trim();
+  return map.get(trimmed.toLowerCase()) || map.get(trimmed) || trimmed;
+}
+
+function convertGoogleResponse(googleResp: any, modelName: string = "gemini-2.5-flash", openaiBody?: any): Response {
   const candidate = googleResp.candidates?.[0];
   const parts = candidate?.content?.parts || [];
-  let text = parts.map((p: any) => p.text || "").join("");
+  const textParts: string[] = [];
+  const toolCalls: any[] = [];
+  const toolNameMap = extractToolNameMap(openaiBody);
 
-  if (!text) {
+  for (const p of parts) {
+    if (p.text) textParts.push(p.text);
+    if (p.functionCall) {
+      const exactName = restoreToolName(p.functionCall.name || "", toolNameMap);
+      toolCalls.push({
+        id: `call_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        type: "function",
+        function: {
+          name: exactName,
+          arguments: JSON.stringify(p.functionCall.args || {}),
+        },
+      });
+    }
+  }
+
+  let text = textParts.join("");
+  if (!text && !toolCalls.length) {
     if (typeof candidate?.message?.content === "string") text = candidate.message.content;
     else if (typeof googleResp.reply === "string") text = googleResp.reply;
     else if (typeof googleResp.message === "string") text = googleResp.message;
@@ -366,12 +425,21 @@ function convertGoogleResponse(googleResp: any, modelName: string = "gemini-2.5-
     }
   }
 
+  const message: any = { role: "assistant", content: text || (toolCalls.length ? null : "") };
+  if (toolCalls.length) {
+    message.tool_calls = toolCalls;
+  }
+
   return json({
     id: `chatcmpl-${Date.now()}`,
     object: "chat.completion",
     created: Math.floor(Date.now() / 1000),
     model: modelName || googleResp.modelVersion || "gemini-2.5-flash",
-    choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: candidate?.finishReason?.toLowerCase() || "stop" }],
+    choices: [{
+      index: 0,
+      message,
+      finish_reason: toolCalls.length ? "tool_calls" : (candidate?.finishReason?.toLowerCase() || "stop"),
+    }],
     usage: {
       prompt_tokens: googleResp.usageMetadata?.promptTokenCount || 0,
       completion_tokens: googleResp.usageMetadata?.candidatesTokenCount || 0,
@@ -380,11 +448,12 @@ function convertGoogleResponse(googleResp: any, modelName: string = "gemini-2.5-
   }, 200);
 }
 
-function streamGoogleResponse(upstream: Response, modelName: string = "gemini-2.0-flash"): Response {
+function streamGoogleResponse(upstream: Response, modelName: string = "gemini-2.0-flash", openaiBody?: any): Response {
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
+  const toolNameMap = extractToolNameMap(openaiBody);
 
   (async () => {
     try {
@@ -392,6 +461,7 @@ function streamGoogleResponse(upstream: Response, modelName: string = "gemini-2.
       if (!reader) { await writer.close(); return; }
 
       let buffer = "";
+      let toolIndex = 0;
       const chatId = `chatcmpl-${Date.now()}`;
       const effectiveModel = modelName || "gemini-2.0-flash";
 
@@ -426,10 +496,37 @@ function streamGoogleResponse(upstream: Response, modelName: string = "gemini-2.
                     choices: [{ index: 0, delta: { content: text }, finish_reason: null }],
                   })}\n\n`));
                 }
+                for (const p of parts) {
+                  if (p.functionCall?.name) {
+                    const exactName = restoreToolName(p.functionCall.name, toolNameMap);
+                    await writer.write(encoder.encode(`data: ${JSON.stringify({
+                      id: chatId,
+                      object: "chat.completion.chunk",
+                      created: Math.floor(Date.now() / 1000),
+                      model: effectiveModel,
+                      choices: [{
+                        index: 0,
+                        delta: {
+                          tool_calls: [{
+                            index: toolIndex++,
+                            id: `call_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+                            type: "function",
+                            function: {
+                              name: exactName,
+                              arguments: JSON.stringify(p.functionCall.args || {}),
+                            },
+                          }],
+                        },
+                        finish_reason: null,
+                      }],
+                    })}\n\n`));
+                  }
+                }
                 if (candidate?.finishReason) {
+                  const hasTool = parts.some((p: any) => p.functionCall);
                   await writer.write(encoder.encode(`data: ${JSON.stringify({
                     id: chatId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: effectiveModel,
-                    choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+                    choices: [{ index: 0, delta: {}, finish_reason: hasTool ? "tool_calls" : candidate.finishReason.toLowerCase() }],
                   })}\n\n`));
                 }
                 if (googleChunk.usageMetadata) {

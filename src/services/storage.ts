@@ -6,7 +6,8 @@ import { getIdToken, getAuthUid } from "@/store/auth-store";
 
 async function apiCall(
   endpoint: string,
-  options?: RequestInit
+  options?: RequestInit,
+  retries = 2
 ): Promise<Response> {
   const token = await getIdToken();
   const uid = getAuthUid();
@@ -14,7 +15,16 @@ async function apiCall(
   if (token) headers.set("Authorization", `Bearer ${token}`);
   if (uid) headers.set("x-user-uid", uid);
   headers.set("Content-Type", "application/json");
-  return fetch(endpoint, { ...options, headers });
+
+  try {
+    return await fetch(endpoint, { ...options, headers });
+  } catch (err) {
+    if (retries > 0) {
+      await new Promise((r) => setTimeout(r, 400));
+      return apiCall(endpoint, options, retries - 1);
+    }
+    throw err;
+  }
 }
 
 export const storage = {

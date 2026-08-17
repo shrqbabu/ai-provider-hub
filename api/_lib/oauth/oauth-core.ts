@@ -4,7 +4,7 @@ import { OAUTH_PROVIDERS } from "./constants.js";
 
 export async function handleOAuth(req: CoreRequest): Promise<CoreResponse> {
   const method = req.method.toUpperCase();
-  const path = req.path.replace(/^\/+/, "");
+  const path = (req.subPath || "").replace(/^\/+/, "");
 
   if (method === "GET" && (path === "providers" || path === "")) {
     const list = Object.entries(OAUTH_PROVIDERS).map(([key, config]) => ({

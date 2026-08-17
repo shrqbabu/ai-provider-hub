@@ -1,6 +1,12 @@
 import OpenAI from "openai";
 import type { ConnectedProvider } from "@/types";
 import { useProviderStore } from "@/store/provider-store";
+import {
+  validateKimiWebProvider,
+  validateDeepSeekWebProvider,
+  validateQwenWebProvider,
+  validateBlackboxWebProvider,
+} from "@/utils/web-validators";
 
 // All hosted providers go through /api/proxy — same URL in dev (via Vite
 // middleware) and prod (via api/proxy/[...path].ts Vercel Edge Function).
@@ -319,10 +325,32 @@ export async function testConnection(
       };
     }
 
+    // Web cookie provider direct validators
+    if (provider.key === "kimi" || provider.key === "kimi-web" || provider.baseURL.includes("kimi.com")) {
+      const res = await validateKimiWebProvider({ apiKey: provider.apiKey ?? "" });
+      if (!res.valid) throw new Error(res.error || "Kimi validation failed");
+      return { ok: true, message: `Connected — Kimi session verified (${res.data?.name || "User"}).` };
+    }
 
+    if (provider.key === "deepseek-web" || (provider.key === "deepseek" && (provider.apiKey?.startsWith("{") || provider.baseURL.includes("chat.deepseek.com")))) {
+      const res = await validateDeepSeekWebProvider({ apiKey: provider.apiKey ?? "" });
+      if (!res.valid) throw new Error(res.error || "DeepSeek validation failed");
+      return { ok: true, message: "Connected — DeepSeek web session verified." };
+    }
+
+    if (provider.key === "qwen-web" || provider.baseURL.includes("chat.qwen.ai")) {
+      const res = await validateQwenWebProvider({ apiKey: provider.apiKey ?? "" });
+      if (!res.valid) throw new Error(res.error || "Qwen validation failed");
+      return { ok: true, message: `Connected — Qwen web session verified (${res.data?.email || "User"}).` };
+    }
+
+    if (provider.key === "blackbox-web" || provider.baseURL.includes("blackbox.ai")) {
+      const res = await validateBlackboxWebProvider({ apiKey: provider.apiKey ?? "" });
+      if (!res.valid) throw new Error(res.error || "Blackbox validation failed");
+      return { ok: true, message: "Connected — Blackbox session verified." };
+    }
 
     const client = createClient(provider);
-    const res = await client.models.list();
     const count = (res.data ?? []).length;
     return {
       ok: true,

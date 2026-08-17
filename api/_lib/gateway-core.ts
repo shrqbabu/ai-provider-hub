@@ -1049,7 +1049,13 @@ async function translateGoogleResponseToAnthropic(
   for (const p of parts) {
     if (p.text) {
       const clean = sanitizeGoogleOutputText(p.text);
-      if (clean) content.push({ type: "text", text: clean });
+      if (clean) {
+        if ((p as any).thought) {
+          content.push({ type: "thinking", thinking: clean });
+        } else {
+          content.push({ type: "text", text: clean });
+        }
+      }
     }
     if (p.functionCall?.name && isDeclaredTool(p.functionCall.name, toolNameMap)) {
       hasToolCall = true;
@@ -1100,7 +1106,18 @@ function translateGoogleStreamToAnthropic(
       let nextIndex = 0;
       let textIndex = -1;
       let textOpen = false;
+      let thinkingIndex = -1;
+      let thinkingOpen = false;
       let toolCount = 0;
+
+      const closeThinking = () => {
+        if (thinkingOpen) {
+          controller.enqueue(
+            ev({ type: "content_block_stop", index: thinkingIndex }, "content_block_stop")
+          );
+          thinkingOpen = false;
+        }
+      };
 
       const closeText = () => {
         if (textOpen) {
@@ -1132,43 +1149,76 @@ function translateGoogleStreamToAnthropic(
 
       try {
         const reader = upstream.body?.getReader();
-        if (reader) {
-          const decoder = new TextDecoder();
-          let buffer = "";
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() ?? "";
-            for (const rawLine of lines) {
-              const line = rawLine.trim();
-              if (!line.startsWith("data:")) continue;
-              const payload = line.slice(5).trim();
-              if (!payload || payload === "[DONE]") continue;
-              let chunk: {
-                candidates?: Array<{
-                  content?: {
-                    parts?: Array<{
-                      text?: string;
-                      functionCall?: {
-                        name?: string;
-                        args?: Record<string, unknown>;
-                      };
-                    }>;
-                  };
-                }>;
-              };
-              try {
-                chunk = JSON.parse(payload);
-              } catch {
-                continue;
-              }
-              const parts = chunk.candidates?.[0]?.content?.parts ?? [];
-              for (const p of parts) {
-                if (p.text) {
-                  const clean = sanitizeGoogleOutputText(p.text);
-                  if (!clean) continue;
+        if (!reader) {
+          controller.close();
+          return;
+        }
+
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const rawLine of lines) {
+            const line = rawLine.trim();
+            if (!line.startsWith("data:")) continue;
+            const payload = line.slice(5).trim();
+            if (!payload || payload === "[DONE]") continue;
+            let chunk: {
+              candidates?: Array<{
+                content?: {
+                  parts?: Array<{
+                    text?: string;
+                    thought?: boolean;
+                    functionCall?: {
+                      name?: string;
+                      args?: Record<string, unknown>;
+                    };
+                  }>;
+                };
+              }>;
+            };
+            try {
+              chunk = JSON.parse(payload);
+            } catch {
+              continue;
+            }
+            const parts = chunk.candidates?.[0]?.content?.parts ?? [];
+            for (const p of parts) {
+              if (p.text) {
+                const clean = sanitizeGoogleOutputText(p.text);
+                if (!clean) continue;
+                if ((p as any).thought) {
+                  closeText();
+                  if (!thinkingOpen) {
+                    thinkingIndex = nextIndex++;
+                    thinkingOpen = true;
+                    controller.enqueue(
+                      ev(
+                        {
+                          type: "content_block_start",
+                          index: thinkingIndex,
+                          content_block: { type: "thinking", thinking: "" },
+                        },
+                        "content_block_start"
+                      )
+                    );
+                  }
+                  controller.enqueue(
+                    ev(
+                      {
+                        type: "content_block_delta",
+                        index: thinkingIndex,
+                        delta: { type: "thinking_delta", thinking: clean },
+                      },
+                      "content_block_delta"
+                    )
+                  );
+                } else {
+                  closeThinking();
                   if (!textOpen) {
                     textIndex = nextIndex++;
                     textOpen = true;
@@ -1194,50 +1244,53 @@ function translateGoogleStreamToAnthropic(
                     )
                   );
                 }
-                if (p.functionCall?.name && isDeclaredTool(p.functionCall.name, toolNameMap)) {
-                  closeText();
-                  const anthIndex = nextIndex++;
-                  toolCount += 1;
-                  const exactName = restoreToolName(p.functionCall.name, toolNameMap);
-                  controller.enqueue(
-                    ev(
-                      {
-                        type: "content_block_start",
-                        index: anthIndex,
-                        content_block: {
-                          type: "tool_use",
-                          id: `toolu_g_${msgId}_${anthIndex}`,
-                          name: exactName,
-                          input: {},
-                        },
+              }
+              if (p.functionCall?.name && isDeclaredTool(p.functionCall.name, toolNameMap)) {
+                closeThinking();
+                closeText();
+                const anthIndex = nextIndex++;
+                toolCount += 1;
+                const exactName = restoreToolName(p.functionCall.name, toolNameMap);
+                controller.enqueue(
+                  ev(
+                    {
+                      type: "content_block_start",
+                      index: anthIndex,
+                      content_block: {
+                        type: "tool_use",
+                        id: `toolu_g_${msgId}_${anthIndex}`,
+                        name: exactName,
+                        input: {},
                       },
-                      "content_block_start"
-                    )
-                  );
-                  controller.enqueue(
-                    ev(
-                      {
-                        type: "content_block_delta",
-                        index: anthIndex,
-                        delta: {
-                          type: "input_json_delta",
-                          partial_json: JSON.stringify(p.functionCall.args ?? {}),
-                        },
+                    },
+                    "content_block_start"
+                  )
+                );
+                controller.enqueue(
+                  ev(
+                    {
+                      type: "content_block_delta",
+                      index: anthIndex,
+                      delta: {
+                        type: "input_json_delta",
+                        partial_json: JSON.stringify(p.functionCall.args ?? {}),
                       },
-                      "content_block_delta"
-                    )
-                  );
-                  controller.enqueue(
-                    ev(
-                      { type: "content_block_stop", index: anthIndex },
-                      "content_block_stop"
-                    )
-                  );
-                }
+                    },
+                    "content_block_delta"
+                  )
+                );
+                controller.enqueue(
+                  ev(
+                    { type: "content_block_stop", index: anthIndex },
+                    "content_block_stop"
+                  )
+                );
               }
             }
           }
         }
+        closeThinking();
+        closeText();
       } catch {}
 
       closeText();
@@ -1418,13 +1471,20 @@ async function translateGoogleResponseToOpenAI(
   const candidate = googleResp.candidates?.[0];
   const parts = candidate?.content?.parts ?? [];
   const textParts: string[] = [];
+  const reasoningParts: string[] = [];
   const toolCalls: any[] = [];
   const toolNameMap = extractToolNameMap(requestBody);
 
   for (const p of parts) {
     if (p.text) {
       const clean = sanitizeGoogleOutputText(p.text);
-      if (clean) textParts.push(clean);
+      if (clean) {
+        if ((p as any).thought) {
+          reasoningParts.push(clean);
+        } else {
+          textParts.push(clean);
+        }
+      }
     }
     if (p.functionCall?.name && isDeclaredTool(p.functionCall.name, toolNameMap)) {
       const exactName = restoreToolName(p.functionCall.name, toolNameMap);
@@ -1440,10 +1500,14 @@ async function translateGoogleResponseToOpenAI(
   }
 
   const text = textParts.join("");
+  const reasoningText = reasoningParts.join("");
   const messageObj: Record<string, unknown> = {
     role: "assistant",
     content: text || (toolCalls.length ? null : ""),
   };
+  if (reasoningText) {
+    messageObj.reasoning_content = reasoningText;
+  }
   if (toolCalls.length) {
     messageObj.tool_calls = toolCalls;
   }
@@ -1526,22 +1590,28 @@ function translateGoogleStreamToOpenAI(
                 const candidate = googleChunk.candidates?.[0];
                 if (candidate) {
                   const parts = candidate?.content?.parts || [];
-                  const rawText = parts.map((p: any) => p.text || "").join("");
-                  const cleanText = sanitizeGoogleOutputText(rawText);
-                  if (cleanText) {
-                    controller.enqueue(
-                      encoder.encode(
-                        `data: ${JSON.stringify({
-                          id: chatId,
-                          object: "chat.completion.chunk",
-                          created: Math.floor(Date.now() / 1000),
-                          model: modelId,
-                          choices: [
-                            { index: 0, delta: { content: cleanText }, finish_reason: null },
-                          ],
-                        })}\n\n`
-                      )
-                    );
+                  for (const p of parts) {
+                    if (p.text) {
+                      const cleanText = sanitizeGoogleOutputText(p.text);
+                      if (cleanText) {
+                        const delta = (p as any).thought
+                          ? { reasoning_content: cleanText }
+                          : { content: cleanText };
+                        controller.enqueue(
+                          encoder.encode(
+                            `data: ${JSON.stringify({
+                              id: chatId,
+                              object: "chat.completion.chunk",
+                              created: Math.floor(Date.now() / 1000),
+                              model: modelId,
+                              choices: [
+                                { index: 0, delta, finish_reason: null },
+                              ],
+                            })}\n\n`
+                          )
+                        );
+                      }
+                    }
                   }
                   for (const p of parts) {
                     if (p.functionCall?.name && isDeclaredTool(p.functionCall.name, toolNameMap)) {

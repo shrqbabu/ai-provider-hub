@@ -420,13 +420,20 @@ function convertGoogleResponse(googleResp: any, modelName: string = "gemini-2.5-
   const candidate = googleResp.candidates?.[0];
   const parts = candidate?.content?.parts || [];
   const textParts: string[] = [];
+  const reasoningParts: string[] = [];
   const toolCalls: any[] = [];
   const toolNameMap = extractToolNameMap(openaiBody);
 
   for (const p of parts) {
     if (p.text) {
       const clean = sanitizeGoogleOutputText(p.text);
-      if (clean) textParts.push(clean);
+      if (clean) {
+        if (p.thought) {
+          reasoningParts.push(clean);
+        } else {
+          textParts.push(clean);
+        }
+      }
     }
     if (p.functionCall?.name && isDeclaredTool(p.functionCall.name, toolNameMap)) {
       const exactName = restoreToolName(p.functionCall.name, toolNameMap);
@@ -442,6 +449,7 @@ function convertGoogleResponse(googleResp: any, modelName: string = "gemini-2.5-
   }
 
   let text = textParts.join("");
+  const reasoningText = reasoningParts.join("");
   if (!text && !toolCalls.length) {
     if (typeof candidate?.message?.content === "string") text = sanitizeGoogleOutputText(candidate.message.content);
     else if (typeof googleResp.reply === "string") text = sanitizeGoogleOutputText(googleResp.reply);
@@ -453,6 +461,9 @@ function convertGoogleResponse(googleResp: any, modelName: string = "gemini-2.5-
   }
 
   const message: any = { role: "assistant", content: text || (toolCalls.length ? null : "") };
+  if (reasoningText) {
+    message.reasoning_content = reasoningText;
+  }
   if (toolCalls.length) {
     message.tool_calls = toolCalls;
   }
@@ -516,13 +527,19 @@ function streamGoogleResponse(upstream: Response, modelName: string = "gemini-2.
               const candidate = googleChunk.candidates?.[0];
               if (candidate) {
                 const parts = candidate?.content?.parts || [];
-                const rawText = parts.map((p: any) => p.text || "").join("");
-                const text = sanitizeGoogleOutputText(rawText);
-                if (text) {
-                  await writer.write(encoder.encode(`data: ${JSON.stringify({
-                    id: chatId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: effectiveModel,
-                    choices: [{ index: 0, delta: { content: text }, finish_reason: null }],
-                  })}\n\n`));
+                for (const p of parts) {
+                  if (p.text) {
+                    const cleanText = sanitizeGoogleOutputText(p.text);
+                    if (cleanText) {
+                      const delta = p.thought
+                        ? { reasoning_content: cleanText }
+                        : { content: cleanText };
+                      await writer.write(encoder.encode(`data: ${JSON.stringify({
+                        id: chatId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: effectiveModel,
+                        choices: [{ index: 0, delta, finish_reason: null }],
+                      })}\n\n`));
+                    }
+                  }
                 }
                 for (const p of parts) {
                   if (p.functionCall?.name && isDeclaredTool(p.functionCall.name, toolNameMap)) {

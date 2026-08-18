@@ -180,9 +180,12 @@ export async function pollDeviceToken(
               Accept: "application/json",
               "User-Agent": config.userAgent,
             },
+            signal: AbortSignal.timeout(4000),
           });
           if (userRes.ok) userInfo = await userRes.json();
-        } catch {}
+        } catch (e) {
+          console.warn("[OAuth] UserInfo fetch warning:", e);
+        }
 
         try {
           const copilotRes = await fetch(config.copilotTokenUrl, {
@@ -192,9 +195,12 @@ export async function pollDeviceToken(
               "X-GitHub-Api-Version": config.apiVersion,
               "User-Agent": config.userAgent,
             },
+            signal: AbortSignal.timeout(4000),
           });
           if (copilotRes.ok) copilotToken = await copilotRes.json();
-        } catch {}
+        } catch (e) {
+          console.warn("[OAuth] Copilot token fetch warning:", e);
+        }
 
         return {
           status: "success",

@@ -269,9 +269,50 @@ export function OAuthLoginDialog({ open, onOpenChange }: Props) {
     }
   };
 
+  const [checkingNow, setCheckingNow] = useState(false);
+
+  const checkPollOnce = async () => {
+    if (!deviceData) return;
+    setCheckingNow(true);
+    setPollError(null);
+    try {
+      const res = await fetch("/api/oauth/device/poll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: selectedProvider,
+          device_code: deviceData.device_code,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Poll check failed");
+      }
+
+      if (data.status === "success") {
+        clearTimer();
+        setConnectedUser(data.user);
+        setStep("success");
+        handleSaveConnectedProvider(selectedProvider, data);
+      } else if (data.status === "pending") {
+        toast.info("Waiting for approval. Make sure you entered the code and clicked 'Authorize' in your browser.");
+      } else if (data.status === "expired") {
+        clearTimer();
+        setPollError("Code expired. Please request a new code.");
+      } else if (data.status === "error") {
+        setPollError(data.error || "Authentication failed");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to check status");
+    } finally {
+      setCheckingNow(false);
+    }
+  };
+
   const startPolling = (provider: string, deviceCode: string, intervalSeconds: number) => {
     clearTimer();
-    const intervalMs = Math.max(intervalSeconds, 5) * 1000;
+    const intervalMs = Math.max(intervalSeconds, 4) * 1000;
 
     pollTimerRef.current = setInterval(async () => {
       try {
@@ -486,6 +527,15 @@ export function OAuthLoginDialog({ open, onOpenChange }: Props) {
               >
                 <ExternalLink className="w-4 h-4" />
                 Open {selectedOpt?.name} Login Page
+              </Button>
+              <Button
+                variant="outline"
+                onClick={checkPollOnce}
+                disabled={checkingNow}
+                className="w-full border-emerald-600/50 text-emerald-400 hover:bg-emerald-950/40 gap-2 font-medium"
+              >
+                {checkingNow ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                Approved in Browser? Click to Finalize Now
               </Button>
               <Button
                 variant="ghost"

@@ -357,11 +357,14 @@ export function initiatePkce(providerKey: string, callbackRedirectUri?: string):
     const params = new URLSearchParams({
       client_id: config.clientId,
       response_type: "code",
-      redirect_uri: callbackRedirectUri || "http://localhost:3000/api/oauth/callback",
-      scope: config.scope || "openid profile email offline_access",
+      redirect_uri: "http://localhost:1455/auth/callback",
+      scope: "openid profile email offline_access",
       state,
       code_challenge: codeChallenge,
       code_challenge_method: "S256",
+      id_token_add_organizations: "true",
+      codex_cli_simplified_flow: "true",
+      originator: "codex_cli_rs",
       prompt: "login",
     });
     return {
@@ -419,6 +422,8 @@ export async function exchangePkceCode(
   const defaultRedirectUri =
     providerKey === "claude"
       ? "https://platform.claude.com/oauth/code/callback"
+      : providerKey === "codex"
+      ? "http://localhost:1455/auth/callback"
       : "http://localhost:3000/api/oauth/callback";
 
   const bodyParams: Record<string, string> = {
@@ -444,7 +449,11 @@ export async function exchangePkceCode(
 
   const data = await res.json();
   if (!res.ok || data.error) {
-    throw new Error(data.error_description || data.error || `Exchange failed (${res.status})`);
+    const errorMsg =
+      typeof data.error === "object"
+        ? data.error?.message || data.error_description || JSON.stringify(data.error)
+        : data.error_description || data.error || `Exchange failed (${res.status})`;
+    throw new Error(errorMsg);
   }
 
   return {

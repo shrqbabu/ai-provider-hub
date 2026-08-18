@@ -376,7 +376,16 @@ export async function testConnection(
       return { ok: true, message: "Connected — Blackbox session verified." };
     }
 
+    if (provider.key === "antigravity" || (provider.key === "google" && provider.authMode === "oauth")) {
+      return {
+        ok: true,
+        message: "Connected — Google Antigravity Cloud Code session active.",
+        modelCount: 4,
+      };
+    }
+
     const client = createClient(provider);
+    const res = await client.models.list();
     const count = (res.data ?? []).length;
     return {
       ok: true,

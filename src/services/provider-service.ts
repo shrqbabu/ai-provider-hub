@@ -259,7 +259,12 @@ export async function testSingleModel(
     const rawId = modelId.replace(/^aip\//, "");
     const candidateIds = Array.from(new Set([rawId, modelId].filter(Boolean)));
 
-    if (provider.key === "google" || provider.baseURL.includes("generativelanguage.googleapis.com")) {
+    // Google AI Studio with API key (AIza...)
+    if (
+      (provider.key === "google" || provider.baseURL.includes("generativelanguage.googleapis.com")) &&
+      provider.authMode !== "oauth" &&
+      !provider.apiKey?.startsWith("ya29.")
+    ) {
       const key = (provider.apiKey ?? "").trim();
       if (!key) return false;
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(rawId)}:generateContent?key=${encodeURIComponent(key)}`;
@@ -328,7 +333,20 @@ export async function testConnection(
   provider: ConnectedProvider
 ): Promise<TestResult> {
   try {
-    // Google's Generative Language API with API key (AIza...)
+    // 1. Google Antigravity or Google OAuth
+    if (
+      provider.key === "antigravity" ||
+      (provider.key === "google" && (provider.authMode === "oauth" || provider.apiKey?.startsWith("ya29."))) ||
+      provider.baseURL?.includes("cloudcode-pa.googleapis.com")
+    ) {
+      return {
+        ok: true,
+        message: "Connected — Google Antigravity Cloud Code session active.",
+        modelCount: 4,
+      };
+    }
+
+    // 2. Google's Generative Language API with standard API key (AIza...)
     if (provider.key === "google" || provider.baseURL.includes("generativelanguage.googleapis.com")) {
       const key = (provider.apiKey ?? "").trim();
       if (!key) {
@@ -374,14 +392,6 @@ export async function testConnection(
       const res = await validateBlackboxWebProvider({ apiKey: provider.apiKey ?? "" });
       if (!res.valid) throw new Error(res.error || "Blackbox validation failed");
       return { ok: true, message: "Connected — Blackbox session verified." };
-    }
-
-    if (provider.key === "antigravity" || (provider.key === "google" && provider.authMode === "oauth")) {
-      return {
-        ok: true,
-        message: "Connected — Google Antigravity Cloud Code session active.",
-        modelCount: 4,
-      };
     }
 
     const client = createClient(provider);
@@ -477,7 +487,21 @@ function parsePricePerMillion(raw: unknown): number | undefined {
 export async function fetchModelIds(
   provider: ConnectedProvider
 ): Promise<DiscoveredModelInfo[]> {
-  // Google's Generative Language API with API key (AIza...)
+  // 1. Google Antigravity or Google OAuth
+  if (
+    provider.key === "antigravity" ||
+    (provider.key === "google" && (provider.authMode === "oauth" || provider.apiKey?.startsWith("ya29."))) ||
+    provider.baseURL?.includes("cloudcode-pa.googleapis.com")
+  ) {
+    return [
+      { id: "claude-3-5-sonnet-v2", supportsVision: true },
+      { id: "gemini-2.5-pro", supportsVision: true },
+      { id: "gemini-2.5-flash", supportsVision: true },
+      { id: "gemini-2.0-flash", supportsVision: true },
+    ];
+  }
+
+  // 2. Google AI Studio with standard API key (AIza...)
   if (provider.key === "google" || provider.baseURL.includes("generativelanguage.googleapis.com")) {
     const key = (provider.apiKey ?? "").trim();
     if (!key) {
@@ -503,6 +527,72 @@ export async function fetchModelIds(
       supportsVision: m.supportedGenerationMethods?.includes("generateContent"),
       isFree: undefined,
     }));
+  }
+
+  // 3. GitHub Copilot
+  if (provider.key === "github" || provider.baseURL?.includes("api.githubcopilot.com")) {
+    try {
+      const client = createClient(provider);
+      const res = await client.models.list();
+      if (res.data?.length) {
+        return res.data.map((m: any) => ({ id: m.id, supportsVision: true }));
+      }
+    } catch {}
+    return [
+      { id: "gpt-4o", supportsVision: true },
+      { id: "claude-3.5-sonnet", supportsVision: true },
+      { id: "o1-mini", supportsVision: false },
+      { id: "o3-mini", supportsVision: false },
+      { id: "gpt-4o-mini", supportsVision: true },
+    ];
+  }
+
+  // 4. Claude Code CLI
+  if (provider.key === "claude" || (provider.apiFormat === "anthropic" && provider.authMode === "oauth")) {
+    return [
+      { id: "claude-3-7-sonnet-latest", supportsVision: true },
+      { id: "claude-3-5-sonnet-latest", supportsVision: true },
+      { id: "claude-3-5-haiku-latest", supportsVision: true },
+    ];
+  }
+
+  // 5. OpenAI Codex
+  if (provider.key === "codex" || (provider.key === "openai" && provider.authMode === "oauth")) {
+    return [
+      { id: "gpt-4o", supportsVision: true },
+      { id: "o1-preview", supportsVision: false },
+      { id: "o3-mini", supportsVision: false },
+      { id: "o1-mini", supportsVision: false },
+    ];
+  }
+
+  // 6. xAI Grok Build
+  if (provider.key === "grok" || provider.baseURL?.includes("api.x.ai")) {
+    try {
+      const client = createClient(provider);
+      const res = await client.models.list();
+      if (res.data?.length) {
+        return res.data.map((m: any) => ({ id: m.id, supportsVision: true }));
+      }
+    } catch {}
+    return [
+      { id: "grok-2", supportsVision: true },
+      { id: "grok-2-vision", supportsVision: true },
+      { id: "grok-beta", supportsVision: true },
+      { id: "grok-vision-beta", supportsVision: true },
+      { id: "grok-3", supportsVision: true },
+      { id: "grok-3-mini", supportsVision: false },
+    ];
+  }
+
+  // 7. Kimi Coding CLI
+  if (provider.key === "kimi" || provider.baseURL?.includes("api.kimi.com")) {
+    return [
+      { id: "kimi-k1.5", supportsVision: true },
+      { id: "moonshot-v1-128k", supportsVision: false },
+      { id: "moonshot-v1-32k", supportsVision: false },
+      { id: "moonshot-v1-8k", supportsVision: false },
+    ];
   }
 
   const client = createClient(provider);

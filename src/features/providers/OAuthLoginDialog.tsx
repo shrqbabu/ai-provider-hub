@@ -8,6 +8,8 @@ import {
   ShieldCheck,
   AlertCircle,
   RefreshCw,
+  KeyRound,
+  ArrowRight,
 } from "lucide-react";
 import {
   Dialog,
@@ -17,11 +19,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useProviderStore } from "@/store/provider-store";
 import { useModelStore } from "@/store/model-store";
-import type { ConnectedProvider } from "@/types";
-import { withClaudePrefix } from "@/utils/model-prefix";
+import type { ConnectedProvider, DiscoveredModel, ProviderKey } from "@/types";
 
 interface Props {
   open: boolean;
@@ -32,9 +34,11 @@ interface ProviderOption {
   id: string;
   name: string;
   desc: string;
+  type: "device_code" | "authorization_code";
   badge: string;
   iconBg: string;
   baseURL: string;
+  providerKey: ProviderKey;
   defaultModels: Array<{ id: string; name: string }>;
 }
 
@@ -42,10 +46,12 @@ const OAUTH_OPTIONS: ProviderOption[] = [
   {
     id: "github",
     name: "GitHub Copilot",
-    desc: "Sign in with your GitHub account via Device Flow to use Copilot models (GPT-4o, Claude 3.5 Sonnet, o1-mini).",
+    desc: "Official GitHub Copilot Device Flow — access GPT-4o, Claude 3.5 Sonnet, and o1-mini.",
+    type: "device_code",
     badge: "Device Flow",
     iconBg: "bg-zinc-800 text-white",
     baseURL: "https://api.githubcopilot.com",
+    providerKey: "custom",
     defaultModels: [
       { id: "gpt-4o", name: "GPT-4o (Copilot)" },
       { id: "claude-3.5-sonnet", name: "Claude 3.5 Sonnet (Copilot)" },
@@ -54,38 +60,14 @@ const OAUTH_OPTIONS: ProviderOption[] = [
     ],
   },
   {
-    id: "antigravity",
-    name: "Google Antigravity (Cloud Code)",
-    desc: "Login with Google to unlock internal Cloud Code models (Claude 3.5 Sonnet v2, Gemini 2.5 Pro).",
-    badge: "Google OAuth",
-    iconBg: "bg-blue-600 text-white",
-    baseURL: "https://cloudcode-pa.googleapis.com",
-    defaultModels: [
-      { id: "claude-3-5-sonnet-v2", name: "Claude 3.5 Sonnet v2 (Antigravity)" },
-      { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro (Antigravity)" },
-      { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash (Antigravity)" },
-    ],
-  },
-  {
-    id: "claude",
-    name: "Claude Code CLI",
-    desc: "Anthropic Claude Pro/Team OAuth authorization for Claude 3.7 & 3.5 Sonnet.",
-    badge: "Anthropic PKCE",
-    iconBg: "bg-amber-700 text-white",
-    baseURL: "https://api.anthropic.com/v1",
-    defaultModels: [
-      { id: "claude-3-7-sonnet-latest", name: "Claude 3.7 Sonnet" },
-      { id: "claude-3-5-sonnet-latest", name: "Claude 3.5 Sonnet" },
-      { id: "claude-3-5-haiku-latest", name: "Claude 3.5 Haiku" },
-    ],
-  },
-  {
     id: "grok",
     name: "xAI Grok Build",
-    desc: "Connect your xAI account to access Grok 2, Grok 2 Vision, and Grok Beta models.",
+    desc: "Connect your xAI account to access Grok 2, Grok 2 Vision, and Grok Beta.",
+    type: "device_code",
     badge: "Device Flow",
     iconBg: "bg-black text-white",
     baseURL: "https://api.x.ai/v1",
+    providerKey: "openai",
     defaultModels: [
       { id: "grok-2-latest", name: "Grok 2 (Latest)" },
       { id: "grok-2-vision-latest", name: "Grok 2 Vision" },
@@ -96,21 +78,55 @@ const OAUTH_OPTIONS: ProviderOption[] = [
     id: "kimi",
     name: "Kimi Coding CLI",
     desc: "Moonshot Kimi AI developer OAuth access for Kimi k1.5 and Moonshot models.",
+    type: "device_code",
     badge: "Device Flow",
     iconBg: "bg-indigo-700 text-white",
     baseURL: "https://api.kimi.com/coding/v1",
+    providerKey: "custom",
     defaultModels: [
       { id: "kimi-k1.5", name: "Kimi k1.5 (Coding)" },
       { id: "moonshot-v1-128k", name: "Moonshot v1 128k" },
     ],
   },
   {
+    id: "antigravity",
+    name: "Google Antigravity (Cloud Code)",
+    desc: "Login with Google to unlock internal Cloud Code models (Claude 3.5 Sonnet v2, Gemini 2.5 Pro).",
+    type: "authorization_code",
+    badge: "Google OAuth",
+    iconBg: "bg-blue-600 text-white",
+    baseURL: "https://cloudcode-pa.googleapis.com",
+    providerKey: "google",
+    defaultModels: [
+      { id: "claude-3-5-sonnet-v2", name: "Claude 3.5 Sonnet v2 (Antigravity)" },
+      { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro (Antigravity)" },
+      { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash (Antigravity)" },
+    ],
+  },
+  {
+    id: "claude",
+    name: "Claude Code CLI",
+    desc: "Anthropic Claude Pro/Team OAuth authorization for Claude 3.7 & 3.5 Sonnet.",
+    type: "authorization_code",
+    badge: "Anthropic PKCE",
+    iconBg: "bg-amber-700 text-white",
+    baseURL: "https://api.anthropic.com/v1",
+    providerKey: "anthropic",
+    defaultModels: [
+      { id: "claude-3-7-sonnet-latest", name: "Claude 3.7 Sonnet" },
+      { id: "claude-3-5-sonnet-latest", name: "Claude 3.5 Sonnet" },
+      { id: "claude-3-5-haiku-latest", name: "Claude 3.5 Haiku" },
+    ],
+  },
+  {
     id: "codex",
     name: "OpenAI Codex CLI",
     desc: "OpenAI CLI OAuth flow for GPT-4o, o1-preview, and o3-mini models.",
+    type: "authorization_code",
     badge: "OpenAI PKCE",
     iconBg: "bg-emerald-800 text-white",
     baseURL: "https://api.openai.com/v1",
+    providerKey: "openai",
     defaultModels: [
       { id: "gpt-4o", name: "GPT-4o (Codex)" },
       { id: "o1-preview", name: "o1 Preview" },
@@ -121,7 +137,9 @@ const OAUTH_OPTIONS: ProviderOption[] = [
 
 export function OAuthLoginDialog({ open, onOpenChange }: Props) {
   const [selectedProvider, setSelectedProvider] = useState<string>("github");
-  const [step, setStep] = useState<"select" | "authenticating" | "success">("select");
+  const [step, setStep] = useState<"select" | "device_poll" | "pkce_input" | "success">("select");
+  
+  // Device flow state
   const [deviceData, setDeviceData] = useState<{
     device_code: string;
     user_code: string;
@@ -130,14 +148,22 @@ export function OAuthLoginDialog({ open, onOpenChange }: Props) {
     expires_in: number;
     interval: number;
   } | null>(null);
+
+  // PKCE flow state
+  const [pkceData, setPkceData] = useState<{
+    authUrl: string;
+    codeVerifier: string;
+  } | null>(null);
+  const [authCodeInput, setAuthCodeInput] = useState<string>("");
+
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [pollError, setPollError] = useState<string | null>(null);
   const [connectedUser, setConnectedUser] = useState<any>(null);
 
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const { addProvider } = useProviderStore();
-  const { addModel } = useModelStore();
+  const addProvider = useProviderStore((s) => s.add);
+  const upsertModels = useModelStore((s) => s.upsertMany);
 
   const clearTimer = () => {
     if (pollTimerRef.current) {
@@ -151,6 +177,8 @@ export function OAuthLoginDialog({ open, onOpenChange }: Props) {
       clearTimer();
       setStep("select");
       setDeviceData(null);
+      setPkceData(null);
+      setAuthCodeInput("");
       setPollError(null);
       setConnectedUser(null);
     }
@@ -163,23 +191,79 @@ export function OAuthLoginDialog({ open, onOpenChange }: Props) {
   const handleStartAuth = async () => {
     setLoading(true);
     setPollError(null);
+    const opt = OAUTH_OPTIONS.find((o) => o.id === selectedProvider);
+    if (!opt) return;
+
     try {
-      const res = await fetch("/api/oauth/device/code", {
+      if (opt.type === "device_code") {
+        const res = await fetch("/api/oauth/device/code", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider: selectedProvider }),
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || "Failed to initiate device authentication");
+        }
+
+        setDeviceData(data);
+        setStep("device_poll");
+        startPolling(selectedProvider, data.device_code, data.interval || 5);
+      } else {
+        // PKCE Flow
+        const res = await fetch("/api/oauth/pkce/init", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider: selectedProvider }),
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || "Failed to initialize PKCE login");
+        }
+
+        setPkceData(data);
+        setStep("pkce_input");
+        window.open(data.authUrl, "_blank", "noopener,noreferrer");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to start OAuth login");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExchangePkce = async () => {
+    if (!authCodeInput.trim() || !pkceData) {
+      toast.error("Please enter the authorization code");
+      return;
+    }
+
+    setLoading(true);
+    setPollError(null);
+    try {
+      const res = await fetch("/api/oauth/pkce/exchange", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: selectedProvider }),
+        body: JSON.stringify({
+          provider: selectedProvider,
+          code: authCodeInput.trim(),
+          code_verifier: pkceData.codeVerifier,
+        }),
       });
 
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        throw new Error(data.error || "Failed to initiate device authentication");
+        throw new Error(data.error || "Failed to exchange code for token");
       }
 
-      setDeviceData(data);
-      setStep("authenticating");
-      startPolling(selectedProvider, data.device_code, data.interval || 5);
+      setConnectedUser(data.user);
+      setStep("success");
+      handleSaveConnectedProvider(selectedProvider, data);
     } catch (err: any) {
-      toast.error(err.message || "Failed to start OAuth login");
+      setPollError(err.message || "Code exchange failed");
+      toast.error(err.message || "Code exchange failed");
     } finally {
       setLoading(false);
     }
@@ -221,7 +305,7 @@ export function OAuthLoginDialog({ open, onOpenChange }: Props) {
     }, intervalMs);
   };
 
-  const handleSaveConnectedProvider = async (providerId: string, authData: any) => {
+  const handleSaveConnectedProvider = (providerId: string, authData: any) => {
     const opt = OAUTH_OPTIONS.find((o) => o.id === providerId);
     if (!opt) return;
 
@@ -229,42 +313,40 @@ export function OAuthLoginDialog({ open, onOpenChange }: Props) {
       ? `${opt.name} (${authData.user.name})`
       : opt.name;
 
-    const provider: ConnectedProvider = {
-      id: `${providerId}-oauth-${Date.now()}`,
+    const newProvider = addProvider({
       name: providerName,
-      key: providerId as any,
-      apiFormat: "openai",
-      authMode: "bearer",
+      displayName: providerName,
+      key: opt.providerKey,
+      authMode: "oauth",
       apiKey: authData.accessToken,
       apiKeys: [authData.accessToken],
+      refreshToken: authData.refreshToken,
+      tokenExpiry: authData.expiresIn ? Date.now() + authData.expiresIn * 1000 : undefined,
       baseURL: opt.baseURL,
       streaming: true,
       vision: true,
       fileUpload: false,
-      connectedAt: Date.now(),
       isCustom: false,
       extraHeaders: authData.providerSpecificData ? { ...authData.providerSpecificData } : undefined,
-    };
+    });
 
-    await addProvider(provider);
+    const builtModels: Array<Omit<DiscoveredModel, "id">> = opt.defaultModels.map((m) => ({
+      providerId: newProvider.id,
+      providerKey: opt.providerKey,
+      modelId: m.id,
+      displayName: m.name,
+      contextWindow: 128000,
+      vision: true,
+      pdf: false,
+      streaming: true,
+      toolCalling: true,
+      reasoning: m.id.includes("o1") || m.id.includes("o3") || m.id.includes("thinking"),
+      working: true,
+      saved: true,
+      tier: "paid",
+    }));
 
-    for (const m of opt.defaultModels) {
-      await addModel({
-        id: `${provider.id}-${m.id}`,
-        name: m.name,
-        provider: provider.name,
-        providerId: provider.id,
-        contextLength: 128000,
-        maxOutputTokens: 8192,
-        inputCost: 0,
-        outputCost: 0,
-        capabilities: ["chat", "streaming"],
-        tier: "standard",
-        status: "active",
-        claudeModelId: withClaudePrefix(m.id),
-      });
-    }
-
+    upsertModels(builtModels);
     toast.success(`Successfully connected ${opt.name}!`);
   };
 
@@ -286,34 +368,34 @@ export function OAuthLoginDialog({ open, onOpenChange }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md bg-zinc-950 border-zinc-800 text-zinc-100">
+      <DialogContent className="sm:max-w-lg bg-zinc-950 border-zinc-800 text-zinc-100 max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-xl font-semibold">
             <ShieldCheck className="w-5 h-5 text-emerald-400" />
             Connect via OAuth / Device Flow
           </DialogTitle>
           <DialogDescription className="text-zinc-400 text-sm">
-            Sign in securely using official device authentication. No manual API keys required.
+            Sign in securely using official OAuth authorization. No manual API keys needed.
           </DialogDescription>
         </DialogHeader>
 
         {step === "select" && (
           <div className="space-y-4 pt-2">
-            <div className="space-y-2.5">
+            <div className="grid grid-cols-1 gap-2.5 max-h-[380px] overflow-y-auto pr-1">
               {OAUTH_OPTIONS.map((opt) => {
                 const isSelected = selectedProvider === opt.id;
                 return (
                   <div
                     key={opt.id}
                     onClick={() => setSelectedProvider(opt.id)}
-                    className={`flex items-start gap-3.5 p-3.5 rounded-xl border transition-all cursor-pointer ${
+                    className={`flex items-start gap-3.5 p-3 rounded-xl border transition-all cursor-pointer ${
                       isSelected
-                        ? "bg-zinc-900/90 border-emerald-500/60 ring-1 ring-emerald-500/30"
+                        ? "bg-zinc-900/90 border-emerald-500/60 ring-1 ring-emerald-500/30 shadow-md"
                         : "bg-zinc-900/40 border-zinc-800 hover:bg-zinc-900/70 hover:border-zinc-700"
                     }`}
                   >
                     <div
-                      className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold text-sm shrink-0 ${opt.iconBg}`}
+                      className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${opt.iconBg}`}
                     >
                       {opt.name.slice(0, 2).toUpperCase()}
                     </div>
@@ -324,14 +406,14 @@ export function OAuthLoginDialog({ open, onOpenChange }: Props) {
                           {opt.badge}
                         </Badge>
                       </div>
-                      <p className="text-xs text-zinc-400 mt-1 leading-relaxed">{opt.desc}</p>
+                      <p className="text-xs text-zinc-400 mt-0.5 leading-relaxed">{opt.desc}</p>
                     </div>
                   </div>
                 );
               })}
             </div>
 
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="flex justify-end gap-2 pt-2 border-t border-zinc-800/80">
               <Button
                 variant="ghost"
                 onClick={() => onOpenChange(false)}
@@ -351,7 +433,7 @@ export function OAuthLoginDialog({ open, onOpenChange }: Props) {
           </div>
         )}
 
-        {step === "authenticating" && deviceData && (
+        {step === "device_poll" && deviceData && (
           <div className="space-y-5 pt-2 text-center">
             <div className="space-y-1.5">
               <p className="text-xs text-zinc-400 uppercase tracking-wider font-semibold">
@@ -417,6 +499,67 @@ export function OAuthLoginDialog({ open, onOpenChange }: Props) {
           </div>
         )}
 
+        {step === "pkce_input" && pkceData && (
+          <div className="space-y-4 pt-2">
+            <div className="p-3.5 bg-zinc-900/60 border border-zinc-800 rounded-xl space-y-2 text-xs text-zinc-300">
+              <p className="font-semibold text-zinc-100 flex items-center gap-1.5">
+                <KeyRound className="w-4 h-4 text-emerald-400" />
+                Step 1: Authorize in Browser
+              </p>
+              <p className="text-zinc-400 leading-relaxed">
+                A browser tab was opened to authorize with {selectedOpt?.name}. If it didn't open, click the button below:
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => window.open(pkceData.authUrl, "_blank", "noopener,noreferrer")}
+                className="w-full border-zinc-700 hover:bg-zinc-800 gap-1.5 mt-1"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                Re-open {selectedOpt?.name} Login Page
+              </Button>
+            </div>
+
+            <div className="space-y-2 pt-1">
+              <label className="text-xs font-semibold text-zinc-300 flex items-center gap-1">
+                <ArrowRight className="w-3.5 h-3.5 text-emerald-400" />
+                Step 2: Paste Authorization Code or Redirect URL
+              </label>
+              <Input
+                placeholder="Paste code or callback URL here..."
+                value={authCodeInput}
+                onChange={(e) => setAuthCodeInput(e.target.value)}
+                className="bg-zinc-900 border-zinc-700 text-xs font-mono py-2"
+              />
+            </div>
+
+            {pollError && (
+              <div className="p-2.5 bg-rose-950/40 border border-rose-800/60 rounded-lg flex items-center gap-2 text-xs text-rose-300">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{pollError}</span>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-zinc-800/80">
+              <Button
+                variant="ghost"
+                onClick={() => setStep("select")}
+                className="text-zinc-400 hover:text-zinc-200"
+              >
+                Back
+              </Button>
+              <Button
+                onClick={handleExchangePkce}
+                disabled={loading || !authCodeInput.trim()}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white gap-2 font-medium"
+              >
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+                Exchange & Connect
+              </Button>
+            </div>
+          </div>
+        )}
+
         {step === "success" && (
           <div className="space-y-4 pt-4 text-center">
             <div className="w-14 h-14 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-full flex items-center justify-center mx-auto">
@@ -429,7 +572,7 @@ export function OAuthLoginDialog({ open, onOpenChange }: Props) {
               <p className="text-xs text-zinc-400">
                 {connectedUser?.name
                   ? `Authenticated as ${connectedUser.name}`
-                  : "Authentication completed successfully."}
+                  : "Authentication completed and saved to your provider store."}
               </p>
             </div>
             <div className="p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-left text-xs space-y-1">
@@ -444,7 +587,7 @@ export function OAuthLoginDialog({ open, onOpenChange }: Props) {
               onClick={() => onOpenChange(false)}
               className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium"
             >
-              Done
+              Done & Start Using
             </Button>
           </div>
         )}

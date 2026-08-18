@@ -1,5 +1,10 @@
 import { jsonResponse, type CoreRequest, type CoreResponse } from "../http.js";
-import { initiateDeviceCode, pollDeviceToken } from "./device-flow.js";
+import {
+  initiateDeviceCode,
+  pollDeviceToken,
+  initiatePkce,
+  exchangePkceCode,
+} from "./device-flow.js";
 import { OAUTH_PROVIDERS } from "./constants.js";
 
 export async function handleOAuth(req: CoreRequest): Promise<CoreResponse> {
@@ -58,6 +63,51 @@ export async function handleOAuth(req: CoreRequest): Promise<CoreResponse> {
       return jsonResponse(200, { ok: true, ...pollResult });
     } catch (err: any) {
       return jsonResponse(500, { ok: false, error: err.message || "Failed to poll device token" });
+    }
+  }
+
+  if (method === "POST" && path === "pkce/init") {
+    let body: any = {};
+    try {
+      body = await req.json();
+    } catch {
+      return jsonResponse(400, { ok: false, error: "Invalid JSON body" });
+    }
+
+    const { provider, redirect_uri } = body;
+    if (!provider) {
+      return jsonResponse(400, { ok: false, error: "Missing required 'provider' parameter." });
+    }
+
+    try {
+      const res = initiatePkce(provider, redirect_uri);
+      return jsonResponse(200, { ok: true, ...res });
+    } catch (err: any) {
+      return jsonResponse(500, { ok: false, error: err.message || "Failed to initiate PKCE flow" });
+    }
+  }
+
+  if (method === "POST" && path === "pkce/exchange") {
+    let body: any = {};
+    try {
+      body = await req.json();
+    } catch {
+      return jsonResponse(400, { ok: false, error: "Invalid JSON body" });
+    }
+
+    const { provider, code, code_verifier, redirect_uri } = body;
+    if (!provider || !code || !code_verifier) {
+      return jsonResponse(400, {
+        ok: false,
+        error: "Missing required 'provider', 'code', or 'code_verifier' parameter.",
+      });
+    }
+
+    try {
+      const res = await exchangePkceCode(provider, code, code_verifier, redirect_uri);
+      return jsonResponse(200, { ok: true, ...res });
+    } catch (err: any) {
+      return jsonResponse(500, { ok: false, error: err.message || "Failed to exchange authorization code" });
     }
   }
 

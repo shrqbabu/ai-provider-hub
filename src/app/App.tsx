@@ -145,6 +145,19 @@ export default function App() {
       } else if (patched.length > 0) {
         modelState.upsertMany(patched);
       }
+
+      // Best-effort sync of all loaded state back to the server. The gateway /
+      // Claude Desktop can only see data stored server-side (it can't read this
+      // browser's localStorage), so push whatever we just loaded so combos &
+      // providers are available to gateway keys immediately.
+      void storage.set("providers", useProviderStore.getState().providers).catch(() => {});
+      void storage.set("combos", useComboStore.getState().combos).catch(() => {});
+      void storage.set("models", useModelStore.getState().models).catch(() => {});
+      void storage.set("prompts", usePromptStore.getState().prompts).catch(() => {});
+      void storage.set("chats", useChatStore.getState().chats).catch(() => {});
+      void storage.set("keystore", useKeyStoreStore.getState().items).catch(() => {});
+      void storage.set("combo_logs", useComboLogStore.getState().logs).catch(() => {});
+
       setReady(true);
     });
   }, [

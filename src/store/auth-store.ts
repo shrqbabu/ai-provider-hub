@@ -120,3 +120,12 @@ export function getAuthUid(): string | null {
   const user = getFirebaseAuth().currentUser;
   return user?.uid || null;
 }
+
+/**
+ * Stable identifier for scoping CLIENT-side data (localStorage). Always returns
+ * a value so every browser tab scopes data to the same user even mid-auth.
+ * Two different users on the same browser never share keys.
+ */
+export function getEffectiveUid(): string {
+  return getAuthUid() ?? getOrCreateLocalUid();
+}

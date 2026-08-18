@@ -3,7 +3,6 @@ import { v4 as uuid } from "uuid";
 import { storage } from "@/services/storage";
 
 const KEY = "keystore";
-const LOCAL_BACKUP_KEY = "ai_hub_keystore_backup";
 
 export interface KeyStoreItem {
   id: string;
@@ -25,12 +24,11 @@ interface Actions {
 }
 
 async function persist(list: KeyStoreItem[]) {
-  try {
-    localStorage.setItem(LOCAL_BACKUP_KEY, JSON.stringify(list));
-  } catch {
-    // ignore
-  }
-  await storage.set(KEY, list);
+  // storage.set persists to uid-scoped localStorage AND the remote KV store,
+  // so data is always scoped to the signed-in user on this browser.
+  await storage.set(KEY, list).catch((e) => {
+    console.error("[keystore-store] persist failed:", e);
+  });
 }
 
 export const useKeyStoreStore = create<State & Actions>((set, get) => ({
@@ -38,29 +36,10 @@ export const useKeyStoreStore = create<State & Actions>((set, get) => ({
   hydrated: false,
   hydrate: async () => {
     try {
-      // 1. Try remote Firestore "keystore"
+      // Try the user's own remote/local "keystore" only. Alternate legacy keys
+      // (key_store / api_keys) are intentionally NOT read here — they were a
+      // past source of cross-user data leaking in.
       let list = await storage.get<KeyStoreItem[]>(KEY, []);
-
-      // 2. If empty, check alternate legacy keys
-      if (!list || !list.length) {
-        const alt = await storage.get<KeyStoreItem[]>("key_store", []);
-        if (alt && alt.length) list = alt;
-      }
-      if (!list || !list.length) {
-        const alt2 = await storage.get<KeyStoreItem[]>("api_keys", []);
-        if (alt2 && alt2.length) list = alt2;
-      }
-
-      // 3. If still empty, check local backup
-      if (!list || !list.length) {
-        try {
-          const raw = localStorage.getItem(LOCAL_BACKUP_KEY);
-          if (raw) list = JSON.parse(raw);
-        } catch {
-          // ignore
-        }
-      }
-
       set({ items: list || [], hydrated: true });
     } catch {
       set({ hydrated: true });

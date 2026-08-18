@@ -2,13 +2,18 @@ import { create } from "zustand";
 import { v4 as uuid } from "uuid";
 import type { ComboLogEntry } from "@/types";
 import { storage } from "@/services/storage";
+import { getEffectiveUid } from "@/store/auth-store";
 
 const KEY = "combo_logs";
-const LOCAL_STORAGE_KEY = "aip_cached_combo_logs";
+const LOCAL_STORAGE_PREFIX = "aip_cached_combo_logs:";
+
+function localLogsKey(): string {
+  return LOCAL_STORAGE_PREFIX + getEffectiveUid();
+}
 
 function getInitialLogs(): ComboLogEntry[] {
   try {
-    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+    const raw = localStorage.getItem(localLogsKey());
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) return parsed;
@@ -32,11 +37,13 @@ interface Actions {
 
 async function persist(list: ComboLogEntry[]) {
   try {
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(list.slice(0, 1000)));
+    localStorage.setItem(localLogsKey(), JSON.stringify(list.slice(0, 1000)));
   } catch {
     // ignore quota error
   }
-  await storage.set(KEY, list);
+  await storage.set(KEY, list).catch((e) => {
+    console.error("[combo-log-store] persist failed:", e);
+  });
 }
 
 export const useComboLogStore = create<State & Actions>((set, get) => ({
@@ -77,7 +84,7 @@ export const useComboLogStore = create<State & Actions>((set, get) => ({
         .slice(0, 5000);
 
       try {
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(merged.slice(0, 1000)));
+        localStorage.setItem(localLogsKey(), JSON.stringify(merged.slice(0, 1000)));
       } catch {
         // ignore
       }
@@ -97,7 +104,7 @@ export const useComboLogStore = create<State & Actions>((set, get) => ({
   clear: () => {
     set({ logs: [] });
     try {
-      localStorage.removeItem(LOCAL_STORAGE_KEY);
+      localStorage.removeItem(localLogsKey());
     } catch {
       // ignore
     }

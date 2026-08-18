@@ -9,13 +9,19 @@
 // Reliability: writes are serialized through a promise queue so concurrent
 // stores can't complete out of order and clobber newer data, and a non-2xx
 // server response throws instead of silently dropping the write.
-import { getIdToken, getAuthUid } from "@/store/auth-store";
+import { getIdToken, getAuthUid, getEffectiveUid } from "@/store/auth-store";
 
 const LOCAL_STORAGE_PREFIX = "ai-provider-hub:";
 
+// Scope every client-side key by user so two different users on the same
+// browser/device never see (or overwrite) each other's data.
+function localKey(key: string): string {
+  return `${LOCAL_STORAGE_PREFIX}${getEffectiveUid()}:${key}`;
+}
+
 function localGet<T>(key: string, fallback: T): T {
   try {
-    const raw = localStorage.getItem(LOCAL_STORAGE_PREFIX + key);
+    const raw = localStorage.getItem(localKey(key));
     if (raw) return JSON.parse(raw) as T;
   } catch {
     // ignore parse errors
@@ -25,7 +31,7 @@ function localGet<T>(key: string, fallback: T): T {
 
 function localSet(key: string, value: unknown): void {
   try {
-    localStorage.setItem(LOCAL_STORAGE_PREFIX + key, JSON.stringify(value));
+    localStorage.setItem(localKey(key), JSON.stringify(value));
   } catch {
     // ignore quota errors
   }
@@ -33,7 +39,7 @@ function localSet(key: string, value: unknown): void {
 
 function localRemove(key: string): void {
   try {
-    localStorage.removeItem(LOCAL_STORAGE_PREFIX + key);
+    localStorage.removeItem(localKey(key));
   } catch {
     // ignore
   }
@@ -143,12 +149,14 @@ export const storage = {
   },
 
   async clear(): Promise<void> {
-    // Clear local keys with our prefix
+    // Clear only THIS user's local keys (never other users' on a shared browser)
+    const scope = getEffectiveUid();
+    const scopePrefix = `${LOCAL_STORAGE_PREFIX}${scope}:`;
     try {
       const keysToRemove: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (key?.startsWith(LOCAL_STORAGE_PREFIX)) {
+        if (key?.startsWith(scopePrefix)) {
           keysToRemove.push(key);
         }
       }

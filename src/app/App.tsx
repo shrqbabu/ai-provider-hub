@@ -104,24 +104,19 @@ export default function App() {
       hydrateKeyStore(),
       hydrateComboLogs(),
     ]).then(() => {
-      // Purge orphaned CLI and Antigravity providers and models
+      // Keep ALL connected providers — do NOT purge antigravity/google (they're
+      // first-class OAuth providers now). Only drop legacy discount/Deprecated
+      // model IDs and refetch tier info.
       const providerState = useProviderStore.getState();
-      const validProviders = providerState.providers.filter(
-        (p) => (p.key as string) !== "cli" && (p.key as string) !== "antigravity"
-      );
-      if (validProviders.length !== providerState.providers.length) {
-        useProviderStore.setState({ providers: validProviders });
-        storage.set("providers", validProviders).catch(() => {});
-      }
+      const validProviders = providerState.providers;
 
-      // Re-run tier inference and purge legacy discount/deprecated/cli/antigravity models on load
+      // Re-run tier inference and purge legacy discount/deprecated models on load
       const modelState = useModelStore.getState();
       const providerMap = new Map(
         validProviders.map((p) => [p.id, p])
       );
 
       const validModels = modelState.models.filter((m) => {
-        if ((m.providerKey as string) === "cli" || (m.providerKey as string) === "antigravity") return false;
         const id = (m.modelId || "").toLowerCase();
         if (
           id.includes(":discount") ||
@@ -167,26 +162,7 @@ export default function App() {
     hydrateComboLogs,
   ]);
 
-  // Firebase env not set → tell the developer how to configure it.
-  if (!authConfigured) {
-    return (
-      <div className="h-full w-full aurora flex items-center justify-center p-4">
-        <div className="max-w-md rounded-2xl border border-border/60 bg-card/40 backdrop-blur-xl p-6 text-center space-y-3">
-          <div className="w-12 h-12 mx-auto rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
-            <Sparkles className="w-6 h-6 text-primary-foreground" />
-          </div>
-          <div className="text-lg font-semibold">Firebase not configured</div>
-          <div className="text-sm text-muted-foreground">
-            Set <code>VITE_FIREBASE_*</code> in your <code>.env</code> file, then
-            restart the dev server. See <code>.env.example</code> for the required
-            keys.
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Loading spinner while auth initializes.
+  // Loading spinner while auth initializes (local-only mode resolves fast).
   if (authLoading || !ready) {
     return (
       <div className="h-full w-full aurora flex items-center justify-center">
@@ -202,8 +178,9 @@ export default function App() {
     );
   }
 
-  // Not signed in → show auth page.
-  if (!user) {
+  // Not signed in AND Firebase is configured → show auth page.
+  // Without Firebase, the app runs in local-only mode (no sign-in needed).
+  if (authConfigured && !user) {
     return (
       <TooltipProvider>
         <AuthPage />

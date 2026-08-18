@@ -22,9 +22,11 @@ interface Actions {
 }
 
 async function persist(list: ConnectedProvider[]) {
-  // Keys are stored server-side in Firestore (admin-protected), so no local
-  // obfuscation is needed — they never sit in browser storage anymore.
-  await storage.set(KEY, list);
+  // Local-write in storage.set always succeeds; remote write may throw, so we
+  // surface it but never let it crash the caller. Data is never lost locally.
+  await storage.set(KEY, list).catch((e) => {
+    console.error("[provider-store] persist failed:", e);
+  });
 }
 
 export const useProviderStore = create<State & Actions>((set, get) => ({

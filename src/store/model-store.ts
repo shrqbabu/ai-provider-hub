@@ -24,7 +24,9 @@ interface Actions {
 }
 
 async function persist(list: DiscoveredModel[]) {
-  await storage.set(KEY, list);
+  await storage.set(KEY, list).catch((e) => {
+    console.error("[model-store] persist failed:", e);
+  });
 }
 
 export const useModelStore = create<State & Actions>((set, get) => ({

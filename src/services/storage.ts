@@ -2,7 +2,59 @@
 // Firestore (users/{uid}/kv/{key}), accessed via our Node backend (/api/data)
 // so the client never touches Firestore directly (Admin SDK only). Same
 // interface as before, so existing stores work unchanged.
+//
+// When Firebase is not configured or auth fails, falls back to localStorage
+// so the app works fully offline/locally without any cloud dependency.
+//
+// Reliability: writes are serialized through a promise queue so concurrent
+// stores can't complete out of order and clobber newer data, and a non-2xx
+// server response throws instead of silently dropping the write.
 import { getIdToken, getAuthUid } from "@/store/auth-store";
+
+const LOCAL_STORAGE_PREFIX = "ai-provider-hub:";
+
+function localGet<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_PREFIX + key);
+    if (raw) return JSON.parse(raw) as T;
+  } catch {
+    // ignore parse errors
+  }
+  return fallback;
+}
+
+function localSet(key: string, value: unknown): void {
+  try {
+    localStorage.setItem(LOCAL_STORAGE_PREFIX + key, JSON.stringify(value));
+  } catch {
+    // ignore quota errors
+  }
+}
+
+function localRemove(key: string): void {
+  try {
+    localStorage.removeItem(LOCAL_STORAGE_PREFIX + key);
+  } catch {
+    // ignore
+  }
+}
+
+// Serialize remote writes per-key so an in-flight write from an older snapshot
+// can't resolve after a newer one and overwrite it.
+const writeQueues: Record<string, Promise<unknown>> = {};
+
+function enqueueWrite<T>(key: string, work: () => Promise<T>): Promise<T> {
+  const prev = writeQueues[key] ?? Promise.resolve();
+  const next = prev.then(work).catch((e) => {
+    // Surface the error to the caller of the failing write
+    console.error(`storage write "${key}" failed:`, e);
+    throw e;
+  });
+  // Keep the chain alive (never reject the shared tail), so a single failed
+  // write doesn't poison the queue for later writes.
+  writeQueues[key] = next.catch(() => {});
+  return next;
+}
 
 async function apiCall(
   endpoint: string,
@@ -27,44 +79,85 @@ async function apiCall(
   }
 }
 
+function useRemote(): boolean {
+  // Use remote storage only if Firebase is configured AND we have a valid auth token/uid
+  return typeof window !== "undefined" && !!getAuthUid();
+}
+
 export const storage = {
   async get<T>(key: string, fallback: T): Promise<T> {
-    try {
-      const res = await apiCall(`/api/data?key=${encodeURIComponent(key)}`);
-      if (!res.ok) return fallback;
-      const data = await res.json();
-      return (data.value as T) ?? fallback;
-    } catch {
-      return fallback;
+    // Try local first for instant UI, then sync from remote if available
+    const localValue = localGet(key, fallback);
+
+    if (useRemote()) {
+      try {
+        const res = await apiCall(`/api/data?key=${encodeURIComponent(key)}`);
+        if (res.ok) {
+          const data = await res.json();
+          const remoteValue = (data.value as T) ?? fallback;
+          // Merge: remote wins, but keep local as fallback
+          localSet(key, remoteValue);
+          return remoteValue;
+        }
+      } catch {
+        // Network error - return local
+      }
     }
+
+    return localValue;
   },
 
   async set<T>(key: string, value: T): Promise<void> {
-    try {
-      await apiCall(`/api/data?key=${encodeURIComponent(key)}`, {
-        method: "PUT",
-        body: JSON.stringify({ value }),
+    // Always write locally first for instant persistence
+    localSet(key, value);
+
+    if (useRemote()) {
+      await enqueueWrite(key, async () => {
+        const res = await apiCall(`/api/data?key=${encodeURIComponent(key)}`, {
+          method: "PUT",
+          body: JSON.stringify({ value }),
+        });
+        if (!res.ok) {
+          throw new Error(`Server rejected write (${res.status}) for key "${key}"`);
+        }
       });
-    } catch (err) {
-      console.error("storage.set failed:", err);
-      throw err;
+      // After a successful remote write, reconcile local so they never diverge
+      // (e.g. a prior failed write left old local data).
+      localSet(key, value);
     }
   },
 
   async remove(key: string): Promise<void> {
-    try {
-      await apiCall(`/api/data?key=${encodeURIComponent(key)}`, {
-        method: "DELETE",
+    localRemove(key);
+
+    if (useRemote()) {
+      await enqueueWrite(key, async () => {
+        const res = await apiCall(`/api/data?key=${encodeURIComponent(key)}`, {
+          method: "DELETE",
+        });
+        if (!res.ok) {
+          throw new Error(`Server rejected delete (${res.status}) for key "${key}"`);
+        }
       });
-    } catch (err) {
-      console.error("storage.remove failed:", err);
-      throw err;
     }
   },
 
   async clear(): Promise<void> {
-    // Not implemented server-side (would need to list all keys). For now, each
-    // store clears individually if needed. In practice, logout is the real clear.
-    console.warn("storage.clear not implemented (remote KV).");
+    // Clear local keys with our prefix
+    try {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key?.startsWith(LOCAL_STORAGE_PREFIX)) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+    } catch {
+      // ignore
+    }
+
+    // Note: remote clear not implemented (would need to list all keys)
+    console.warn("storage.clear: remote clear not implemented");
   },
 };

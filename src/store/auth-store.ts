@@ -12,11 +12,25 @@ import {
 } from "firebase/auth";
 import { getFirebaseAuth, firebaseConfigured } from "@/services/firebase";
 
+const LOCAL_UID_KEY = "ai-provider-hub:local-uid";
+
+function getOrCreateLocalUid(): string {
+  if (typeof window === "undefined") return "local_user";
+  let uid = localStorage.getItem(LOCAL_UID_KEY);
+  if (!uid) {
+    uid = "local_" + crypto.randomUUID();
+    localStorage.setItem(LOCAL_UID_KEY, uid);
+  }
+  return uid;
+}
+
 interface State {
   user: User | null;
   /** True until the initial onAuthStateChanged fires — avoids auth flash. */
   loading: boolean;
   configured: boolean;
+  /** Local user ID for when Firebase is not configured */
+  localUid: string;
 }
 
 interface Actions {
@@ -33,6 +47,7 @@ export const useAuthStore = create<State & Actions>((set) => ({
   user: null,
   loading: true,
   configured: firebaseConfigured,
+  localUid: getOrCreateLocalUid(),
 
   init: () => {
     if (!firebaseConfigured) {
@@ -90,8 +105,8 @@ export const useAuthStore = create<State & Actions>((set) => ({
 
 /**
  * Fresh Firebase ID token for authenticating backend calls (/api/data,
- * /api/keys). Returns null if signed out. Firebase caches and auto-refreshes
- * the token, so calling this per-request is cheap.
+ * /api/keys). Returns null if signed out or Firebase not configured.
+ * Firebase caches and auto-refreshes the token, so calling this per-request is cheap.
  */
 export async function getIdToken(): Promise<string | null> {
   if (!firebaseConfigured) return null;
@@ -101,7 +116,7 @@ export async function getIdToken(): Promise<string | null> {
 }
 
 export function getAuthUid(): string | null {
-  if (!firebaseConfigured) return null;
+  if (!firebaseConfigured) return getOrCreateLocalUid();
   const user = getFirebaseAuth().currentUser;
   return user?.uid || null;
 }

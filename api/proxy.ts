@@ -257,17 +257,18 @@ async function handleGoogleChatCompletion(
   const candidateRequests: Array<{ url: string; body: string }> = [];
 
   if (isOAuth) {
-    // 1. Antigravity CloudCode Internal endpoints (highest priority for ya29... tokens)
+    // 1. Antigravity CloudCode Internal endpoints for Google OAuth ya29... tokens
     candidateRequests.push(
       { url: `https://cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(wrappedInternalBody) },
+      { url: `https://daily-cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(wrappedInternalBody) },
       { url: `https://cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(internalBody) },
+      { url: `https://daily-cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(internalBody) },
       { url: `https://cloudcode-pa.googleapis.com/v1alpha/models/${model}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) },
-      { url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) },
       { url: `https://cloudaicompanion.googleapis.com/v1alpha:generateMessage`, body: JSON.stringify(companionBody) },
       { url: `https://cloudcode-pa.googleapis.com/v1alpha:generateMessage`, body: JSON.stringify(companionBody) }
     );
 
-    // Fallbacks for Claude / preview models to standard Gemini backends
+    // Fallbacks for Claude / preview models to standard Gemini backends on CloudCode
     let baseModel = "gemini-2.5-flash";
     if (model.includes("3.1-pro") || model.includes("2.5-pro") || model.includes("opus") || model.includes("sonnet")) {
       baseModel = "gemini-2.5-pro";
@@ -275,8 +276,8 @@ async function handleGoogleChatCompletion(
     const fallbackWrapped = { model: baseModel, project: "", request: googleBody };
     candidateRequests.push(
       { url: `https://cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(fallbackWrapped) },
-      { url: `https://cloudcode-pa.googleapis.com/v1alpha/models/${baseModel}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) },
-      { url: `https://generativelanguage.googleapis.com/v1beta/models/${baseModel}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) }
+      { url: `https://daily-cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(fallbackWrapped) },
+      { url: `https://cloudcode-pa.googleapis.com/v1alpha/models/${baseModel}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) }
     );
   } else {
     candidateRequests.push(

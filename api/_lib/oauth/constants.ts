@@ -65,9 +65,12 @@ export const OAUTH_PROVIDERS = {
     tokenUrl: "https://auth.x.ai/oauth2/token",
     scopes: "openid profile email offline_access grok-cli:access api:access",
     defaultModels: [
-      { id: "grok-2-latest", name: "Grok 2 (Latest)" },
-      { id: "grok-2-vision-latest", name: "Grok 2 Vision" },
+      { id: "grok-2", name: "Grok 2" },
+      { id: "grok-2-vision", name: "Grok 2 Vision" },
       { id: "grok-beta", name: "Grok Beta" },
+      { id: "grok-vision-beta", name: "Grok Vision Beta" },
+      { id: "grok-3", name: "Grok 3" },
+      { id: "grok-3-mini", name: "Grok 3 Mini" },
     ],
   },
   kimi: {

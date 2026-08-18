@@ -25,6 +25,34 @@ import { useProviderStore } from "@/store/provider-store";
 import { useModelStore } from "@/store/model-store";
 import type { ConnectedProvider, DiscoveredModel, ProviderKey } from "@/types";
 
+function extractAuthCode(rawInput: string): string {
+  let text = rawInput.trim();
+  if (!text) return "";
+
+  if (text.startsWith("http://") || text.startsWith("https://") || text.includes("?")) {
+    try {
+      const parsedUrl = new URL(text.startsWith("http") ? text : `http://dummy.com/${text}`);
+      const codeParam = parsedUrl.searchParams.get("code");
+      if (codeParam) {
+        return decodeURIComponent(codeParam);
+      }
+    } catch {}
+  }
+
+  const match = text.match(/[?&]code=([^&#\s]+)/);
+  if (match && match[1]) {
+    return decodeURIComponent(match[1]);
+  }
+
+  if (text.startsWith("4%2F") || text.includes("%2F") || text.includes("%3A")) {
+    try {
+      text = decodeURIComponent(text);
+    } catch {}
+  }
+
+  return text;
+}
+
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -238,8 +266,9 @@ export function OAuthLoginDialog({ open, onOpenChange }: Props) {
   };
 
   const handleExchangePkce = async () => {
-    if (!authCodeInput.trim() || !pkceData) {
-      toast.error("Please enter the authorization code");
+    const cleanCode = extractAuthCode(authCodeInput);
+    if (!cleanCode || !pkceData) {
+      toast.error("Please enter a valid authorization code or callback URL");
       return;
     }
 
@@ -251,7 +280,7 @@ export function OAuthLoginDialog({ open, onOpenChange }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           provider: selectedProvider,
-          code: authCodeInput.trim(),
+          code: cleanCode,
           code_verifier: pkceData.codeVerifier,
         }),
       });
@@ -584,6 +613,12 @@ export function OAuthLoginDialog({ open, onOpenChange }: Props) {
                 onChange={(e) => setAuthCodeInput(e.target.value)}
                 className="bg-zinc-900 border-zinc-700 text-xs font-mono py-2"
               />
+              {authCodeInput.trim() && (
+                <div className="flex items-center gap-1.5 text-[11px] text-zinc-400 bg-zinc-900/80 px-2.5 py-1.5 rounded-lg border border-zinc-800 font-mono truncate">
+                  <span className="text-emerald-400 font-medium">Parsed Code:</span>
+                  <span className="truncate text-zinc-200">{extractAuthCode(authCodeInput)}</span>
+                </div>
+              )}
             </div>
 
             {pollError && (

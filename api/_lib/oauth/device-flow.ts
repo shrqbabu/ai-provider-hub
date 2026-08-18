@@ -374,21 +374,59 @@ export function initiatePkce(providerKey: string, callbackRedirectUri?: string):
   throw new Error(`Provider ${providerKey} does not support PKCE flow.`);
 }
 
+export function extractAuthCode(rawInput: string): string {
+  let text = rawInput.trim();
+  if (!text) return "";
+
+  if (text.startsWith("http://") || text.startsWith("https://") || text.includes("?")) {
+    try {
+      const parsedUrl = new URL(text.startsWith("http") ? text : `http://dummy.com/${text}`);
+      const codeParam = parsedUrl.searchParams.get("code");
+      if (codeParam) {
+        return decodeURIComponent(codeParam);
+      }
+    } catch {}
+  }
+
+  const match = text.match(/[?&]code=([^&#\s]+)/);
+  if (match && match[1]) {
+    return decodeURIComponent(match[1]);
+  }
+
+  if (text.startsWith("4%2F") || text.includes("%2F") || text.includes("%3A")) {
+    try {
+      text = decodeURIComponent(text);
+    } catch {}
+  }
+
+  return text;
+}
+
 export async function exchangePkceCode(
   providerKey: string,
-  code: string,
+  rawCode: string,
   codeVerifier: string,
   redirectUri?: string
 ): Promise<PollResult> {
   const config = (OAUTH_PROVIDERS as Record<string, any>)[providerKey];
   if (!config) throw new Error(`Unsupported OAuth provider: ${providerKey}`);
 
+  const code = extractAuthCode(rawCode);
+  if (!code) {
+    throw new Error("No authorization code found in the provided input.");
+  }
+
+  const defaultRedirectUri =
+    providerKey === "claude"
+      ? "https://platform.claude.com/oauth/code/callback"
+      : "http://localhost:3000/api/oauth/callback";
+
   const bodyParams: Record<string, string> = {
     grant_type: "authorization_code",
     client_id: config.clientId,
-    code: code.trim(),
+    code,
     code_verifier: codeVerifier,
-    redirect_uri: redirectUri || (providerKey === "claude" ? "https://platform.claude.com/oauth/code/callback" : "http://localhost:3000/api/oauth/callback"),
+    redirect_uri: redirectUri || defaultRedirectUri,
   };
 
   if (config.clientSecret) {
@@ -415,7 +453,12 @@ export async function exchangePkceCode(
     refreshToken: data.refresh_token,
     expiresIn: data.expires_in,
     user: {
-      name: providerKey === "antigravity" ? "Google Antigravity User" : providerKey === "claude" ? "Claude Code User" : "OpenAI Codex User",
+      name:
+        providerKey === "antigravity"
+          ? "Google Antigravity User"
+          : providerKey === "claude"
+          ? "Claude Code User"
+          : "OpenAI Codex User",
     },
   };
 }

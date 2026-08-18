@@ -277,8 +277,17 @@ async function handleGoogleChatCompletion(
       { url: `https://cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(wrappedInternalBody) },
       { url: `https://daily-cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(wrappedInternalBody) },
       { url: `https://cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(internalBody) },
-      { url: `https://daily-cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(internalBody) },
-      { url: `https://cloudcode-pa.googleapis.com/v1alpha/models/${model}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) },
+      { url: `https://daily-cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(internalBody) }
+    );
+
+    // 2. Fallback: public Generative Language API with Bearer token (works for some OAuth tokens)
+    candidateRequests.push(
+      { url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) },
+      { url: `https://generativelanguage.googleapis.com/v1/models/${model}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) }
+    );
+
+    // 3. CloudCode companion endpoints (for Claude/preview models)
+    candidateRequests.push(
       { url: `https://cloudaicompanion.googleapis.com/v1alpha:generateMessage`, body: JSON.stringify(companionBody) },
       { url: `https://cloudcode-pa.googleapis.com/v1alpha:generateMessage`, body: JSON.stringify(companionBody) }
     );
@@ -292,7 +301,8 @@ async function handleGoogleChatCompletion(
     candidateRequests.push(
       { url: `https://cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(fallbackWrapped) },
       { url: `https://daily-cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(fallbackWrapped) },
-      { url: `https://cloudcode-pa.googleapis.com/v1alpha/models/${baseModel}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) }
+      // Fallback to public GL API with base model
+      { url: `https://generativelanguage.googleapis.com/v1beta/models/${baseModel}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) }
     );
   } else {
     candidateRequests.push(

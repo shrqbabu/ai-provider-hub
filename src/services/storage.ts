@@ -90,10 +90,18 @@ function useRemote(): boolean {
   return typeof window !== "undefined" && !!getAuthUid();
 }
 
+// Treat null / missing / empty array / empty object as "empty".
+function isEmptyValue(v: unknown): boolean {
+  if (v === undefined || v === null) return true;
+  if (Array.isArray(v)) return v.length === 0;
+  if (typeof v === "object") return Object.keys(v as object).length === 0;
+  return false;
+}
+
 export const storage = {
   async get<T>(key: string, fallback: T): Promise<T> {
-    // Try local first for instant UI, then sync from remote if available
-    const localValue = localGet(key, fallback);
+    // Local is the instant, crash-safe copy; remote is the backup/sync source.
+    const localValue = localGet<T>(key, fallback);
 
     if (useRemote()) {
       try {
@@ -101,9 +109,27 @@ export const storage = {
         if (res.ok) {
           const data = await res.json();
           const remoteValue = (data.value as T) ?? fallback;
-          // Merge: remote wins, but keep local as fallback
-          localSet(key, remoteValue);
-          return remoteValue;
+
+          // Remote has data → remote is authoritative (cross-device backup).
+          if (!isEmptyValue(remoteValue)) {
+            localSet(key, remoteValue);
+            return remoteValue;
+          }
+
+          // Remote is empty but local has data → the earlier remote write must
+          // have failed. Local wins (NEVER clobber non-empty local with empty
+          // remote — that's how data kept disappearing on refresh), and we
+          // quietly re-push local back to remote to repair the backup.
+          if (!isEmptyValue(localValue)) {
+            await apiCall(`/api/data?key=${encodeURIComponent(key)}`, {
+              method: "PUT",
+              body: JSON.stringify({ value: localValue }),
+            }).catch(() => {});
+            return localValue;
+          }
+
+          // Both empty → genuine fallback.
+          return fallback;
         }
       } catch {
         // Network error - return local

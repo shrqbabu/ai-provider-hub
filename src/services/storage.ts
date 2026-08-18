@@ -20,12 +20,33 @@ function localKey(key: string): string {
 }
 
 function localGet<T>(key: string, fallback: T): T {
+  // 1. Current uid-scoped key
   try {
     const raw = localStorage.getItem(localKey(key));
-    if (raw) return JSON.parse(raw) as T;
+    if (raw) {
+      const parsed = JSON.parse(raw) as T;
+      if (parsed !== undefined && parsed !== null) return parsed;
+    }
   } catch {
     // ignore parse errors
   }
+
+  // 2. Legacy un-scoped key (pre-uid-scoping builds stored data at
+  //    "ai-provider-hub:<key>"). Adopt & migrate it so existing users don't
+  //    "lose" their providers/combos/keystore after the format change.
+  try {
+    const legacyRaw = localStorage.getItem(LOCAL_STORAGE_PREFIX + key);
+    if (legacyRaw) {
+      const parsed = JSON.parse(legacyRaw) as T;
+      if (parsed !== undefined && parsed !== null) {
+        localSet(key, parsed); // migrate to the scoped key
+        return parsed;
+      }
+    }
+  } catch {
+    // ignore
+  }
+
   return fallback;
 }
 

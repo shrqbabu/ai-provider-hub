@@ -21,6 +21,19 @@ function getInitialLogs(): ComboLogEntry[] {
   } catch {
     // ignore
   }
+  // Migrate the legacy un-scoped cache so existing combo logs aren't lost.
+  try {
+    const legacyRaw = localStorage.getItem("aip_cached_combo_logs");
+    if (legacyRaw) {
+      const parsed = JSON.parse(legacyRaw);
+      if (Array.isArray(parsed)) {
+        localStorage.setItem(localLogsKey(), JSON.stringify(parsed));
+        return parsed;
+      }
+    }
+  } catch {
+    // ignore
+  }
   return [];
 }
 

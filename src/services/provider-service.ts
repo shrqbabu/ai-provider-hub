@@ -17,6 +17,8 @@ const HOSTED_PROXY_MAP: Array<[RegExp, string]> = [
   [/^https:\/\/integrate\.api\.nvidia\.com/i, "/api/proxy/nvidia"],
   [/^https:\/\/api\.anthropic\.com/i, "/api/proxy/anthropic"],
   [/^https:\/\/openrouter\.ai/i, "/api/proxy/openrouter"],
+  [/^https:\/\/cloudcode-pa\.googleapis\.com/i, "/api/proxy/antigravity"],
+  [/^https:\/\/daily-cloudcode-pa\.googleapis\.com/i, "/api/proxy/antigravity"],
   [/^https:\/\/generativelanguage\.googleapis\.com/i, "/api/proxy/google"],
 ];
 
@@ -30,11 +32,25 @@ function isLocalhost(url: string): boolean {
   return /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])/i.test(url);
 }
 
-function resolveBaseURL(url: string, _providerKey?: string): Resolved {
+function resolveBaseURL(
+  url: string,
+  providerKey?: string,
+  authMode?: string,
+  apiKey?: string
+): Resolved {
   if (isLocalhost(url)) return { baseURL: url, proxied: false };
   const origin = window.location.origin;
 
-
+  if (
+    providerKey === "antigravity" ||
+    (providerKey === "google" && (authMode === "oauth" || apiKey?.startsWith("ya29."))) ||
+    url.includes("cloudcode-pa.googleapis.com")
+  ) {
+    return {
+      baseURL: `${origin}/api/proxy/antigravity`,
+      proxied: true,
+    };
+  }
 
   // Known hosted providers → dedicated proxy prefix.
   for (const [pattern, replacement] of HOSTED_PROXY_MAP) {
@@ -97,7 +113,12 @@ export function resolveRawRequest(
   const authMode = provider.authMode ?? "apiKey";
   const key = (provider.apiKey ?? "").trim();
   const cookie = (provider.cookie ?? "").trim();
-  const { baseURL, proxied, targetHeader } = resolveBaseURL(provider.baseURL, provider.key);
+  const { baseURL, proxied, targetHeader } = resolveBaseURL(
+    provider.baseURL,
+    provider.key,
+    provider.authMode,
+    key
+  );
 
   let url = baseURL.replace(/\/$/, "") + subPath;
   const headers: Record<string, string> = {
@@ -150,7 +171,12 @@ export function createClient(provider: ConnectedProvider): OpenAI {
     );
   }
 
-  const { baseURL, proxied, targetHeader } = resolveBaseURL(provider.baseURL, provider.key);
+  const { baseURL, proxied, targetHeader } = resolveBaseURL(
+    provider.baseURL,
+    provider.key,
+    provider.authMode,
+    key
+  );
 
   if (authMode === "cookie" && !proxied) {
     // Browsers forbid setting the Cookie header on fetch, so cookie auth must

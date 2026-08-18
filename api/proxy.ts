@@ -6,7 +6,7 @@ const TARGETS: Record<string, string> = {
   anthropic: "https://api.anthropic.com",
   openrouter: "https://openrouter.ai",
   google: "https://generativelanguage.googleapis.com",
-  antigravity: "https://generativelanguage.googleapis.com",
+  antigravity: "https://cloudcode-pa.googleapis.com",
 };
 
 const HOP_BY_HOP = new Set([
@@ -91,6 +91,21 @@ export default async function handler(req: Request): Promise<Response> {
 
   const method = req.method.toUpperCase();
   const hasBody = method !== "GET" && method !== "HEAD";
+
+  if (providerKey === "antigravity" && upstreamPath.includes("/models")) {
+    return json(
+      {
+        object: "list",
+        data: [
+          { id: "claude-3-5-sonnet-v2", object: "model", created: Date.now(), owned_by: "google-antigravity" },
+          { id: "gemini-2.5-pro", object: "model", created: Date.now(), owned_by: "google-antigravity" },
+          { id: "gemini-2.5-flash", object: "model", created: Date.now(), owned_by: "google-antigravity" },
+          { id: "gemini-2.0-flash", object: "model", created: Date.now(), owned_by: "google-antigravity" },
+        ],
+      },
+      200
+    );
+  }
 
   if ((providerKey === "google" || providerKey === "antigravity") && upstreamPath.includes("/chat/completions")) {
     if (!providerToken) {

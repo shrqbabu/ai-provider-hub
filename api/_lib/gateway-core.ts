@@ -98,21 +98,67 @@ export async function handleGateway(
   // â”€â”€ GET models: return the user's saved models + combos in list shape â”€â”€â”€â”€
   if (path === "models" || path === "v1/models") {
     const data: Array<{ id: string; object: string; owned_by: string }> = [];
+    const seenIds = new Set<string>();
+    const providerModelCounts = new Map<string, number>();
+
     if (Array.isArray(models)) {
       for (const m of models) {
-        if (m && m.modelId) {
+        if (m && m.modelId && !seenIds.has(m.modelId)) {
+          seenIds.add(m.modelId);
+          const owner = m.providerKey || m.providerId || "system";
           data.push({
             id: m.modelId,
             object: "model",
-            owned_by: m.providerKey || m.providerId || "system",
+            owned_by: owner,
           });
+          providerModelCounts.set(m.providerId, (providerModelCounts.get(m.providerId) || 0) + 1);
+          providerModelCounts.set(owner, (providerModelCounts.get(owner) || 0) + 1);
         }
       }
     }
+
+    // Default fallback models per provider key if a connected provider has 0 saved models
+    const DEFAULT_CATALOG: Record<string, string[]> = {
+      openai: ["gpt-4o", "gpt-4o-mini", "o1", "o1-mini", "o3-mini", "gpt-4-turbo"],
+      anthropic: ["claude-3-7-sonnet-latest", "claude-3-5-sonnet-latest", "claude-3-5-haiku-latest", "claude-3-opus-latest"],
+      google: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
+      antigravity: [
+        "gemini-3.7-flash-high", "gemini-3.7-flash-medium", "gemini-3.7-flash-low",
+        "gemini-pro-agent", "gemini-3.1-pro-low", "gemini-3.1-flash-lite",
+        "claude-opus-4-6-thinking", "claude-sonnet-4-6", "claude-3-5-sonnet-v2",
+        "gpt-oss-120b-medium", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"
+      ],
+      github: ["gpt-4o", "claude-3.5-sonnet", "o1-mini", "o3-mini"],
+      grok: ["grok-2", "grok-2-vision", "grok-beta", "grok-3", "grok-3-mini"],
+      kimi: ["kimi-k1.5", "moonshot-v1-128k", "moonshot-v1-32k", "moonshot-v1-8k"],
+      nvidia: ["meta/llama-3.3-70b-instruct", "deepseek-ai/deepseek-r1", "meta/llama-3.1-405b-instruct"],
+      openrouter: ["anthropic/claude-3.7-sonnet", "openai/gpt-4o", "deepseek/deepseek-r1", "google/gemini-2.5-pro"],
+    };
+
+    if (Array.isArray(providers)) {
+      for (const p of providers) {
+        if (!p || (p as any).disabled) continue;
+        const count = (providerModelCounts.get(p.id) || 0) + (providerModelCounts.get(p.key) || 0);
+        if (count === 0 && DEFAULT_CATALOG[p.key]) {
+          for (const mid of DEFAULT_CATALOG[p.key]) {
+            if (!seenIds.has(mid)) {
+              seenIds.add(mid);
+              data.push({
+                id: mid,
+                object: "model",
+                owned_by: p.key || p.displayName || "system",
+              });
+            }
+          }
+        }
+      }
+    }
+
     if (Array.isArray(combos)) {
       for (const c of combos) {
         const comboName = (c?.name || (c as any)?.comboName || (c as any)?.id || "").trim();
-        if (comboName) {
+        if (comboName && !seenIds.has(comboName)) {
+          seenIds.add(comboName);
           data.push({
             id: comboName,
             object: "model",

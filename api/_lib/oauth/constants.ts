@@ -33,9 +33,13 @@ export const OAUTH_PROVIDERS = {
       "https://www.googleapis.com/auth/userinfo.profile",
     ],
     defaultModels: [
-      { id: "claude-3-5-sonnet-v2", name: "Claude 3.5 Sonnet v2 (Antigravity)" },
       { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro (Antigravity)" },
       { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash (Antigravity)" },
+      { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash (Antigravity)" },
+      { id: "gemini-3.5-flash", name: "Gemini 3.5 Flash (Antigravity)" },
+      { id: "gemini-3.1-pro", name: "Gemini 3.1 Pro (Antigravity)" },
+      { id: "claude-sonnet-4.6", name: "Claude Sonnet 4.6 (Antigravity)" },
+      { id: "claude-3-5-sonnet-v2", name: "Claude 3.5 Sonnet v2 (Antigravity)" },
     ],
   },
   claude: {

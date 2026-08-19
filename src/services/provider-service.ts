@@ -342,7 +342,7 @@ export async function testConnection(
       return {
         ok: true,
         message: "Connected — Google Antigravity Cloud Code session active.",
-        modelCount: 4,
+        modelCount: 7,
       };
     }
 
@@ -494,10 +494,13 @@ export async function fetchModelIds(
     provider.baseURL?.includes("cloudcode-pa.googleapis.com")
   ) {
     return [
-      { id: "claude-3-5-sonnet-v2", supportsVision: true },
       { id: "gemini-2.5-pro", supportsVision: true },
       { id: "gemini-2.5-flash", supportsVision: true },
       { id: "gemini-2.0-flash", supportsVision: true },
+      { id: "gemini-3.5-flash", supportsVision: true },
+      { id: "gemini-3.1-pro", supportsVision: true },
+      { id: "claude-sonnet-4.6", supportsVision: true },
+      { id: "claude-3-5-sonnet-v2", supportsVision: true },
     ];
   }
 

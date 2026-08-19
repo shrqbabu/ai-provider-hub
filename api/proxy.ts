@@ -97,10 +97,13 @@ export default async function handler(req: Request): Promise<Response> {
       {
         object: "list",
         data: [
-          { id: "claude-3-5-sonnet-v2", object: "model", created: Date.now(), owned_by: "google-antigravity" },
           { id: "gemini-2.5-pro", object: "model", created: Date.now(), owned_by: "google-antigravity" },
           { id: "gemini-2.5-flash", object: "model", created: Date.now(), owned_by: "google-antigravity" },
           { id: "gemini-2.0-flash", object: "model", created: Date.now(), owned_by: "google-antigravity" },
+          { id: "gemini-3.5-flash", object: "model", created: Date.now(), owned_by: "google-antigravity" },
+          { id: "gemini-3.1-pro", object: "model", created: Date.now(), owned_by: "google-antigravity" },
+          { id: "claude-sonnet-4.6", object: "model", created: Date.now(), owned_by: "google-antigravity" },
+          { id: "claude-3-5-sonnet-v2", object: "model", created: Date.now(), owned_by: "google-antigravity" },
         ],
       },
       200

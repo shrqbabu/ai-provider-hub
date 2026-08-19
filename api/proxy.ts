@@ -289,19 +289,13 @@ async function handleGoogleChatCompletion(
       { url: `https://daily-cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(internalBody) }
     );
 
-    // 2. Fallback: public Generative Language API with Bearer token (works for some OAuth tokens)
-    candidateRequests.push(
-      { url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) },
-      { url: `https://generativelanguage.googleapis.com/v1/models/${model}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) }
-    );
-
-    // 3. CloudCode companion endpoints (for Claude/preview models)
+    // 2. CloudCode companion endpoints (for Claude/preview models)
     candidateRequests.push(
       { url: `https://cloudaicompanion.googleapis.com/v1alpha:generateMessage`, body: JSON.stringify(companionBody) },
       { url: `https://cloudcode-pa.googleapis.com/v1alpha:generateMessage`, body: JSON.stringify(companionBody) }
     );
 
-    // Fallbacks for Claude / preview models to standard Gemini backends on CloudCode
+    // 3. Fallbacks for Claude / preview models to standard Gemini backends on CloudCode
     let baseModel = "gemini-2.5-flash";
     if (model.includes("3.1-pro") || model.includes("2.5-pro") || model.includes("opus") || model.includes("sonnet")) {
       baseModel = "gemini-2.5-pro";
@@ -309,9 +303,7 @@ async function handleGoogleChatCompletion(
     const fallbackWrapped = { model: baseModel, project: "", request: googleBody };
     candidateRequests.push(
       { url: `https://cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(fallbackWrapped) },
-      { url: `https://daily-cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(fallbackWrapped) },
-      // Fallback to public GL API with base model
-      { url: `https://generativelanguage.googleapis.com/v1beta/models/${baseModel}:${endpoint}${sseParam}`, body: JSON.stringify(googleBody) }
+      { url: `https://daily-cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(fallbackWrapped) }
     );
   } else {
     candidateRequests.push(

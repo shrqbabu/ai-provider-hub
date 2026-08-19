@@ -43,7 +43,10 @@ export async function createApiKey(
 
   if (isFirebaseAdminReady()) {
     try {
-      await getDb().collection("apiKeys").doc(result.record.id).set(result.record);
+      await getDb().collection("apiKeys").doc(result.record.id).set({
+        ...result.record,
+        uid,
+      });
     } catch (e) {
       console.warn("[api-keys] Firestore save failed, saved to local db:", e);
     }

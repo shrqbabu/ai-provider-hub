@@ -12,6 +12,14 @@ export const PROVIDER_BASE: Record<string, string> = {
   anthropic: "https://api.anthropic.com/v1",
   openrouter: "https://openrouter.ai/api/v1",
   google: "https://generativelanguage.googleapis.com/v1",
+  // OAuth provider bases — used when the provider was saved without an explicit
+  // baseURL (shouldn't happen, but acts as a safety net).
+  github: "https://api.githubcopilot.com",
+  grok: "https://api.x.ai/v1",
+  kimi: "https://api.kimi.com/coding/v1",
+  codex: "https://api.openai.com/v1",
+  claude: "https://api.anthropic.com/v1",
+  antigravity: "https://cloudcode-pa.googleapis.com",
 };
 
 // Minimal mirror of the frontend types (api code can't import from src/).
@@ -121,6 +129,14 @@ export function baseURLFor(p: GwProvider): string {
     .replace(/\/$/, "");
 
   // 2. Auto-normalize standard provider URLs if /v1 path is omitted
+  // SKIP /v1 for OAuth providers that don't use standard /v1 paths
+  const isCloudCode = url.includes("cloudcode-pa.googleapis.com") || url.includes("daily-cloudcode-pa.googleapis.com");
+  const isCopilot = url.includes("api.githubcopilot.com") || url.includes("copilot");
+  const isKimiCoding = url.includes("api.kimi.com");
+  if (isCloudCode || isCopilot || isKimiCoding) {
+    // These OAuth URLs use their own path structure, don't auto-append /v1
+    return url;
+  }
   if (p.key === "openai" && !url.includes("/v1")) {
     url += "/v1";
   } else if (p.key === "nvidia" && !url.includes("/v1")) {

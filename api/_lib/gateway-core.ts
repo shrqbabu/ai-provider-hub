@@ -207,7 +207,8 @@ export async function handleGateway(
       endpoint === "/chat/completions" && isAnthropicProvider;
     const isGoogleProvider =
       provider.key === "google" ||
-      (provider.baseURL ?? "").includes("generativelanguage.googleapis.com");
+      (provider.baseURL ?? "").includes("generativelanguage.googleapis.com") ||
+      (provider.baseURL ?? "").includes("cloudcode-pa.googleapis.com");
     const isOAuth =
       provider.authMode === "oauth" ||
       cred.startsWith("ya29.");
@@ -463,14 +464,37 @@ function buildUpstreamHeaders(
   // client mislabeled and render as garbage.
   headers.set("Accept-Encoding", "identity");
 
-  if (provider.key === "google") {
+  const isCopilot = (provider.baseURL ?? "").includes("api.githubcopilot.com") || (provider.baseURL ?? "").includes("copilot");
+  const isGrok = (provider.baseURL ?? "").includes("api.x.ai");
+
+  if (provider.key === "google" || (provider.baseURL ?? "").includes("googleapis.com")) {
     headers.set("User-Agent", "antigravity/1.0.0");
     headers.set("x-goog-api-client", "gl-js/ antigravity/1.0.0");
   }
 
   const isAnthropic =
     provider.apiFormat === "anthropic" || endpoint === "/messages";
-  if (provider.authMode === "cookie") {
+
+  if (isCopilot) {
+    // GitHub Copilot: use the copilotToken stored in extraHeaders, not the GitHub access_token
+    const copilotToken = provider.extraHeaders?.copilotToken || cred;
+    headers.set("Authorization", `Bearer ${copilotToken}`);
+    headers.set("X-GitHub-Api-Version", "2023-07-07");
+    headers.set("User-Agent", "GitHubCopilot/1.0");
+    headers.set("Editor-Version", "vscode/1.95.0");
+    headers.set("Editor-Plugin-Version", "copilot/1.255.0");
+    headers.set("Copilot-Integration-Id", "vscode-chat");
+    headers.set("Openai-Intent", "conversation-panel");
+    // Don't add extra headers from provider.extraHeaders for Copilot since they
+    // contain copilotToken/copilotEndpoints metadata, not HTTP headers
+    return headers;
+  }
+
+  if (isGrok) {
+    headers.set("Authorization", `Bearer ${cred}`);
+    headers.set("x-grok-client-version", "0.2.106");
+    headers.set("x-grok-client-surface", "cli");
+  } else if (provider.authMode === "cookie") {
     headers.set("Cookie", cred);
   } else if (isAnthropic) {
     headers.set("x-api-key", cred);
@@ -481,8 +505,11 @@ function buildUpstreamHeaders(
   if (provider.organization)
     headers.set("OpenAI-Organization", provider.organization);
   if (provider.extraHeaders) {
-    for (const [k, v] of Object.entries(provider.extraHeaders))
+    for (const [k, v] of Object.entries(provider.extraHeaders)) {
+      // Skip internal metadata keys that aren't actual HTTP headers
+      if (k === "copilotToken" || k === "copilotTokenExpiresAt" || k === "copilotEndpoints") continue;
       headers.set(k, v);
+    }
   }
   return headers;
 }

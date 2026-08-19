@@ -25,6 +25,7 @@ import {
 } from "./upstreams.js";
 import { bearerToken, requireUser } from "./auth.js";
 import { jsonResponse, type CoreRequest, type CoreResponse } from "./http.js";
+import { resolveAntigravityProject } from "./oauth/device-flow.js";
 
 const HOP_BY_HOP = new Set([
   "connection",
@@ -228,6 +229,13 @@ export async function handleGateway(
       const sseParam = wantsStream ? (isOAuth ? "?alt=sse" : "&alt=sse") : "";
 
       if (isOAuth) {
+        let projectId = provider.extraHeaders?.projectId || "";
+        if (!projectId) {
+          try {
+            projectId = await resolveAntigravityProject(cred);
+          } catch {}
+        }
+
         candidateUrls.push(
           `https://cloudcode-pa.googleapis.com/v1internal:${streamEndpoint}${sseParam}`,
           `https://daily-cloudcode-pa.googleapis.com/v1internal:${streamEndpoint}${sseParam}`,
@@ -243,7 +251,7 @@ export async function handleGateway(
         }
         upstreamBody = JSON.stringify({
           model: cleanModelId,
-          project: "",
+          project: projectId || "",
           request: googleRequest,
         });
       } else {
@@ -262,6 +270,13 @@ export async function handleGateway(
       const sseParam = wantsStream ? (isOAuth ? "?alt=sse" : "&alt=sse") : "";
 
       if (isOAuth) {
+        let projectId = provider.extraHeaders?.projectId || "";
+        if (!projectId) {
+          try {
+            projectId = await resolveAntigravityProject(cred);
+          } catch {}
+        }
+
         candidateUrls.push(
           `https://cloudcode-pa.googleapis.com/v1internal:${streamEndpoint}${sseParam}`,
           `https://daily-cloudcode-pa.googleapis.com/v1internal:${streamEndpoint}${sseParam}`,
@@ -277,7 +292,7 @@ export async function handleGateway(
         }
         upstreamBody = JSON.stringify({
           model: cleanModelId,
-          project: "",
+          project: projectId || "",
           request: googleRequest,
         });
       } else {

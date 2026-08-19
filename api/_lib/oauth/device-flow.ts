@@ -456,18 +456,125 @@ export async function exchangePkceCode(
     throw new Error(errorMsg);
   }
 
+  let userInfo: any = {};
+  let providerSpecificData: Record<string, unknown> | undefined;
+
+  if (providerKey === "antigravity") {
+    try {
+      const userRes = await fetch(config.userInfoUrl, {
+        headers: { Authorization: `Bearer ${data.access_token}` },
+        signal: AbortSignal.timeout(4000),
+      });
+      if (userRes.ok) userInfo = await userRes.json();
+    } catch {}
+
+    try {
+      const projectId = await resolveAntigravityProject(data.access_token);
+      if (projectId) {
+        providerSpecificData = { projectId };
+      }
+    } catch {}
+  } else if (providerKey === "claude") {
+    userInfo = { name: "Claude Code User" };
+  } else if (providerKey === "codex") {
+    userInfo = { name: "OpenAI Codex User" };
+  }
+
   return {
     status: "success",
     accessToken: data.access_token,
     refreshToken: data.refresh_token,
     expiresIn: data.expires_in,
     user: {
-      name:
-        providerKey === "antigravity"
-          ? "Google Antigravity User"
-          : providerKey === "claude"
-          ? "Claude Code User"
-          : "OpenAI Codex User",
+      id: userInfo.id,
+      email: userInfo.email,
+      name: userInfo.name || userInfo.email || (providerKey === "antigravity" ? "Google Antigravity User" : "OAuth User"),
+      avatarUrl: userInfo.picture,
     },
+    providerSpecificData,
   };
+}
+
+const antigravityProjectCache = new Map<string, string>();
+
+export async function resolveAntigravityProject(accessToken: string): Promise<string> {
+  if (!accessToken) return "";
+  const cached = antigravityProjectCache.get(accessToken);
+  if (cached) return cached;
+
+  const endpoints = [
+    "https://cloudcode-pa.googleapis.com",
+    "https://daily-cloudcode-pa.googleapis.com",
+  ];
+
+  const headers = {
+    Authorization: `Bearer ${accessToken}`,
+    "Content-Type": "application/json",
+    "User-Agent": "antigravity/1.0.0 darwin/arm64",
+    "x-goog-api-client": "gl-node/22.21.1 google-api-nodejs-client/10.3.0",
+  };
+
+  for (const base of endpoints) {
+    try {
+      // 1. loadCodeAssist
+      const loadRes = await fetch(`${base}/v1internal:loadCodeAssist`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          metadata: {
+            ideType: "IDE_UNSPECIFIED",
+            pluginType: "GEMINI",
+          },
+        }),
+      });
+
+      if (loadRes.ok) {
+        const data = await loadRes.json();
+        let proj =
+          data.cloudaicompanionProject?.id ||
+          data.cloudaicompanionProject ||
+          data.currentTier?.projectId ||
+          data.project ||
+          "";
+
+        if (typeof proj === "string" && proj) {
+          antigravityProjectCache.set(accessToken, proj);
+          return proj;
+        }
+
+        // 2. Try onboardUser if eligible tiers exist
+        const allowedTiers = data.allowedTiers || [];
+        const targetTier = allowedTiers[0]?.id || allowedTiers[0]?.name || "free-tier";
+
+        const onboardRes = await fetch(`${base}/v1internal:onboardUser`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            tierId: targetTier,
+            metadata: {
+              ideType: "IDE_UNSPECIFIED",
+              pluginType: "GEMINI",
+            },
+          }),
+        });
+
+        if (onboardRes.ok) {
+          const onboardData = await onboardRes.json();
+          proj =
+            onboardData.cloudaicompanionProject?.id ||
+            onboardData.cloudaicompanionProject ||
+            onboardData.project ||
+            "";
+          if (typeof proj === "string" && proj) {
+            antigravityProjectCache.set(accessToken, proj);
+            return proj;
+          }
+        }
+      }
+    } catch {
+      // try next endpoint
+    }
+  }
+
+  return "";
 }

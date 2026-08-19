@@ -1,4 +1,5 @@
 export const config = { runtime: "edge" };
+import { resolveAntigravityProject } from "./_lib/oauth/device-flow.js";
 
 const TARGETS: Record<string, string> = {
   openai: "https://api.openai.com",
@@ -268,13 +269,20 @@ async function handleGoogleChatCompletion(
     })),
   };
 
+  let projectId = req.headers.get("x-project-id") || "";
+  if (isOAuth && !projectId) {
+    try {
+      projectId = await resolveAntigravityProject(apiKey);
+    } catch {}
+  }
+
   const internalBody = {
     model,
     ...googleBody,
   };
   const wrappedInternalBody = {
     model,
-    project: "",
+    project: projectId || "",
     request: googleBody,
   };
 

@@ -179,46 +179,35 @@ export function resolveRoute(
       status: 400,
     };
 
-  const { providerHint, modelId } = parseModel(model);
   const byId = new Map(providers.map((p) => [p.id, p]));
+  const wanted = model.trim().toLowerCase();
 
-  // 1. Explicit provider prefix → first connected provider of that key.
+  // 1. Direct exact match in saved models
+  const hit = models.find((m) => (m.modelId ?? "").trim().toLowerCase() === wanted);
+  if (hit) {
+    const provider = byId.get(hit.providerId) || providers.find((p) => p.key === hit.providerKey);
+    if (provider) return finalize(provider, hit.modelId);
+  }
+
+  // 2. Direct match by prefix hint (if client sends provider/modelId)
+  const { providerHint, modelId } = parseModel(model);
   if (providerHint) {
-    // "aip/" is the virtual Claude prefix — route it to whichever provider
-    // serves Claude. Prefer a native anthropic provider; else a provider that
-    // speaks the Anthropic wire format; else the provider that has this exact
-    // model saved.
-    if (providerHint === "aip") {
-      const savedHit = models.find((m) => stripKnownPrefix(m.modelId) === modelId);
-      const claude =
-        providers.find((p) => p.key === "anthropic") ??
-        providers.find((p) => p.apiFormat === "anthropic") ??
-        (savedHit ? byId.get(savedHit.providerId) : undefined);
-      if (claude) return finalize(claude, modelId);
-    }
-    const match = providers.find((p) => p.key === providerHint);
+    const match = providers.find((p) => p.key === providerHint || (p.displayName && p.displayName.toLowerCase() === providerHint));
     if (match) return finalize(match, modelId);
   }
 
-  // 2. Auto-detect via saved models. A saved modelId may itself carry the
-  // virtual "aip/" prefix, so compare on the stripped form both ways, and
-  // send the stripped id upstream.
-  const hit =
-    models.find((m) => m.modelId === model) ??
-    models.find((m) => m.modelId === modelId) ??
-    models.find((m) => stripKnownPrefix(m.modelId) === modelId);
-  if (hit) {
-    const provider = byId.get(hit.providerId);
-    // Send the SAVED id minus only the virtual "aip/" marker. Real provider
-    // namespaces in the model id (nvidia/…, google/…, meta/…) belong upstream.
-    if (provider) return finalize(provider, stripVirtualPrefix(hit.modelId));
+  // 3. Fallback: match by modelId
+  const fuzzyHit = models.find((m) => (m.modelId ?? "").toLowerCase().endsWith(wanted) || wanted.endsWith((m.modelId ?? "").toLowerCase()));
+  if (fuzzyHit) {
+    const provider = byId.get(fuzzyHit.providerId) || providers.find((p) => p.key === fuzzyHit.providerKey);
+    if (provider) return finalize(provider, fuzzyHit.modelId);
   }
 
-  // 3. Single-provider convenience: no ambiguity possible.
-  if (providers.length === 1) return finalize(providers[0], modelId);
+  // 4. Single-provider convenience
+  if (providers.length === 1) return finalize(providers[0], model);
 
   return {
-    error: `Could not route model "${model}". Add it under a provider in the app, or prefix it with the provider (e.g. "openai/${modelId}").`,
+    error: `Could not route model "${model}". Add it under a provider in the app, or check your connected providers.`,
     status: 400,
   };
 }

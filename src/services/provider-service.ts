@@ -493,14 +493,56 @@ export async function fetchModelIds(
     (provider.key === "google" && (provider.authMode === "oauth" || provider.apiKey?.startsWith("ya29."))) ||
     provider.baseURL?.includes("cloudcode-pa.googleapis.com")
   ) {
+    const token = (provider.apiKey ?? "").trim();
+    if (token) {
+      // Try live discovery first matching OmniRoute's :fetchAvailableModels
+      const endpoints = [
+        "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+        "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+      ];
+      for (const ep of endpoints) {
+        try {
+          const resp = await fetch(ep, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+              "User-Agent": "antigravity/1.0.0",
+              "x-goog-api-client": "gl-js/ antigravity/1.0.0",
+            },
+            body: JSON.stringify({}),
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            const modelsList = data.models || data.availableModels || data.data;
+            if (Array.isArray(modelsList) && modelsList.length > 0) {
+              return modelsList.map((m: any) => ({
+                id: typeof m === "string" ? m : m.id || m.name || m.modelId,
+                supportsVision: true,
+              }));
+            }
+          }
+        } catch {
+          // continue to fallback
+        }
+      }
+    }
+
+    // Default to the full public Antigravity suite from OmniRoute
     return [
+      { id: "gemini-3.7-flash-high", supportsVision: true },
+      { id: "gemini-3.7-flash-medium", supportsVision: true },
+      { id: "gemini-3.7-flash-low", supportsVision: true },
+      { id: "gemini-pro-agent", supportsVision: true },
+      { id: "gemini-3.1-pro-low", supportsVision: true },
+      { id: "gemini-3.1-flash-lite", supportsVision: true },
+      { id: "claude-opus-4-6-thinking", supportsVision: true },
+      { id: "claude-sonnet-4-6", supportsVision: true },
+      { id: "claude-3-5-sonnet-v2", supportsVision: true },
+      { id: "gpt-oss-120b-medium", supportsVision: true },
       { id: "gemini-2.5-pro", supportsVision: true },
       { id: "gemini-2.5-flash", supportsVision: true },
       { id: "gemini-2.0-flash", supportsVision: true },
-      { id: "gemini-3.5-flash", supportsVision: true },
-      { id: "gemini-3.1-pro", supportsVision: true },
-      { id: "claude-sonnet-4.6", supportsVision: true },
-      { id: "claude-3-5-sonnet-v2", supportsVision: true },
     ];
   }
 

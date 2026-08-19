@@ -95,7 +95,7 @@ export async function handleGateway(
     readKV<GwCombo[]>(uid, "combos", []),
   ]);
 
-  // â”€â”€ GET models: return ONLY working models for active connected providers + combos ────
+  // â”€â”€ GET models: return working models for active connected providers + combos ────
   if (path === "models" || path === "v1/models") {
     const data: Array<{ id: string; object: string; owned_by: string }> = [];
     const seenIds = new Set<string>();
@@ -107,6 +107,8 @@ export async function handleGateway(
     const activeProviderMap = new Map<string, GwProvider>();
     for (const p of activeProviders) {
       if (p.id) activeProviderMap.set(p.id, p);
+      if (p.key) activeProviderMap.set(p.key, p);
+      if (p.displayName) activeProviderMap.set(p.displayName.toLowerCase(), p);
     }
 
     const providerModelCounts = new Map<string, number>();
@@ -114,16 +116,33 @@ export async function handleGateway(
     if (Array.isArray(models)) {
       for (const m of models) {
         if (!m || !m.modelId || seenIds.has(m.modelId)) continue;
-        // Only include if model belongs to an active connected provider
-        const parentProvider = m.providerId ? activeProviderMap.get(m.providerId) : undefined;
-        if (parentProvider) {
-          seenIds.add(m.modelId);
-          const owner = parentProvider.key || parentProvider.displayName || "provider";
-          data.push({
-            id: m.modelId,
-            object: "model",
-            owned_by: owner,
-          });
+        
+        let parentProvider: GwProvider | undefined;
+        if (activeProviders.length > 0) {
+          parentProvider =
+            (m.providerId && activeProviderMap.get(m.providerId)) ||
+            (m.providerKey && activeProviderMap.get(m.providerKey)) ||
+            activeProviders.find(
+              (p) =>
+                p.id === m.providerId ||
+                p.key === m.providerKey ||
+                (p.displayName && m.providerId && p.displayName.toLowerCase() === m.providerId.toLowerCase())
+            );
+
+          // If providers are active and this model belongs to a disconnected/disabled provider, skip it
+          if (!parentProvider && activeProviders.length > 0 && (m.providerId || m.providerKey)) {
+            continue;
+          }
+        }
+
+        seenIds.add(m.modelId);
+        const owner = parentProvider?.key || parentProvider?.displayName || m.providerKey || m.providerId || "provider";
+        data.push({
+          id: m.modelId,
+          object: "model",
+          owned_by: owner,
+        });
+        if (parentProvider?.id) {
           providerModelCounts.set(parentProvider.id, (providerModelCounts.get(parentProvider.id) || 0) + 1);
         }
       }
@@ -133,7 +152,12 @@ export async function handleGateway(
     const DEFAULT_CATALOG: Record<string, string[]> = {
       openai: ["gpt-4o", "gpt-4o-mini", "o1", "o1-mini", "o3-mini"],
       anthropic: ["claude-3-7-sonnet-latest", "claude-3-5-sonnet-latest", "claude-3-5-haiku-latest"],
-      google: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"],
+      google: [
+        "gemini-3.7-flash-high", "gemini-3.7-flash-medium", "gemini-3.7-flash-low",
+        "gemini-pro-agent", "gemini-3.1-pro-low", "gemini-3.1-flash-lite",
+        "claude-opus-4-6-thinking", "claude-sonnet-4-6", "claude-3-5-sonnet-v2",
+        "gpt-oss-120b-medium", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"
+      ],
       antigravity: [
         "gemini-3.7-flash-high", "gemini-3.7-flash-medium", "gemini-3.7-flash-low",
         "gemini-pro-agent", "gemini-3.1-pro-low", "gemini-3.1-flash-lite",
@@ -163,10 +187,11 @@ export async function handleGateway(
     }
 
     for (const p of activeProviders) {
-      const count = providerModelCounts.get(p.id) || 0;
+      const count = (p.id ? providerModelCounts.get(p.id) : 0) || 0;
       const effectiveKey = detectProviderKey(p);
-      if (count === 0 && DEFAULT_CATALOG[effectiveKey]) {
-        for (const mid of DEFAULT_CATALOG[effectiveKey]) {
+      if (count === 0 && (DEFAULT_CATALOG[effectiveKey] || DEFAULT_CATALOG[p.key])) {
+        const catalogList = DEFAULT_CATALOG[effectiveKey] || DEFAULT_CATALOG[p.key] || [];
+        for (const mid of catalogList) {
           if (!seenIds.has(mid)) {
             seenIds.add(mid);
             data.push({

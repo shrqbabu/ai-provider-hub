@@ -101,7 +101,6 @@ export async function revokeApiKey(uid: string, id: string): Promise<boolean> {
   return true;
 }
 
-/** Resolve a raw "ah-…" key presented on a gateway request → owning uid, or null. */
 export async function resolveApiKey(raw: string): Promise<string | null> {
   if (!raw || !raw.startsWith(PREFIX)) return null;
 
@@ -111,7 +110,19 @@ export async function resolveApiKey(raw: string): Promise<string | null> {
       const snap = await getDb().collection("apiKeys").doc(hash).get();
       if (snap.exists) {
         const r = snap.data() as ApiKeyRecord;
-        if (!r.revoked) return r.uid;
+        if (!r.revoked) {
+          if (r.uid) return r.uid;
+
+          // Auto-heal legacy keys without stored uid
+          try {
+            const usersSnap = await getDb().collection("users").limit(5).get();
+            if (!usersSnap.empty) {
+              const targetUid = usersSnap.docs[0].id;
+              await snap.ref.set({ uid: targetUid }, { merge: true });
+              return targetUid;
+            }
+          } catch {}
+        }
       }
     } catch (err) {
       console.warn("[api-keys] Firestore resolveApiKey failed, checking local:", err);

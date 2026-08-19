@@ -95,60 +95,85 @@ export async function handleGateway(
     readKV<GwCombo[]>(uid, "combos", []),
   ]);
 
-  // â”€â”€ GET models: return the user's saved models + combos in list shape â”€â”€â”€â”€
+  // â”€â”€ GET models: return ONLY working models for active connected providers + combos ────
   if (path === "models" || path === "v1/models") {
     const data: Array<{ id: string; object: string; owned_by: string }> = [];
     const seenIds = new Set<string>();
+
+    const activeProviders = Array.isArray(providers)
+      ? providers.filter((p) => p && !(p as any).disabled)
+      : [];
+
+    const activeProviderMap = new Map<string, GwProvider>();
+    for (const p of activeProviders) {
+      if (p.id) activeProviderMap.set(p.id, p);
+    }
+
     const providerModelCounts = new Map<string, number>();
 
     if (Array.isArray(models)) {
       for (const m of models) {
-        if (m && m.modelId && !seenIds.has(m.modelId)) {
+        if (!m || !m.modelId || seenIds.has(m.modelId)) continue;
+        // Only include if model belongs to an active connected provider
+        const parentProvider = m.providerId ? activeProviderMap.get(m.providerId) : undefined;
+        if (parentProvider) {
           seenIds.add(m.modelId);
-          const owner = m.providerKey || m.providerId || "system";
+          const owner = parentProvider.key || parentProvider.displayName || "provider";
           data.push({
             id: m.modelId,
             object: "model",
             owned_by: owner,
           });
-          providerModelCounts.set(m.providerId, (providerModelCounts.get(m.providerId) || 0) + 1);
-          providerModelCounts.set(owner, (providerModelCounts.get(owner) || 0) + 1);
+          providerModelCounts.set(parentProvider.id, (providerModelCounts.get(parentProvider.id) || 0) + 1);
         }
       }
     }
 
-    // Default fallback models per provider key if a connected provider has 0 saved models
+    // Default working models per provider if an active provider has 0 discovered models
     const DEFAULT_CATALOG: Record<string, string[]> = {
-      openai: ["gpt-4o", "gpt-4o-mini", "o1", "o1-mini", "o3-mini", "gpt-4-turbo"],
-      anthropic: ["claude-3-7-sonnet-latest", "claude-3-5-sonnet-latest", "claude-3-5-haiku-latest", "claude-3-opus-latest"],
-      google: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
+      openai: ["gpt-4o", "gpt-4o-mini", "o1", "o1-mini", "o3-mini"],
+      anthropic: ["claude-3-7-sonnet-latest", "claude-3-5-sonnet-latest", "claude-3-5-haiku-latest"],
+      google: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"],
       antigravity: [
         "gemini-3.7-flash-high", "gemini-3.7-flash-medium", "gemini-3.7-flash-low",
         "gemini-pro-agent", "gemini-3.1-pro-low", "gemini-3.1-flash-lite",
         "claude-opus-4-6-thinking", "claude-sonnet-4-6", "claude-3-5-sonnet-v2",
         "gpt-oss-120b-medium", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"
       ],
-      github: ["gpt-4o", "claude-3.5-sonnet", "o1-mini", "o3-mini"],
-      grok: ["grok-2", "grok-2-vision", "grok-beta", "grok-3", "grok-3-mini"],
-      kimi: ["kimi-k1.5", "moonshot-v1-128k", "moonshot-v1-32k", "moonshot-v1-8k"],
-      nvidia: ["meta/llama-3.3-70b-instruct", "deepseek-ai/deepseek-r1", "meta/llama-3.1-405b-instruct"],
-      openrouter: ["anthropic/claude-3.7-sonnet", "openai/gpt-4o", "deepseek/deepseek-r1", "google/gemini-2.5-pro"],
+      github: ["gpt-4o", "claude-3.5-sonnet", "o1-mini"],
+      grok: ["grok-2", "grok-2-vision", "grok-beta"],
+      kimi: ["kimi-k1.5", "moonshot-v1-128k", "moonshot-v1-32k"],
+      nvidia: ["meta/llama-3.3-70b-instruct", "deepseek-ai/deepseek-r1"],
+      openrouter: ["anthropic/claude-3.7-sonnet", "openai/gpt-4o", "deepseek/deepseek-r1"],
     };
 
-    if (Array.isArray(providers)) {
-      for (const p of providers) {
-        if (!p || (p as any).disabled) continue;
-        const count = (providerModelCounts.get(p.id) || 0) + (providerModelCounts.get(p.key) || 0);
-        if (count === 0 && DEFAULT_CATALOG[p.key]) {
-          for (const mid of DEFAULT_CATALOG[p.key]) {
-            if (!seenIds.has(mid)) {
-              seenIds.add(mid);
-              data.push({
-                id: mid,
-                object: "model",
-                owned_by: p.key || p.displayName || "system",
-              });
-            }
+    function detectProviderKey(p: GwProvider): string {
+      const url = (p.baseURL || "").toLowerCase();
+      const name = (p.displayName || (p as any).name || "").toLowerCase();
+      if (url.includes("githubcopilot.com") || name.includes("copilot") || name.includes("github")) return "github";
+      if (url.includes("api.x.ai") || name.includes("grok") || name.includes("xai")) return "grok";
+      if (url.includes("api.kimi.com") || name.includes("kimi") || name.includes("moonshot")) return "kimi";
+      if (url.includes("nvidia.com") || name.includes("nvidia")) return "nvidia";
+      if (url.includes("openrouter.ai") || name.includes("openrouter")) return "openrouter";
+      if (url.includes("anthropic.com") || name.includes("anthropic") || name.includes("claude")) return "anthropic";
+      if (url.includes("cloudcode-pa.googleapis.com") || name.includes("antigravity")) return "antigravity";
+      if (url.includes("generativelanguage.googleapis.com") || name.includes("google") || name.includes("gemini")) return "google";
+      if (url.includes("openai.com") || name.includes("openai") || name.includes("codex")) return "openai";
+      return p.key || "custom";
+    }
+
+    for (const p of activeProviders) {
+      const count = providerModelCounts.get(p.id) || 0;
+      const effectiveKey = detectProviderKey(p);
+      if (count === 0 && DEFAULT_CATALOG[effectiveKey]) {
+        for (const mid of DEFAULT_CATALOG[effectiveKey]) {
+          if (!seenIds.has(mid)) {
+            seenIds.add(mid);
+            data.push({
+              id: mid,
+              object: "model",
+              owned_by: effectiveKey || p.key || "provider",
+            });
           }
         }
       }

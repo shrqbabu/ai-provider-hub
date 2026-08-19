@@ -15,7 +15,7 @@ export async function requireUser(req: CoreRequest): Promise<string | null> {
   const headerUid = req.header("x-user-uid");
 
   if (!token) {
-    return headerUid || "local_user";
+    return headerUid || (isFirebaseConfigured() ? null : "local_user");
   }
 
   // 1. If Firebase Admin is configured with private key, cryptographically verify token
@@ -43,5 +43,5 @@ export async function requireUser(req: CoreRequest): Promise<string | null> {
   }
 
   if (headerUid) return headerUid;
-  return "local_user";
+  return isFirebaseConfigured() ? null : "local_user";
 }

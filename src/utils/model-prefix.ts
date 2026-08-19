@@ -13,16 +13,13 @@ export function isClaudeModel(modelId: string): boolean {
   return /claude/i.test(modelId);
 }
 
-/** Add the aip/ prefix to a Claude model id, unless it's already prefixed. */
+/** Return the clean model id without virtual prefix. */
 export function withClaudePrefix(modelId: string): string {
-  const id = (modelId ?? "").trim();
-  if (!id) return id;
-  if (id.startsWith(CLAUDE_PREFIX)) return id;
-  return isClaudeModel(id) ? `${CLAUDE_PREFIX}${id}` : id;
+  return stripClaudePrefix(modelId);
 }
 
 /** Remove the aip/ prefix if present, returning the bare provider model id. */
 export function stripClaudePrefix(modelId: string): string {
   const id = (modelId ?? "").trim();
-  return id.startsWith(CLAUDE_PREFIX) ? id.slice(CLAUDE_PREFIX.length) : id;
+  return id.replace(/^aip\//i, "");
 }

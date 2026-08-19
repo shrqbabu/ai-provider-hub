@@ -135,10 +135,12 @@ export async function handleGateway(
           }
         }
 
-        seenIds.add(m.modelId);
+        const cleanId = m.modelId.replace(/^aip\//i, "");
+        if (seenIds.has(cleanId)) continue;
+        seenIds.add(cleanId);
         const owner = parentProvider?.key || parentProvider?.displayName || m.providerKey || m.providerId || "provider";
         data.push({
-          id: m.modelId,
+          id: cleanId,
           object: "model",
           owned_by: owner,
         });

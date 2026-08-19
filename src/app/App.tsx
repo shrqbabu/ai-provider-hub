@@ -128,31 +128,45 @@ export default function App() {
         return true;
       });
 
-      const patched = validModels.map((m) => ({
-        ...m,
-        tier: inferTier({
-          providerKey: m.providerKey,
-          modelId: m.modelId,
-          baseURL: providerMap.get(m.providerId)?.baseURL,
-          inputPrice: m.inputPrice,
-          outputPrice: m.outputPrice,
-        }),
+      const patched = validModels.map((m) => {
+        const cleanModelId = m.modelId.replace(/^aip\//i, "");
+        const cleanDisplayName = (m.displayName || cleanModelId).replace(/^aip\//i, "");
+        return {
+          ...m,
+          modelId: cleanModelId,
+          displayName: cleanDisplayName,
+          tier: inferTier({
+            providerKey: m.providerKey,
+            modelId: cleanModelId,
+            baseURL: providerMap.get(m.providerId)?.baseURL,
+            inputPrice: m.inputPrice,
+            outputPrice: m.outputPrice,
+          }),
+        };
+      });
+
+      const comboState = useComboStore.getState();
+      const patchedCombos = comboState.combos.map((c) => ({
+        ...c,
+        name: (c.name || "").replace(/^aip\//i, ""),
+        members: (c.members || []).map((mb) => ({
+          ...mb,
+          modelId: (mb.modelId || "").replace(/^aip\//i, ""),
+        })),
       }));
 
-      if (validModels.length !== modelState.models.length) {
-        useModelStore.setState({ models: patched });
-        storage.set("models", patched).catch(() => {});
-      } else if (patched.length > 0) {
-        modelState.upsertMany(patched);
-      }
+      useModelStore.setState({ models: patched });
+      useComboStore.setState({ combos: patchedCombos });
+      storage.set("models", patched).catch(() => {});
+      storage.set("combos", patchedCombos).catch(() => {});
 
       // Best-effort sync of all loaded state back to the server. The gateway /
       // Claude Desktop can only see data stored server-side (it can't read this
       // browser's localStorage), so push whatever we just loaded so combos &
       // providers are available to gateway keys immediately.
       void storage.set("providers", useProviderStore.getState().providers).catch(() => {});
-      void storage.set("combos", useComboStore.getState().combos).catch(() => {});
-      void storage.set("models", useModelStore.getState().models).catch(() => {});
+      void storage.set("combos", patchedCombos).catch(() => {});
+      void storage.set("models", patched).catch(() => {});
       void storage.set("prompts", usePromptStore.getState().prompts).catch(() => {});
       void storage.set("chats", useChatStore.getState().chats).catch(() => {});
       void storage.set("keystore", useKeyStoreStore.getState().items).catch(() => {});

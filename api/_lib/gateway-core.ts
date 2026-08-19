@@ -468,8 +468,8 @@ function buildUpstreamHeaders(
   const isGrok = (provider.baseURL ?? "").includes("api.x.ai");
 
   if (provider.key === "google" || (provider.baseURL ?? "").includes("googleapis.com")) {
-    headers.set("User-Agent", "antigravity/1.0.0");
-    headers.set("x-goog-api-client", "gl-js/ antigravity/1.0.0");
+    headers.set("User-Agent", "antigravity/1.0.0 darwin/arm64");
+    headers.set("x-goog-api-client", "gl-node/22.21.1 google-api-nodejs-client/10.3.0");
   }
 
   const isAnthropic =

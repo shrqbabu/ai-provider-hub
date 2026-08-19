@@ -322,8 +322,8 @@ async function handleGoogleChatCompletion(
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    "User-Agent": "antigravity/1.0.0",
-    "x-goog-api-client": "gl-node/20.0.0 antigravity/1.0.0",
+    "User-Agent": "antigravity/1.0.0 darwin/arm64",
+    "x-goog-api-client": "gl-node/22.21.1 google-api-nodejs-client/10.3.0",
   };
   if (isOAuth) {
     headers["Authorization"] = `Bearer ${apiKey}`;

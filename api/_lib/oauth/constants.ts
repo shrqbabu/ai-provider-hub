@@ -29,8 +29,10 @@ export const OAUTH_PROVIDERS = {
     userInfoUrl: "https://www.googleapis.com/oauth2/v1/userinfo",
     scopes: [
       "https://www.googleapis.com/auth/cloud-platform",
+      "https://www.googleapis.com/auth/generative-language",
       "https://www.googleapis.com/auth/userinfo.email",
       "https://www.googleapis.com/auth/userinfo.profile",
+      "openid",
     ],
     defaultModels: [
       { id: "gemini-3.7-flash-high", name: "Gemini 3.7 Flash (High)" },

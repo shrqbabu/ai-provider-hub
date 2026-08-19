@@ -1087,7 +1087,7 @@ async function translateGoogleResponseToAnthropic(
   };
 
   const toolNameMap = extractToolNameMap(requestBody);
-  const candidate = googleResp.candidates?.[0];
+  const candidate = googleResp.response?.candidates?.[0] || googleResp.candidates?.[0] || googleResp.result?.candidates?.[0];
   const parts = candidate?.content?.parts ?? [];
   const content: Array<Record<string, unknown>> = [];
   let hasToolCall = false;
@@ -1115,7 +1115,14 @@ async function translateGoogleResponseToAnthropic(
     }
   }
 
-  if (content.length === 0) content.push({ type: "text", text: "" });
+  if (content.length === 0) {
+    const fallbackText = sanitizeGoogleOutputText(
+      googleResp.response?.reply || googleResp.reply || googleResp.response?.message || googleResp.message || ""
+    );
+    content.push({ type: "text", text: fallbackText || "" });
+  }
+
+  const usageMeta = googleResp.response?.usageMetadata || googleResp.usageMetadata || googleResp.result?.usageMetadata;
 
   return {
     status: 200,
@@ -1129,8 +1136,8 @@ async function translateGoogleResponseToAnthropic(
       stop_reason: hasToolCall ? "tool_use" : "end_turn",
       stop_sequence: null,
       usage: {
-        input_tokens: googleResp.usageMetadata?.promptTokenCount ?? 0,
-        output_tokens: googleResp.usageMetadata?.candidatesTokenCount ?? 0,
+        input_tokens: usageMeta?.promptTokenCount ?? 0,
+        output_tokens: usageMeta?.candidatesTokenCount ?? 0,
       },
     },
   };
@@ -1232,7 +1239,8 @@ function translateGoogleStreamToAnthropic(
             } catch {
               continue;
             }
-            const parts = chunk.candidates?.[0]?.content?.parts ?? [];
+            const candidate = (chunk as any).response?.candidates?.[0] || chunk.candidates?.[0] || (chunk as any).result?.candidates?.[0];
+            const parts = candidate?.content?.parts ?? [];
             for (const p of parts) {
               if (p.text) {
                 const clean = sanitizeGoogleOutputText(p.text);
@@ -1514,7 +1522,7 @@ async function translateGoogleResponseToOpenAI(
   }
 
   const googleResp = (await upstream.json()) as any;
-  const candidate = googleResp.candidates?.[0];
+  const candidate = googleResp.response?.candidates?.[0] || googleResp.candidates?.[0] || googleResp.result?.candidates?.[0];
   const parts = candidate?.content?.parts ?? [];
   const textParts: string[] = [];
   const reasoningParts: string[] = [];
@@ -1545,8 +1553,17 @@ async function translateGoogleResponseToOpenAI(
     }
   }
 
-  const text = textParts.join("");
+  let text = textParts.join("");
   const reasoningText = reasoningParts.join("");
+  if (!text && !toolCalls.length) {
+    if (typeof candidate?.message?.content === "string") text = sanitizeGoogleOutputText(candidate.message.content);
+    else if (typeof googleResp.response?.reply === "string") text = sanitizeGoogleOutputText(googleResp.response.reply);
+    else if (typeof googleResp.reply === "string") text = sanitizeGoogleOutputText(googleResp.reply);
+    else if (typeof googleResp.response?.message === "string") text = sanitizeGoogleOutputText(googleResp.response.message);
+    else if (typeof googleResp.message === "string") text = sanitizeGoogleOutputText(googleResp.message);
+    else if (typeof googleResp.response === "string") text = sanitizeGoogleOutputText(googleResp.response);
+  }
+
   const messageObj: Record<string, unknown> = {
     role: "assistant",
     content: text || (toolCalls.length ? null : ""),
@@ -1557,6 +1574,8 @@ async function translateGoogleResponseToOpenAI(
   if (toolCalls.length) {
     messageObj.tool_calls = toolCalls;
   }
+
+  const usageMeta = googleResp.response?.usageMetadata || googleResp.usageMetadata || googleResp.result?.usageMetadata;
 
   return {
     status: 200,
@@ -1576,9 +1595,9 @@ async function translateGoogleResponseToOpenAI(
         },
       ],
       usage: {
-        prompt_tokens: googleResp.usageMetadata?.promptTokenCount ?? 0,
-        completion_tokens: googleResp.usageMetadata?.candidatesTokenCount ?? 0,
-        total_tokens: googleResp.usageMetadata?.totalTokenCount ?? 0,
+        prompt_tokens: usageMeta?.promptTokenCount ?? 0,
+        completion_tokens: usageMeta?.candidatesTokenCount ?? 0,
+        total_tokens: usageMeta?.totalTokenCount ?? 0,
       },
     },
   };
@@ -1633,7 +1652,7 @@ function translateGoogleStreamToOpenAI(
               const chunk = buffer.substring(objStart, objEnd);
               try {
                 const googleChunk = JSON.parse(chunk);
-                const candidate = googleChunk.candidates?.[0];
+                const candidate = (googleChunk as any).response?.candidates?.[0] || googleChunk.candidates?.[0] || (googleChunk as any).result?.candidates?.[0];
                 if (candidate) {
                   const parts = candidate?.content?.parts || [];
                   for (const p of parts) {
@@ -1713,6 +1732,41 @@ function translateGoogleStreamToOpenAI(
                       )
                     );
                   }
+                } else if ((googleChunk as any).response?.reply || googleChunk.reply || (googleChunk as any).response?.message || googleChunk.message) {
+                  const directText = sanitizeGoogleOutputText((googleChunk as any).response?.reply || googleChunk.reply || (googleChunk as any).response?.message || googleChunk.message || "");
+                  if (directText) {
+                    controller.enqueue(
+                      encoder.encode(
+                        `data: ${JSON.stringify({
+                          id: chatId,
+                          object: "chat.completion.chunk",
+                          created: Math.floor(Date.now() / 1000),
+                          model: modelId,
+                          choices: [{ index: 0, delta: { content: directText }, finish_reason: null }],
+                        })}\n\n`
+                      )
+                    );
+                  }
+                }
+
+                const usageMeta = (googleChunk as any).response?.usageMetadata || googleChunk.usageMetadata || (googleChunk as any).result?.usageMetadata;
+                if (usageMeta) {
+                  controller.enqueue(
+                    encoder.encode(
+                      `data: ${JSON.stringify({
+                        id: chatId,
+                        object: "chat.completion.chunk",
+                        created: Math.floor(Date.now() / 1000),
+                        model: modelId,
+                        choices: [],
+                        usage: {
+                          prompt_tokens: usageMeta.promptTokenCount || 0,
+                          completion_tokens: usageMeta.candidatesTokenCount || 0,
+                          total_tokens: usageMeta.totalTokenCount || 0,
+                        },
+                      })}\n\n`
+                    )
+                  );
                 }
               } catch {}
               startIdx = objEnd;

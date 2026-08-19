@@ -237,13 +237,21 @@ async function handleGoogleChatCompletion(
     if (parts.length > 0) {
       contents.push({ role, parts });
     }
+  }  const mergedContents: any[] = [];
+  for (const c of contents) {
+    const last = mergedContents[mergedContents.length - 1];
+    if (last && last.role === c.role) {
+      last.parts.push(...c.parts);
+    } else {
+      mergedContents.push({ role: c.role, parts: [...c.parts] });
+    }
   }
 
-  if (contents.length === 0) {
-    contents.push({ role: "user", parts: [{ text: "Hello" }] });
+  if (mergedContents.length === 0) {
+    mergedContents.push({ role: "user", parts: [{ text: "Hello" }] });
   }
 
-  const googleBody: any = { contents };
+  const googleBody: any = { contents: mergedContents };
 
   const generationConfig: any = {};
   if (openaiBody.temperature !== undefined) generationConfig.temperature = openaiBody.temperature;
@@ -308,7 +316,7 @@ async function handleGoogleChatCompletion(
     if (model.includes("3.1-pro") || model.includes("2.5-pro") || model.includes("opus") || model.includes("sonnet")) {
       baseModel = "gemini-2.5-pro";
     }
-    const fallbackWrapped = { model: baseModel, project: "", request: googleBody };
+    const fallbackWrapped = { model: baseModel, project: projectId || "", request: googleBody };
     candidateRequests.push(
       { url: `https://cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(fallbackWrapped) },
       { url: `https://daily-cloudcode-pa.googleapis.com/v1internal:${endpoint}${sseParam}`, body: JSON.stringify(fallbackWrapped) }
@@ -354,8 +362,6 @@ async function handleGoogleChatCompletion(
       lastErrorText = err?.message || "Upstream fetch error";
     }
   }
-
-
 
   try {
     const errorJson = JSON.parse(lastErrorText);
@@ -452,7 +458,7 @@ function isDeclaredTool(rawName: string, map: Map<string, string>): boolean {
 }
 
 function convertGoogleResponse(googleResp: any, modelName: string = "gemini-2.5-flash", openaiBody?: any): Response {
-  const candidate = googleResp.candidates?.[0];
+  const candidate = googleResp.response?.candidates?.[0] || googleResp.candidates?.[0] || googleResp.result?.candidates?.[0];
   const parts = candidate?.content?.parts || [];
   const textParts: string[] = [];
   const reasoningParts: string[] = [];
@@ -487,7 +493,9 @@ function convertGoogleResponse(googleResp: any, modelName: string = "gemini-2.5-
   const reasoningText = reasoningParts.join("");
   if (!text && !toolCalls.length) {
     if (typeof candidate?.message?.content === "string") text = sanitizeGoogleOutputText(candidate.message.content);
+    else if (typeof googleResp.response?.reply === "string") text = sanitizeGoogleOutputText(googleResp.response.reply);
     else if (typeof googleResp.reply === "string") text = sanitizeGoogleOutputText(googleResp.reply);
+    else if (typeof googleResp.response?.message === "string") text = sanitizeGoogleOutputText(googleResp.response.message);
     else if (typeof googleResp.message === "string") text = sanitizeGoogleOutputText(googleResp.message);
     else if (typeof googleResp.response === "string") text = sanitizeGoogleOutputText(googleResp.response);
     else if (Array.isArray(googleResp.predictions) && googleResp.predictions[0]) {
@@ -503,6 +511,8 @@ function convertGoogleResponse(googleResp: any, modelName: string = "gemini-2.5-
     message.tool_calls = toolCalls;
   }
 
+  const usageMeta = googleResp.response?.usageMetadata || googleResp.usageMetadata || googleResp.result?.usageMetadata;
+
   return json({
     id: `chatcmpl-${Date.now()}`,
     object: "chat.completion",
@@ -514,9 +524,9 @@ function convertGoogleResponse(googleResp: any, modelName: string = "gemini-2.5-
       finish_reason: toolCalls.length ? "tool_calls" : (candidate?.finishReason?.toLowerCase() || "stop"),
     }],
     usage: {
-      prompt_tokens: googleResp.usageMetadata?.promptTokenCount || 0,
-      completion_tokens: googleResp.usageMetadata?.candidatesTokenCount || 0,
-      total_tokens: googleResp.usageMetadata?.totalTokenCount || 0,
+      prompt_tokens: usageMeta?.promptTokenCount || 0,
+      completion_tokens: usageMeta?.candidatesTokenCount || 0,
+      total_tokens: usageMeta?.totalTokenCount || 0,
     },
   }, 200);
 }
@@ -559,7 +569,7 @@ function streamGoogleResponse(upstream: Response, modelName: string = "gemini-2.
             const chunk = buffer.substring(objStart, objEnd);
             try {
               const googleChunk = JSON.parse(chunk);
-              const candidate = googleChunk.candidates?.[0];
+              const candidate = googleChunk.response?.candidates?.[0] || googleChunk.candidates?.[0] || googleChunk.result?.candidates?.[0];
               if (candidate) {
                 const parts = candidate?.content?.parts || [];
                 for (const p of parts) {
@@ -609,17 +619,27 @@ function streamGoogleResponse(upstream: Response, modelName: string = "gemini-2.
                     choices: [{ index: 0, delta: {}, finish_reason: hasTool ? "tool_calls" : candidate.finishReason.toLowerCase() }],
                   })}\n\n`));
                 }
-                if (googleChunk.usageMetadata) {
+              } else if (googleChunk.response?.reply || googleChunk.reply || googleChunk.response?.message || googleChunk.message) {
+                const directText = sanitizeGoogleOutputText(googleChunk.response?.reply || googleChunk.reply || googleChunk.response?.message || googleChunk.message || "");
+                if (directText) {
                   await writer.write(encoder.encode(`data: ${JSON.stringify({
                     id: chatId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: effectiveModel,
-                    choices: [],
-                    usage: {
-                      prompt_tokens: googleChunk.usageMetadata.promptTokenCount || 0,
-                      completion_tokens: googleChunk.usageMetadata.candidatesTokenCount || 0,
-                      total_tokens: googleChunk.usageMetadata.totalTokenCount || 0,
-                    },
+                    choices: [{ index: 0, delta: { content: directText }, finish_reason: null }],
                   })}\n\n`));
                 }
+              }
+
+              const usageMeta = googleChunk.response?.usageMetadata || googleChunk.usageMetadata || googleChunk.result?.usageMetadata;
+              if (usageMeta) {
+                await writer.write(encoder.encode(`data: ${JSON.stringify({
+                  id: chatId, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: effectiveModel,
+                  choices: [],
+                  usage: {
+                    prompt_tokens: usageMeta.promptTokenCount || 0,
+                    completion_tokens: usageMeta.candidatesTokenCount || 0,
+                    total_tokens: usageMeta.totalTokenCount || 0,
+                  },
+                })}\n\n`));
               }
             } catch (e) { /* skip malformed */ }
             startIdx = objEnd;

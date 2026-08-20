@@ -89,11 +89,26 @@ export async function handleGateway(
   const path = req.subPath.replace(/^\/+/, "").replace(/\/+$/, "").toLowerCase();
 
   // Load the user's connected providers + models + combos
-  const [providers, models, combos] = await Promise.all([
+  let [providers, models, combos] = await Promise.all([
     readKV<GwProvider[]>(uid, "providers", []),
     readKV<GwModel[]>(uid, "models", []),
     readKV<GwCombo[]>(uid, "combos", []),
   ]);
+
+  if (!providers || providers.length === 0) {
+    if (uid !== "local_user") {
+      const [localProv, localMod, localComb] = await Promise.all([
+        readKV<GwProvider[]>("local_user", "providers", []),
+        readKV<GwModel[]>("local_user", "models", []),
+        readKV<GwCombo[]>("local_user", "combos", []),
+      ]);
+      if (localProv && localProv.length > 0) {
+        providers = localProv;
+        if (!models || models.length === 0) models = localMod;
+        if (!combos || combos.length === 0) combos = localComb;
+      }
+    }
+  }
 
   // â”€â”€ GET models: return working models for active connected providers + combos ────
   if (path === "models" || path === "v1/models") {

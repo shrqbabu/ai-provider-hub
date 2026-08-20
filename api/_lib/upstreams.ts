@@ -196,15 +196,57 @@ export function resolveRoute(
     if (match) return finalize(match, modelId);
   }
 
-  // 3. Fallback: match by modelId
-  const fuzzyHit = models.find((m) => (m.modelId ?? "").toLowerCase().endsWith(wanted) || wanted.endsWith((m.modelId ?? "").toLowerCase()));
+  // 3. Fallback: match by modelId fuzzy
+  const fuzzyHit = models.find(
+    (m) =>
+      (m.modelId ?? "").toLowerCase().endsWith(wanted) ||
+      wanted.endsWith((m.modelId ?? "").toLowerCase()) ||
+      (m.modelId ?? "").toLowerCase().includes(wanted) ||
+      wanted.includes((m.modelId ?? "").toLowerCase())
+  );
   if (fuzzyHit) {
     const provider = byId.get(fuzzyHit.providerId) || providers.find((p) => p.key === fuzzyHit.providerKey);
     if (provider) return finalize(provider, fuzzyHit.modelId);
   }
 
-  // 4. Single-provider convenience
+  // 4. Smart Provider-type routing fallback when models catalog wasn't explicitly populated
+  if (wanted.startsWith("claude-") || wanted.startsWith("gemini-")) {
+    const antigravity = providers.find(
+      (p) =>
+        p.key === "antigravity" ||
+        (p.baseURL ?? "").includes("cloudcode-pa.googleapis.com") ||
+        (p.displayName ?? "").toLowerCase().includes("antigravity")
+    );
+    if (antigravity) {
+      let targetModel = model;
+      if (wanted === "claude-3-5-sonnet") targetModel = "claude-3-5-sonnet-v2";
+      return finalize(antigravity, targetModel);
+    }
+    const anthropic = providers.find((p) => p.key === "anthropic" || p.apiFormat === "anthropic");
+    if (anthropic) return finalize(anthropic, model);
+  }
+
+  if (wanted.startsWith("gpt-") || wanted.startsWith("o1-") || wanted.startsWith("o3-")) {
+    const openai = providers.find((p) => p.key === "openai" || p.apiFormat === "openai" || (p.baseURL ?? "").includes("openai"));
+    if (openai) return finalize(openai, model);
+  }
+
+  if (wanted.startsWith("grok-")) {
+    const grok = providers.find((p) => p.key === "grok" || (p.baseURL ?? "").includes("api.x.ai"));
+    if (grok) return finalize(grok, model);
+  }
+
+  if (wanted.startsWith("kimi-") || wanted.startsWith("moonshot-")) {
+    const kimi = providers.find((p) => p.key === "kimi" || (p.baseURL ?? "").includes("api.kimi.com"));
+    if (kimi) return finalize(kimi, model);
+  }
+
+  // 5. Single-provider convenience
   if (providers.length === 1) return finalize(providers[0], model);
+
+  // 6. First active provider as fallback
+  const firstActive = providers.find((p) => !(p as any).disabled) || providers[0];
+  if (firstActive) return finalize(firstActive, model);
 
   return {
     error: `Could not route model "${model}". Add it under a provider in the app, or check your connected providers.`,

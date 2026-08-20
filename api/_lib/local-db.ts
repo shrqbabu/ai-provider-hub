@@ -97,8 +97,27 @@ export async function readLocalKV<T>(uid: string, key: string, fallback: T): Pro
   const db = loadDb();
   const docKey = `${uid}::${key}`;
   const doc = db.kv[docKey];
-  if (!doc) return fallback;
-  return (doc.value as T) ?? fallback;
+  if (doc && doc.value !== undefined && doc.value !== null) {
+    if (Array.isArray(doc.value)) {
+      if (doc.value.length > 0) return doc.value as T;
+    } else {
+      return (doc.value as T) ?? fallback;
+    }
+  }
+
+  // Fallback: check any other namespace in local db (e.g. "local_user::providers")
+  const targetSuffix = `::${key}`;
+  for (const [k, v] of Object.entries(db.kv)) {
+    if (k.endsWith(targetSuffix) && v && v.value !== undefined && v.value !== null) {
+      if (Array.isArray(v.value)) {
+        if (v.value.length > 0) return v.value as T;
+      } else {
+        return v.value as T;
+      }
+    }
+  }
+
+  return fallback;
 }
 
 export async function writeLocalKV(

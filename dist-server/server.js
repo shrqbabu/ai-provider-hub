@@ -1874,7 +1874,7 @@ async function handleGateway(req, nowMs) {
         cleanModelId
       );
     }
-    return relay(upstream, wantsStream);
+    return relay(upstream, wantsStream, isAnthropicReq);
   }
   if (isCombo && resolved.combo) {
     void recordComboLog(uid, {
@@ -2477,31 +2477,9 @@ data: ${JSON.stringify(obj)}
         )
       );
       try {
-        const reader = upstream.body?.getReader();
-        if (!reader) {
-          controller.close();
-          return;
-        }
-        const decoder = new TextDecoder();
-        let buffer = "";
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() ?? "";
-          for (const rawLine of lines) {
-            const line = rawLine.trim();
-            if (!line.startsWith("data:")) continue;
-            const payload = line.slice(5).trim();
-            if (!payload || payload === "[DONE]") continue;
-            let chunk;
-            try {
-              chunk = JSON.parse(payload);
-            } catch {
-              continue;
-            }
-            const candidate = chunk.response?.candidates?.[0] || chunk.candidates?.[0] || chunk.result?.candidates?.[0];
+        let processGoogleChunk2 = function(chunk) {
+          const candidate = chunk.response?.candidates?.[0] || chunk.candidates?.[0] || chunk.result?.candidates?.[0];
+          if (candidate) {
             const parts = candidate?.content?.parts ?? [];
             for (const p of parts) {
               if (p.text) {
@@ -2603,7 +2581,95 @@ data: ${JSON.stringify(obj)}
                 );
               }
             }
+          } else if (chunk.response?.reply || chunk.reply || chunk.response?.message || chunk.message) {
+            const directText = sanitizeGoogleOutputText(
+              chunk.response?.reply || chunk.reply || chunk.response?.message || chunk.message || ""
+            );
+            if (directText) {
+              closeThinking();
+              if (!textOpen) {
+                textIndex = nextIndex++;
+                textOpen = true;
+                controller.enqueue(
+                  ev(
+                    {
+                      type: "content_block_start",
+                      index: textIndex,
+                      content_block: { type: "text", text: "" }
+                    },
+                    "content_block_start"
+                  )
+                );
+              }
+              controller.enqueue(
+                ev(
+                  {
+                    type: "content_block_delta",
+                    index: textIndex,
+                    delta: { type: "text_delta", text: directText }
+                  },
+                  "content_block_delta"
+                )
+              );
+            }
           }
+        };
+        var processGoogleChunk = processGoogleChunk2;
+        const reader = upstream.body?.getReader();
+        if (!reader) {
+          controller.close();
+          return;
+        }
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          if (buffer.includes("data:")) {
+            const lines = buffer.split("\n");
+            buffer = lines.pop() ?? "";
+            for (const rawLine of lines) {
+              const line = rawLine.trim();
+              if (!line.startsWith("data:")) continue;
+              const payload = line.slice(5).trim();
+              if (!payload || payload === "[DONE]") continue;
+              try {
+                const chunk = JSON.parse(payload);
+                processGoogleChunk2(chunk);
+              } catch {
+              }
+            }
+          }
+          let startIdx = 0;
+          while (startIdx < buffer.length) {
+            const objStart = buffer.indexOf("{", startIdx);
+            if (objStart === -1) break;
+            let braceCount = 0;
+            let objEnd = -1;
+            for (let i = objStart; i < buffer.length; i++) {
+              if (buffer[i] === "{") braceCount++;
+              if (buffer[i] === "}") {
+                braceCount--;
+                if (braceCount === 0) {
+                  objEnd = i + 1;
+                  break;
+                }
+              }
+            }
+            if (objEnd !== -1) {
+              const chunkText = buffer.substring(objStart, objEnd);
+              try {
+                const chunk = JSON.parse(chunkText);
+                processGoogleChunk2(chunk);
+              } catch {
+              }
+              startIdx = objEnd;
+            } else {
+              break;
+            }
+          }
+          buffer = buffer.substring(startIdx);
         }
         closeThinking();
         closeText();
@@ -3501,7 +3567,7 @@ function matchEndpoint(path4) {
   if (p === "messages") return "/messages";
   return null;
 }
-function relay(upstream, _wantsStream) {
+function relay(upstream, _wantsStream, isAnthropic = false) {
   const headers = {};
   upstream.headers.forEach((v, k) => {
     const lk = k.toLowerCase();
@@ -3511,9 +3577,9 @@ function relay(upstream, _wantsStream) {
   });
   if ((headers["content-type"] ?? "").toLowerCase().includes("text/html")) {
     return formatGatewayError(
-      upstream.status,
+      502,
       `Upstream returned an HTML page instead of an API response (${upstream.status}). Check the provider Base URL (include /v1) and that it's an API endpoint, not a website.`,
-      false
+      isAnthropic
     );
   }
   return {

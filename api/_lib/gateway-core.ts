@@ -573,7 +573,7 @@ export async function handleGateway(
         cleanModelId
       );
     }
-    return relay(upstream, wantsStream);
+    return relay(upstream, wantsStream, isAnthropicReq);
   }
 
   if (isCombo && resolved.combo) {
@@ -1344,33 +1344,63 @@ function translateGoogleStreamToAnthropic(
           const { done, value } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() ?? "";
-          for (const rawLine of lines) {
-            const line = rawLine.trim();
-            if (!line.startsWith("data:")) continue;
-            const payload = line.slice(5).trim();
-            if (!payload || payload === "[DONE]") continue;
-            let chunk: {
-              candidates?: Array<{
-                content?: {
-                  parts?: Array<{
-                    text?: string;
-                    thought?: boolean;
-                    functionCall?: {
-                      name?: string;
-                      args?: Record<string, unknown>;
-                    };
-                  }>;
-                };
-              }>;
-            };
-            try {
-              chunk = JSON.parse(payload);
-            } catch {
-              continue;
+
+          // 1. Process SSE data: lines if present
+          if (buffer.includes("data:")) {
+            const lines = buffer.split("\n");
+            buffer = lines.pop() ?? "";
+            for (const rawLine of lines) {
+              const line = rawLine.trim();
+              if (!line.startsWith("data:")) continue;
+              const payload = line.slice(5).trim();
+              if (!payload || payload === "[DONE]") continue;
+              try {
+                const chunk = JSON.parse(payload);
+                processGoogleChunk(chunk);
+              } catch {}
             }
-            const candidate = (chunk as any).response?.candidates?.[0] || chunk.candidates?.[0] || (chunk as any).result?.candidates?.[0];
+          }
+
+          // 2. Process raw JSON chunks / bracketed objects from CloudCode
+          let startIdx = 0;
+          while (startIdx < buffer.length) {
+            const objStart = buffer.indexOf("{", startIdx);
+            if (objStart === -1) break;
+
+            let braceCount = 0;
+            let objEnd = -1;
+            for (let i = objStart; i < buffer.length; i++) {
+              if (buffer[i] === "{") braceCount++;
+              if (buffer[i] === "}") {
+                braceCount--;
+                if (braceCount === 0) {
+                  objEnd = i + 1;
+                  break;
+                }
+              }
+            }
+
+            if (objEnd !== -1) {
+              const chunkText = buffer.substring(objStart, objEnd);
+              try {
+                const chunk = JSON.parse(chunkText);
+                processGoogleChunk(chunk);
+              } catch {}
+              startIdx = objEnd;
+            } else {
+              break;
+            }
+          }
+          buffer = buffer.substring(startIdx);
+        }
+
+        function processGoogleChunk(chunk: any) {
+          const candidate =
+            chunk.response?.candidates?.[0] ||
+            chunk.candidates?.[0] ||
+            chunk.result?.candidates?.[0];
+
+          if (candidate) {
             const parts = candidate?.content?.parts ?? [];
             for (const p of parts) {
               if (p.text) {
@@ -1472,8 +1502,49 @@ function translateGoogleStreamToAnthropic(
                 );
               }
             }
+          } else if (
+            chunk.response?.reply ||
+            chunk.reply ||
+            chunk.response?.message ||
+            chunk.message
+          ) {
+            const directText = sanitizeGoogleOutputText(
+              chunk.response?.reply ||
+                chunk.reply ||
+                chunk.response?.message ||
+                chunk.message ||
+                ""
+            );
+            if (directText) {
+              closeThinking();
+              if (!textOpen) {
+                textIndex = nextIndex++;
+                textOpen = true;
+                controller.enqueue(
+                  ev(
+                    {
+                      type: "content_block_start",
+                      index: textIndex,
+                      content_block: { type: "text", text: "" },
+                    },
+                    "content_block_start"
+                  )
+                );
+              }
+              controller.enqueue(
+                ev(
+                  {
+                    type: "content_block_delta",
+                    index: textIndex,
+                    delta: { type: "text_delta", text: directText },
+                  },
+                  "content_block_delta"
+                )
+              );
+            }
           }
         }
+
         closeThinking();
         closeText();
       } catch {}
@@ -2537,7 +2608,7 @@ function matchEndpoint(path: string): string | null {
   return null;
 }
 
-function relay(upstream: Response, _wantsStream: boolean): CoreResponse {
+function relay(upstream: Response, _wantsStream: boolean, isAnthropic = false): CoreResponse {
   const headers: Record<string, string> = {};
   upstream.headers.forEach((v, k) => {
     const lk = k.toLowerCase();
@@ -2545,14 +2616,12 @@ function relay(upstream: Response, _wantsStream: boolean): CoreResponse {
     if (lk === "content-encoding" || lk === "content-length") return;
     headers[k] = v;
   });
-  // An upstream HTML response means we hit a web page, not an API â€” usually a
-  // wrong base URL (missing /v1), a captive portal, or the provider's own 404
-  // page. Streaming raw HTML to an OpenAI/Anthropic client shows garbage.
+  // An upstream HTML response means we hit a web page, not an API
   if ((headers["content-type"] ?? "").toLowerCase().includes("text/html")) {
     return formatGatewayError(
-      upstream.status,
+      502,
       `Upstream returned an HTML page instead of an API response (${upstream.status}). Check the provider Base URL (include /v1) and that it's an API endpoint, not a website.`,
-      false
+      isAnthropic
     );
   }
   return {

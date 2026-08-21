@@ -447,6 +447,14 @@ export async function handleGateway(
           body: upstreamBody,
         });
 
+        // Detect HTML responses — upstream returned a web page, not an API.
+        const ct = (candidateResp.headers.get("content-type") ?? "").toLowerCase();
+        if (ct.includes("text/html")) {
+          lastStatus = candidateResp.status || 502;
+          lastText = `Upstream returned an HTML page (Error ${candidateResp.status}). Check the provider Base URL (include /v1).`;
+          continue;
+        }
+
         if (candidateResp.ok) {
           upstream = candidateResp;
           break;
@@ -1183,7 +1191,7 @@ async function translateGoogleResponseToAnthropic(
     return translateGoogleStreamToAnthropic(upstream, modelId, requestBody);
   }
 
-  const googleResp = (await upstream.json()) as {
+  let googleResp: {
     candidates?: Array<{
       content?: {
         parts?: Array<{
@@ -1198,6 +1206,15 @@ async function translateGoogleResponseToAnthropic(
       candidatesTokenCount?: number;
     };
   };
+  try {
+    googleResp = await safeJson(upstream);
+  } catch (e) {
+    return formatGatewayError(
+      502,
+      e instanceof Error ? e.message : "Failed to parse upstream response.",
+      true
+    );
+  }
 
   const toolNameMap = extractToolNameMap(requestBody);
   const candidate = googleResp.response?.candidates?.[0] || googleResp.candidates?.[0] || googleResp.result?.candidates?.[0];
@@ -1634,7 +1651,16 @@ async function translateGoogleResponseToOpenAI(
     return translateGoogleStreamToOpenAI(upstream, modelId, requestBody);
   }
 
-  const googleResp = (await upstream.json()) as any;
+  let googleResp: any;
+  try {
+    googleResp = await safeJson(upstream);
+  } catch (e) {
+    return formatGatewayError(
+      502,
+      e instanceof Error ? e.message : "Failed to parse upstream response.",
+      false
+    );
+  }
   const candidate = googleResp.response?.candidates?.[0] || googleResp.candidates?.[0] || googleResp.result?.candidates?.[0];
   const parts = candidate?.content?.parts ?? [];
   const textParts: string[] = [];
@@ -1937,7 +1963,7 @@ async function translateResponseToAnthropic(
     return translateStreamToAnthropic(upstream, modelId);
   }
 
-  const openai = (await upstream.json()) as {
+  let openai: {
     choices?: Array<{
       message?: {
         role?: string;
@@ -1951,6 +1977,15 @@ async function translateResponseToAnthropic(
     }>;
     usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
+  try {
+    openai = await safeJson(upstream);
+  } catch (e) {
+    return formatGatewayError(
+      502,
+      e instanceof Error ? e.message : "Failed to parse upstream response.",
+      true
+    );
+  }
 
   const choice = openai.choices?.[0];
   const text = choice?.message?.content ?? "";
@@ -2026,7 +2061,7 @@ async function translateAnthropicResponseToOpenAI(
     return translateAnthropicStreamToOpenAI(upstream, modelId);
   }
 
-  const anth = (await upstream.json()) as {
+  let anth: {
     content?: Array<{
       type: string;
       id?: string;
@@ -2037,6 +2072,15 @@ async function translateAnthropicResponseToOpenAI(
     stop_reason?: string;
     usage?: { input_tokens?: number; output_tokens?: number };
   };
+  try {
+    anth = await safeJson(upstream);
+  } catch (e) {
+    return formatGatewayError(
+      502,
+      e instanceof Error ? e.message : "Failed to parse upstream response.",
+      false
+    );
+  }
 
   const text = (anth.content ?? [])
     .filter((b) => b.type === "text" && b.text)
@@ -2525,6 +2569,23 @@ async function safeText(res: Response): Promise<string> {
   } catch {
     return `${res.status} ${res.statusText}`;
   }
+}
+
+/** Safely parse upstream JSON response. Throws a clear error if the body is HTML. */
+async function safeJson<T>(upstream: Response): Promise<T> {
+  const ct = (upstream.headers.get("content-type") ?? "").toLowerCase();
+  if (ct.includes("text/html")) {
+    throw new Error(
+      `Upstream returned an HTML page (Error ${upstream.status}). Check the provider Base URL (include /v1).`
+    );
+  }
+  const text = await upstream.text();
+  if (!text || text.trim().startsWith("<")) {
+    throw new Error(
+      `Upstream returned non-JSON (${upstream.status}): ${text.slice(0, 100)}`
+    );
+  }
+  return JSON.parse(text) as T;
 }
 
 async function recordUsage(

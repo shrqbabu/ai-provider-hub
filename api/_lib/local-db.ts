@@ -46,30 +46,32 @@ function ensureDataDir(): void {
 }
 
 function loadDb(): LocalDbSchema {
-  if (memoryDb) return memoryDb;
   ensureDataDir();
 
   if (fs.existsSync(DB_FILE)) {
     try {
       const raw = fs.readFileSync(DB_FILE, "utf-8");
-      memoryDb = JSON.parse(raw);
-      if (!memoryDb?.kv) memoryDb!.kv = {};
-      if (!memoryDb?.apiKeys) memoryDb!.apiKeys = {};
-      if (!memoryDb?.comboLogs) memoryDb!.comboLogs = [];
-      if (!memoryDb?.usageLogs) memoryDb!.usageLogs = [];
+      const parsed = JSON.parse(raw);
+      if (!parsed?.kv) parsed.kv = {};
+      if (!parsed?.apiKeys) parsed.apiKeys = {};
+      if (!parsed?.comboLogs) parsed.comboLogs = [];
+      if (!parsed?.usageLogs) parsed.usageLogs = [];
+      memoryDb = parsed;
       return memoryDb!;
     } catch (err) {
-      console.error("[local-db] Failed to read database file, initializing empty:", err);
+      console.error("[local-db] Failed to read database file:", err);
     }
   }
 
-  memoryDb = {
-    kv: {},
-    apiKeys: {},
-    comboLogs: [],
-    usageLogs: [],
-  };
-  saveDb(memoryDb);
+  if (!memoryDb) {
+    memoryDb = {
+      kv: {},
+      apiKeys: {},
+      comboLogs: [],
+      usageLogs: [],
+    };
+    saveDb(memoryDb);
+  }
   return memoryDb;
 }
 
@@ -91,7 +93,7 @@ function saveDb(db: LocalDbSchema): void {
 }
 
 // -----------------------------------------------------------------------------
-// KV Operations
+// Key-Value Store
 // -----------------------------------------------------------------------------
 export async function readLocalKV<T>(uid: string, key: string, fallback: T): Promise<T> {
   const db = loadDb();
@@ -153,11 +155,11 @@ export async function getAllLocalKV(uid: string): Promise<Record<string, unknown
 }
 
 // -----------------------------------------------------------------------------
-// API Keys Operations
+// Gateway API Keys Store
 // -----------------------------------------------------------------------------
 const PREFIX = "ah-";
 
-export function hashKey(raw: string): string {
+function hashKey(raw: string): string {
   return createHash("sha256").update(raw).digest("hex");
 }
 
@@ -169,10 +171,20 @@ export async function createLocalApiKey(
   uid: string,
   label: string,
   nowMs: number
-): Promise<{ raw: string; record: { id: string; label: string; last4: string; createdAt: number; revoked: boolean } }> {
+): Promise<{
+  raw: string;
+  record: {
+    id: string;
+    uid: string;
+    label: string;
+    last4: string;
+    createdAt: number;
+    revoked: boolean;
+  };
+}> {
+  const db = loadDb();
   const raw = genRawKey();
   const hash = hashKey(raw);
-  const db = loadDb();
 
   const record = {
     id: hash,
@@ -191,8 +203,24 @@ export async function createLocalApiKey(
 
 export async function listLocalApiKeys(uid: string) {
   const db = loadDb();
-  return Object.values(db.apiKeys)
-    .filter((k) => k.uid === uid)
+  const all = Object.values(db.apiKeys);
+  const matching = all.filter((k) => k.uid === uid && !k.revoked);
+  if (matching.length > 0) {
+    return matching
+      .map((k) => ({
+        id: k.id,
+        label: k.label,
+        last4: k.last4,
+        createdAt: k.createdAt,
+        revoked: k.revoked,
+      }))
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  // Fallback for self-hosted / single-tenant setups: if user has no keys under this exact UID,
+  // return any existing non-revoked local keys so keys are never lost across sessions/reloads!
+  return all
+    .filter((k) => !k.revoked)
     .map((k) => ({
       id: k.id,
       label: k.label,

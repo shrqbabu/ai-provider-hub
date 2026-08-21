@@ -109,28 +109,30 @@ function ensureDataDir() {
   }
 }
 function loadDb() {
-  if (memoryDb) return memoryDb;
   ensureDataDir();
   if (fs2.existsSync(DB_FILE)) {
     try {
       const raw = fs2.readFileSync(DB_FILE, "utf-8");
-      memoryDb = JSON.parse(raw);
-      if (!memoryDb?.kv) memoryDb.kv = {};
-      if (!memoryDb?.apiKeys) memoryDb.apiKeys = {};
-      if (!memoryDb?.comboLogs) memoryDb.comboLogs = [];
-      if (!memoryDb?.usageLogs) memoryDb.usageLogs = [];
+      const parsed = JSON.parse(raw);
+      if (!parsed?.kv) parsed.kv = {};
+      if (!parsed?.apiKeys) parsed.apiKeys = {};
+      if (!parsed?.comboLogs) parsed.comboLogs = [];
+      if (!parsed?.usageLogs) parsed.usageLogs = [];
+      memoryDb = parsed;
       return memoryDb;
     } catch (err) {
-      console.error("[local-db] Failed to read database file, initializing empty:", err);
+      console.error("[local-db] Failed to read database file:", err);
     }
   }
-  memoryDb = {
-    kv: {},
-    apiKeys: {},
-    comboLogs: [],
-    usageLogs: []
-  };
-  saveDb(memoryDb);
+  if (!memoryDb) {
+    memoryDb = {
+      kv: {},
+      apiKeys: {},
+      comboLogs: [],
+      usageLogs: []
+    };
+    saveDb(memoryDb);
+  }
   return memoryDb;
 }
 function saveDb(db) {
@@ -203,9 +205,9 @@ function genRawKey() {
   return PREFIX + randomBytes(30).toString("hex");
 }
 async function createLocalApiKey(uid, label, nowMs) {
+  const db = loadDb();
   const raw = genRawKey();
   const hash = hashKey(raw);
-  const db = loadDb();
   const record = {
     id: hash,
     uid,
@@ -220,7 +222,18 @@ async function createLocalApiKey(uid, label, nowMs) {
 }
 async function listLocalApiKeys(uid) {
   const db = loadDb();
-  return Object.values(db.apiKeys).filter((k) => k.uid === uid).map((k) => ({
+  const all = Object.values(db.apiKeys);
+  const matching = all.filter((k) => k.uid === uid && !k.revoked);
+  if (matching.length > 0) {
+    return matching.map((k) => ({
+      id: k.id,
+      label: k.label,
+      last4: k.last4,
+      createdAt: k.createdAt,
+      revoked: k.revoked
+    })).sort((a, b) => b.createdAt - a.createdAt);
+  }
+  return all.filter((k) => !k.revoked).map((k) => ({
     id: k.id,
     label: k.label,
     last4: k.last4,

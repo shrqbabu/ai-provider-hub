@@ -463,8 +463,18 @@ export async function handleGateway(
         lastStatus = candidateResp.status;
         lastText = await safeText(candidateResp);
 
+        // Content-sniff non-ok bodies: some servers return an HTML page with a
+        // mislabeled/missing content-type header (e.g. a WAF or captive portal
+        // that replies text/plain). Relaying that raw makes the client's JSON
+        // parser throw "Unexpected token < in JSON", so refuse to forward it and
+        // surface a clear message instead — same as the content-type check above.
+        if (isHtmlLike(lastText)) {
+          lastText = `Upstream returned an HTML page (Error ${candidateResp.status}). Check the provider Base URL (include /v1).`;
+          continue;
+        }
+
         // If candidate url returned non-ok status, try next candidate
-        if (candidateUrls.length > 1 && !candidateResp.ok) {
+        if (candidateUrls.length > 1) {
           continue;
         }
 
@@ -2560,6 +2570,18 @@ async function safeText(res: Response): Promise<string> {
   } catch {
     return `${res.status} ${res.statusText}`;
   }
+}
+
+/**
+ * Heuristic: does this body look like HTML rather than JSON/SSE? Used to catch
+ * HTML pages that come back with a mislabeled or missing content-type header
+ * (WAFs, captive portals, misconfigured proxies), so the gateway never relays
+ * raw HTML to a client whose JSON parser would then throw "Unexpected token <".
+ */
+function isHtmlLike(text: string): boolean {
+  const t = (text ?? "").trim();
+  if (!t) return false;
+  return /^</.test(t) || /<!doctype html/i.test(t) || /<html[\s>]/i.test(t);
 }
 
 /** Safely parse upstream JSON response. Throws a clear error if the body is HTML. */

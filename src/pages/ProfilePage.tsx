@@ -50,7 +50,7 @@ export function ProfilePage() {
   const photoURL = user?.photoURL;
   const authProvider = user?.providerData?.[0]?.providerId === "google.com" ? "Google Account" : "Email / Password";
   const createdAt = (user?.metadata as any)?.creationTime
-    ? new Date((user.metadata as any).creationTime).toLocaleDateString(undefined, {
+    ? new Date((user?.metadata as any).creationTime).toLocaleDateString(undefined, {
         year: "numeric",
         month: "short",
         day: "numeric",

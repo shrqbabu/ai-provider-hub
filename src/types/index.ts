@@ -1,10 +1,28 @@
+// The full set of provider keys the app works with. The first six are the
+// hosted catalog providers that ship with the app (see PROVIDERS). The rest
+// are OAuth / web-session providers (GitHub Copilot, Grok, Kimi, Claude Code,
+// OpenAI Codex, Google Antigravity, plus the web-session ones) — these are
+// created at runtime via the OAuth/login flows and must be valid keys so the
+// gateway and proxy code can branch on them. Keeping them in the union makes
+// those comparisons type-check instead of being flagged as dead code.
 export type ProviderKey =
   | "openai"
   | "nvidia"
   | "anthropic"
   | "openrouter"
   | "google"
-  | "custom";
+  | "custom"
+  | "github"
+  | "grok"
+  | "kimi"
+  | "claude"
+  | "codex"
+  | "antigravity"
+  | "kimi-web"
+  | "deepseek"
+  | "deepseek-web"
+  | "qwen-web"
+  | "blackbox-web";
 
 export interface ProviderDefinition {
   key: ProviderKey;

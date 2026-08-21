@@ -1,6 +1,11 @@
 import type { ProviderDefinition, ProviderKey } from "@/types";
 
-export const PROVIDERS: Record<ProviderKey, ProviderDefinition> = {
+// Only the six hosted catalog providers ship with a definition here. The
+// OAuth / web-session provider keys (github, grok, kimi, claude, codex,
+// antigravity, kimi-web, deepseek, …) are NOT part of the catalog, so every
+// lookup below already guards with `?? PROVIDERS.custom` / `?.`. Typed as a
+// Partial record so adding a key to ProviderKey doesn't force a stub entry.
+export const PROVIDERS: Partial<Record<ProviderKey, ProviderDefinition>> = {
   openai: {
     key: "openai",
     name: "OpenAI",

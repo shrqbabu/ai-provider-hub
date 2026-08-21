@@ -1086,7 +1086,7 @@ function anthropicToGoogle(
             const firstDeclared = (body.tools as any[])?.[0]?.name;
             name = firstDeclared || "tool_result";
           }
-          name = restoreToolName(name, toolNameMap);
+          name = restoreToolName(name ?? "tool_result", toolNameMap);
           let resultText = "";
           if (typeof block.content === "string") {
             resultText = block.content;
@@ -1191,21 +1191,12 @@ async function translateGoogleResponseToAnthropic(
     return translateGoogleStreamToAnthropic(upstream, modelId, requestBody);
   }
 
-  let googleResp: {
-    candidates?: Array<{
-      content?: {
-        parts?: Array<{
-          text?: string;
-          functionCall?: { name?: string; args?: Record<string, unknown> };
-        }>;
-      };
-      finishReason?: string;
-    }>;
-    usageMetadata?: {
-      promptTokenCount?: number;
-      candidatesTokenCount?: number;
-    };
-  };
+  // Google's responses vary by endpoint (v1beta generateContent, the CloudCode
+  // internal/companion shapes, alt=sse, etc.), so treat the parsed body as
+  // `any` — the code below safely probes many optional shapes (candidates,
+  // response.reply/message, result.usageMetadata, …). This mirrors
+  // translateGoogleResponseToOpenAI, which does the same.
+  let googleResp: any;
   try {
     googleResp = await safeJson(upstream);
   } catch (e) {

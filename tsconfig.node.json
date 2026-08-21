@@ -12,5 +12,5 @@
     "outDir": "./node_modules/.cache/tsnode",
     "emitDeclarationOnly": true
   },
-  "include": ["vite.config.ts", "api/_lib/**/*.ts"]
+  "include": ["vite.config.ts", "api/_lib/**/*.ts", "api/*.ts"]
 }

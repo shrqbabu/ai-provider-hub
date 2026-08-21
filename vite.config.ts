@@ -249,6 +249,9 @@ export default defineConfig(({ mode }) => {
     sourcemap: false,
     reportCompressedSize: false,
     chunkSizeWarningLimit: 2000,
+    rollupOptions: {
+      maxParallelFileOps: 2,
+    },
   },
   };
 });

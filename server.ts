@@ -110,13 +110,26 @@ async function handleWebRequest(
   });
 
   if (webRes.body) {
-    const reader = webRes.body.getReader();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      res.write(Buffer.from(value));
+    res.setHeader("X-Accel-Buffering", "no");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    if (typeof res.flushHeaders === "function") {
+      res.flushHeaders();
     }
-    res.end();
+
+    const reader = webRes.body.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        res.write(Buffer.from(value));
+        if (typeof (res as any).flush === "function") {
+          (res as any).flush();
+        }
+      }
+    } finally {
+      res.end();
+    }
   } else {
     res.end();
   }

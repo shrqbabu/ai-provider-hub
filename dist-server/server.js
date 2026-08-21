@@ -3891,13 +3891,25 @@ async function sendCoreResponse(res, core) {
     for (const [k, v] of Object.entries(core.headers)) res.setHeader(k, v);
   }
   if (core.streamBody) {
-    const reader = core.streamBody.getReader();
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      res.write(Buffer.from(value));
+    res.setHeader("X-Accel-Buffering", "no");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    if (typeof res.flushHeaders === "function") {
+      res.flushHeaders();
     }
-    res.end();
+    const reader = core.streamBody.getReader();
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        res.write(Buffer.from(value));
+        if (typeof res.flush === "function") {
+          res.flush();
+        }
+      }
+    } finally {
+      res.end();
+    }
     return;
   }
   res.setHeader("Content-Type", "application/json");
@@ -4610,13 +4622,25 @@ async function handleWebRequest(req, res, handler2) {
     res.setHeader(k, v);
   });
   if (webRes.body) {
-    const reader = webRes.body.getReader();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      res.write(Buffer.from(value));
+    res.setHeader("X-Accel-Buffering", "no");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    if (typeof res.flushHeaders === "function") {
+      res.flushHeaders();
     }
-    res.end();
+    const reader = webRes.body.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        res.write(Buffer.from(value));
+        if (typeof res.flush === "function") {
+          res.flush();
+        }
+      }
+    } finally {
+      res.end();
+    }
   } else {
     res.end();
   }

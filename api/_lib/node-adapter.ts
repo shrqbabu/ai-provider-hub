@@ -53,14 +53,29 @@ export async function sendCoreResponse(
   }
 
   if (core.streamBody) {
-    const reader = core.streamBody.getReader();
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      res.write(Buffer.from(value));
+    // Disable Nginx proxy buffering & Gzip compression for zero-latency streaming
+    res.setHeader("X-Accel-Buffering", "no");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+
+    // Flush HTTP headers immediately to client
+    if (typeof res.flushHeaders === "function") {
+      res.flushHeaders();
     }
-    res.end();
+
+    const reader = core.streamBody.getReader();
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        res.write(Buffer.from(value));
+        if (typeof (res as any).flush === "function") {
+          (res as any).flush();
+        }
+      }
+    } finally {
+      res.end();
+    }
     return;
   }
 

@@ -1,0 +1,17 @@
+{
+  "short_name": "AI Hub",
+  "name": "AI Provider Hub",
+  "icons": [
+    {
+      "src": "logo.svg",
+      "type": "image/svg+xml",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#09090b",
+  "theme_color": "#f59e0b",
+  "display": "standalone",
+  "orientation": "portrait"
+}

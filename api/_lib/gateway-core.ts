@@ -119,41 +119,32 @@ export async function handleGateway(
       ? providers.filter((p) => p && !(p as any).disabled)
       : [];
 
-    const activeProviderMap = new Map<string, GwProvider>();
+    const activeProviderIdMap = new Map<string, GwProvider>();
     for (const p of activeProviders) {
-      if (p.id) activeProviderMap.set(p.id, p);
-      if (p.key) activeProviderMap.set(p.key, p);
-      if (p.displayName) activeProviderMap.set(p.displayName.toLowerCase(), p);
+      if (p.id) activeProviderIdMap.set(p.id, p);
+      if (p.displayName) activeProviderIdMap.set(p.displayName.toLowerCase(), p);
     }
 
     const providerModelCounts = new Map<string, number>();
 
     if (Array.isArray(models)) {
       for (const m of models) {
-        if (!m || !m.modelId || seenIds.has(m.modelId)) continue;
-        
-        let parentProvider: GwProvider | undefined;
-        if (activeProviders.length > 0) {
-          parentProvider =
-            (m.providerId && activeProviderMap.get(m.providerId)) ||
-            (m.providerKey && activeProviderMap.get(m.providerKey)) ||
-            activeProviders.find(
-              (p) =>
-                p.id === m.providerId ||
-                p.key === m.providerKey ||
-                (p.displayName && m.providerId && p.displayName.toLowerCase() === m.providerId.toLowerCase())
-            );
+        if (!m || !m.modelId) continue;
 
-          // If providers are active and this model belongs to a disconnected/disabled provider, skip it
-          if (!parentProvider && activeProviders.length > 0 && (m.providerId || m.providerKey)) {
-            continue;
-          }
+        // Strict ownership check: Model MUST belong to an active connected provider
+        const parentProvider =
+          (m.providerId && activeProviderIdMap.get(m.providerId)) ||
+          (m.providerId && activeProviderIdMap.get(m.providerId.toLowerCase()));
+
+        if (activeProviders.length > 0 && !parentProvider) {
+          continue; // Skip models from old/deleted/disconnected providers
         }
 
         const cleanId = m.modelId.replace(/^aip\//i, "");
         if (seenIds.has(cleanId)) continue;
         seenIds.add(cleanId);
-        const owner = parentProvider?.key || parentProvider?.displayName || m.providerKey || m.providerId || "provider";
+
+        const owner = parentProvider?.displayName || parentProvider?.key || m.providerKey || "provider";
         data.push({
           id: cleanId,
           object: "model",

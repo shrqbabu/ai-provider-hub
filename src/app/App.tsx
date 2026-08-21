@@ -116,7 +116,10 @@ export default function App() {
         validProviders.map((p) => [p.id, p])
       );
 
+      const activePIds = new Set(validProviders.map((p) => p.id).filter(Boolean));
       const validModels = modelState.models.filter((m) => {
+        if (!m || !m.modelId) return false;
+        if (m.providerId && !activePIds.has(m.providerId)) return false;
         const id = (m.modelId || "").toLowerCase();
         if (
           id.includes(":discount") ||

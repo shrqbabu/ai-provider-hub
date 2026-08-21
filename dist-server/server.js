@@ -1522,29 +1522,23 @@ async function handleGateway(req, nowMs) {
     const data = [];
     const seenIds = /* @__PURE__ */ new Set();
     const activeProviders = Array.isArray(providers) ? providers.filter((p) => p && !p.disabled) : [];
-    const activeProviderMap = /* @__PURE__ */ new Map();
+    const activeProviderIdMap = /* @__PURE__ */ new Map();
     for (const p of activeProviders) {
-      if (p.id) activeProviderMap.set(p.id, p);
-      if (p.key) activeProviderMap.set(p.key, p);
-      if (p.displayName) activeProviderMap.set(p.displayName.toLowerCase(), p);
+      if (p.id) activeProviderIdMap.set(p.id, p);
+      if (p.displayName) activeProviderIdMap.set(p.displayName.toLowerCase(), p);
     }
     const providerModelCounts = /* @__PURE__ */ new Map();
     if (Array.isArray(models)) {
       for (const m of models) {
-        if (!m || !m.modelId || seenIds.has(m.modelId)) continue;
-        let parentProvider;
-        if (activeProviders.length > 0) {
-          parentProvider = m.providerId && activeProviderMap.get(m.providerId) || m.providerKey && activeProviderMap.get(m.providerKey) || activeProviders.find(
-            (p) => p.id === m.providerId || p.key === m.providerKey || p.displayName && m.providerId && p.displayName.toLowerCase() === m.providerId.toLowerCase()
-          );
-          if (!parentProvider && activeProviders.length > 0 && (m.providerId || m.providerKey)) {
-            continue;
-          }
+        if (!m || !m.modelId) continue;
+        const parentProvider = m.providerId && activeProviderIdMap.get(m.providerId) || m.providerId && activeProviderIdMap.get(m.providerId.toLowerCase());
+        if (activeProviders.length > 0 && !parentProvider) {
+          continue;
         }
         const cleanId = m.modelId.replace(/^aip\//i, "");
         if (seenIds.has(cleanId)) continue;
         seenIds.add(cleanId);
-        const owner = parentProvider?.key || parentProvider?.displayName || m.providerKey || m.providerId || "provider";
+        const owner = parentProvider?.displayName || parentProvider?.key || m.providerKey || "provider";
         data.push({
           id: cleanId,
           object: "model",

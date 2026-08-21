@@ -64,7 +64,7 @@ const initial = (p?: ConnectedProvider): FormState => {
       ? dedupeKeys([p?.apiKey ?? "", ...(p?.apiKeys ?? [])])
       : [""],
     cookie: p?.cookie ?? "",
-    baseURL: p?.baseURL ?? def.baseURL,
+    baseURL: p?.baseURL ?? def?.baseURL ?? "",
     organization: p?.organization ?? "",
     extraHeaders: p?.extraHeaders ? JSON.stringify(p.extraHeaders, null, 2) : "",
     customLogo: p?.customLogo ?? "",

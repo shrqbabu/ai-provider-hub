@@ -80,12 +80,12 @@ export default function App() {
   useEffect(() => {
     if (authLoading) return;
     // Clear in-memory state before hydrating for the current user
-    useProviderStore.setState({ providers: [], activeId: null });
-    useModelStore.setState({ models: [], selectedModelId: null });
+    useProviderStore.setState({ providers: [] });
+    useModelStore.setState({ models: [] });
     useComboStore.setState({ combos: [] });
     useChatStore.setState({ chats: [], activeId: null });
     usePromptStore.setState({ prompts: [] });
-    useUsageStore.setState({ records: [] });
+    useUsageStore.setState({ usage: [] });
     useKeyStoreStore.setState({ items: [] });
     useComboLogStore.setState({ logs: [] });
 

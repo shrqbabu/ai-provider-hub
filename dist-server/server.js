@@ -272,7 +272,9 @@ async function createApiKey(uid, label, nowMs) {
     try {
       await getDb().collection("apiKeys").doc(result.record.id).set({
         ...result.record,
-        uid
+        uid: uid || "default_user",
+        createdAt: nowMs,
+        revoked: false
       });
     } catch (e) {
       console.warn("[api-keys] Firestore save failed, saved to local db:", e);
@@ -283,19 +285,26 @@ async function createApiKey(uid, label, nowMs) {
 async function listApiKeys(uid) {
   if (isFirebaseAdminReady()) {
     try {
-      const snap = await getDb().collection("apiKeys").where("uid", "==", uid).get();
+      const snap = await getDb().collection("apiKeys").get();
       if (!snap.empty) {
-        const firestoreList = snap.docs.map((d) => {
+        let matchedDocs = snap.docs.filter((d) => {
+          const r = d.data();
+          return r.uid === uid && !r.revoked;
+        });
+        if (matchedDocs.length === 0) {
+          matchedDocs = snap.docs.filter((d) => !d.data().revoked);
+        }
+        const firestoreList = matchedDocs.map((d) => {
           const r = d.data();
           return {
             id: d.id,
-            label: r.label,
-            last4: r.last4,
-            createdAt: r.createdAt,
-            revoked: r.revoked
+            label: r.label || "Gateway key",
+            last4: r.last4 || "****",
+            createdAt: r.createdAt || Date.now(),
+            revoked: !!r.revoked
           };
-        }).filter((k) => !k.revoked).sort((a, b) => b.createdAt - a.createdAt);
-        return firestoreList;
+        }).sort((a, b) => b.createdAt - a.createdAt);
+        if (firestoreList.length > 0) return firestoreList;
       }
     } catch (err) {
       console.warn("[api-keys] Firestore listApiKeys failed, checking local:", err);
@@ -323,16 +332,7 @@ async function resolveApiKey(raw) {
       if (snap.exists) {
         const r = snap.data();
         if (!r.revoked) {
-          if (r.uid) return r.uid;
-          try {
-            const usersSnap = await getDb().collection("users").limit(5).get();
-            if (!usersSnap.empty) {
-              const targetUid = usersSnap.docs[0].id;
-              await snap.ref.set({ uid: targetUid }, { merge: true });
-              return targetUid;
-            }
-          } catch {
-          }
+          return r.uid || "default_user";
         }
       }
     } catch (err) {

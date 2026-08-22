@@ -263,6 +263,8 @@ function isFirebaseConfigured() {
 
 // api/_lib/api-keys.ts
 var PREFIX2 = "ah-";
+var keyCache = /* @__PURE__ */ new Map();
+var KEY_CACHE_TTL = 6e4;
 function hashKey2(raw) {
   return createHash2("sha256").update(raw).digest("hex");
 }
@@ -313,6 +315,7 @@ async function listApiKeys(uid) {
   return listLocalApiKeys(uid);
 }
 async function revokeApiKey(uid, id) {
+  keyCache.clear();
   await revokeLocalApiKey(uid, id);
   if (isFirebaseAdminReady()) {
     try {
@@ -325,6 +328,11 @@ async function revokeApiKey(uid, id) {
 }
 async function resolveApiKey(raw) {
   if (!raw || !raw.startsWith(PREFIX2)) return null;
+  const cached = keyCache.get(raw);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.uid;
+  }
+  let resolvedUid = null;
   if (isFirebaseAdminReady()) {
     try {
       const hash = hashKey2(raw);
@@ -332,21 +340,33 @@ async function resolveApiKey(raw) {
       if (snap.exists) {
         const r = snap.data();
         if (!r.revoked) {
-          return r.uid || "default_user";
+          resolvedUid = r.uid || "default_user";
         }
       }
     } catch (err) {
       console.warn("[api-keys] Firestore resolveApiKey failed, checking local:", err);
     }
   }
-  return resolveLocalApiKey(raw);
+  if (!resolvedUid) {
+    resolvedUid = await resolveLocalApiKey(raw);
+  }
+  keyCache.set(raw, { uid: resolvedUid, expiresAt: Date.now() + KEY_CACHE_TTL });
+  return resolvedUid;
 }
 
 // api/_lib/kv.ts
+var CacheTTL = 3e4;
+var memoryCache = /* @__PURE__ */ new Map();
 function docRef(uid, key) {
   return getDb().collection("users").doc(uid).collection("kv").doc(key);
 }
 async function readKV(uid, key, fallback) {
+  const cacheKey = `${uid}:${key}`;
+  const cached = memoryCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.val;
+  }
+  let result = fallback;
   if (isFirebaseAdminReady()) {
     try {
       const snap = await docRef(uid, key).get();
@@ -354,19 +374,28 @@ async function readKV(uid, key, fallback) {
         const data = snap.data();
         if (data !== void 0) {
           const val = data.v ?? data.value ?? data.data;
-          if (val !== void 0) return val;
-          if (typeof data === "object" && data !== null) {
-            return data;
+          if (val !== void 0) {
+            result = val;
+          } else if (typeof data === "object" && data !== null) {
+            result = data;
           }
         }
+      } else {
+        result = await readLocalKV(uid, key, fallback);
       }
     } catch (err) {
       console.warn(`[kv] Firestore read for ${key} failed, checking local:`, err);
+      result = await readLocalKV(uid, key, fallback);
     }
+  } else {
+    result = await readLocalKV(uid, key, fallback);
   }
-  return readLocalKV(uid, key, fallback);
+  memoryCache.set(cacheKey, { val: result, expiresAt: Date.now() + CacheTTL });
+  return result;
 }
 async function writeKV(uid, key, value, nowMs) {
+  const cacheKey = `${uid}:${key}`;
+  memoryCache.set(cacheKey, { val: value, expiresAt: Date.now() + CacheTTL });
   await writeLocalKV(uid, key, value, nowMs);
   if (isFirebaseAdminReady()) {
     try {
@@ -378,6 +407,8 @@ async function writeKV(uid, key, value, nowMs) {
   }
 }
 async function deleteKV(uid, key) {
+  const cacheKey = `${uid}:${key}`;
+  memoryCache.delete(cacheKey);
   await deleteLocalKV(uid, key);
   if (isFirebaseAdminReady()) {
     try {

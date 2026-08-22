@@ -9,6 +9,10 @@ import {
 
 const PREFIX = "ah-";
 
+// In-memory cache for API key validation (TTL: 60 seconds)
+const keyCache = new Map<string, { uid: string | null; expiresAt: number }>();
+const KEY_CACHE_TTL = 60000;
+
 export interface ApiKeyRecord {
   uid: string;
   label: string;
@@ -103,6 +107,7 @@ export async function listApiKeys(uid: string): Promise<ApiKeyPublic[]> {
 
 /** Revoke a key by its hash id. */
 export async function revokeApiKey(uid: string, id: string): Promise<boolean> {
+  keyCache.clear();
   await revokeLocalApiKey(uid, id);
   if (isFirebaseAdminReady()) {
     try {
@@ -118,6 +123,13 @@ export async function revokeApiKey(uid: string, id: string): Promise<boolean> {
 export async function resolveApiKey(raw: string): Promise<string | null> {
   if (!raw || !raw.startsWith(PREFIX)) return null;
 
+  const cached = keyCache.get(raw);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.uid;
+  }
+
+  let resolvedUid: string | null = null;
+
   if (isFirebaseAdminReady()) {
     try {
       const hash = hashKey(raw);
@@ -125,7 +137,7 @@ export async function resolveApiKey(raw: string): Promise<string | null> {
       if (snap.exists) {
         const r = snap.data() as ApiKeyRecord;
         if (!r.revoked) {
-          return r.uid || "default_user";
+          resolvedUid = r.uid || "default_user";
         }
       }
     } catch (err) {
@@ -133,5 +145,10 @@ export async function resolveApiKey(raw: string): Promise<string | null> {
     }
   }
 
-  return resolveLocalApiKey(raw);
+  if (!resolvedUid) {
+    resolvedUid = await resolveLocalApiKey(raw);
+  }
+
+  keyCache.set(raw, { uid: resolvedUid, expiresAt: Date.now() + KEY_CACHE_TTL });
+  return resolvedUid;
 }

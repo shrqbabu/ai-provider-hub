@@ -1849,7 +1849,8 @@ async function handleGatewayCore(req, nowMs, timing) {
           lastText = `Upstream returned an HTML page (Error ${candidateResp.status}). Check the provider Base URL (include /v1).`;
           continue;
         }
-        if (candidateUrls.length > 1) {
+        const accountLevel = candidateResp.status === 401 || candidateResp.status === 403 || candidateResp.status === 429;
+        if (!accountLevel && candidateUrls.length > 1) {
           continue;
         }
         upstream = candidateResp;
@@ -2209,12 +2210,48 @@ var GOOGLE_ALLOWED_SCHEMA_KEYS = /* @__PURE__ */ new Set([
 function cleanSchemaForGoogle(obj) {
   if (obj === null || typeof obj !== "object") return obj;
   if (Array.isArray(obj)) return obj.map(cleanSchemaForGoogle);
+  const src = obj;
   const cleaned = {};
-  for (const [key, value] of Object.entries(obj)) {
+  for (const fk of ["anyOf", "oneOf"]) {
+    const alts = src[fk];
+    if (Array.isArray(alts) && alts.length) {
+      const first = cleanSchemaForGoogle(alts[0]);
+      if (first && typeof first === "object" && !Array.isArray(first)) {
+        Object.assign(cleaned, first);
+      }
+    }
+  }
+  if (Array.isArray(src.allOf) && src.allOf.length) {
+    for (const alt of src.allOf) {
+      const c = cleanSchemaForGoogle(alt);
+      if (c && typeof c === "object" && !Array.isArray(c)) {
+        const co = c;
+        if (co.properties && cleaned.properties) {
+          co.properties = { ...cleaned.properties, ...co.properties };
+        }
+        Object.assign(cleaned, co);
+      }
+    }
+  }
+  for (const [key, value] of Object.entries(src)) {
+    if (key === "anyOf" || key === "oneOf" || key === "allOf") continue;
+    if (key === "properties" && value && typeof value === "object" && !Array.isArray(value)) {
+      const props = {};
+      for (const [propName, propSchema] of Object.entries(value)) {
+        props[propName] = cleanSchemaForGoogle(propSchema);
+      }
+      cleaned.properties = props;
+      continue;
+    }
     if (!GOOGLE_ALLOWED_SCHEMA_KEYS.has(key)) {
       continue;
     }
     cleaned[key] = cleanSchemaForGoogle(value);
+  }
+  if (Array.isArray(cleaned.type)) {
+    const types = cleaned.type.filter((t) => t !== "null");
+    if (types.length !== cleaned.type.length) cleaned.nullable = true;
+    cleaned.type = types[0] ?? "string";
   }
   if (Array.isArray(cleaned.required) && cleaned.properties && typeof cleaned.properties === "object") {
     const validProps = new Set(

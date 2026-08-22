@@ -505,8 +505,19 @@ async function handleGatewayCore(
           continue;
         }
 
-        // If candidate url returned non-ok status, try next candidate
-        if (candidateUrls.length > 1) {
+        // Account-level failures (401/403/429) share the same credentials
+        // across EVERY candidate URL variant, so retrying the variants just
+        // burns round-trips (up to 6 sequential calls per failing combo
+        // member = multi-second agent stalls). Hand the error to the outer
+        // fallback loop (next key / next combo member) instead.
+        const accountLevel =
+          candidateResp.status === 401 ||
+          candidateResp.status === 403 ||
+          candidateResp.status === 429;
+
+        // If candidate url returned a shape-level error (400/404/5xx), try
+        // the next URL variant — endpoint availability differs per model.
+        if (!accountLevel && candidateUrls.length > 1) {
           continue;
         }
 
@@ -965,12 +976,61 @@ function cleanSchemaForGoogle(obj: unknown): unknown {
   if (obj === null || typeof obj !== "object") return obj;
   if (Array.isArray(obj)) return obj.map(cleanSchemaForGoogle);
 
+  const src = obj as Record<string, unknown>;
   const cleaned: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+
+  // Fold union/composition keywords Gemini rejects into the parent schema.
+  // Dropping them used to strip every tool down to {"type":"object",
+  // "properties":{}} — models then called tools with no/empty arguments and
+  // agentic clients (Claude Code, Cline) broke. anyOf/oneOf → first
+  // alternative; allOf → shallow merge of all alternatives.
+  for (const fk of ["anyOf", "oneOf"] as const) {
+    const alts = src[fk];
+    if (Array.isArray(alts) && alts.length) {
+      const first = cleanSchemaForGoogle(alts[0]);
+      if (first && typeof first === "object" && !Array.isArray(first)) {
+        Object.assign(cleaned, first as Record<string, unknown>);
+      }
+    }
+  }
+  if (Array.isArray(src.allOf) && src.allOf.length) {
+    for (const alt of src.allOf) {
+      const c = cleanSchemaForGoogle(alt);
+      if (c && typeof c === "object" && !Array.isArray(c)) {
+        const co = c as Record<string, unknown>;
+        if (co.properties && cleaned.properties) {
+          co.properties = { ...(cleaned.properties as object), ...(co.properties as object) };
+        }
+        Object.assign(cleaned, co);
+      }
+    }
+  }
+
+  for (const [key, value] of Object.entries(src)) {
+    if (key === "anyOf" || key === "oneOf" || key === "allOf") continue;
+    // `properties` is a MAP of arbitrary property NAMES → schemas. The
+    // keyword allowlist must NOT be applied to those names (doing so deleted
+    // every parameter); only each property's own schema gets cleaned.
+    if (key === "properties" && value && typeof value === "object" && !Array.isArray(value)) {
+      const props: Record<string, unknown> = {};
+      for (const [propName, propSchema] of Object.entries(value as Record<string, unknown>)) {
+        props[propName] = cleanSchemaForGoogle(propSchema);
+      }
+      cleaned.properties = props;
+      continue;
+    }
     if (!GOOGLE_ALLOWED_SCHEMA_KEYS.has(key)) {
       continue;
     }
     cleaned[key] = cleanSchemaForGoogle(value);
+  }
+
+  // Gemini `type` is a single-valued enum: collapse JSON-Schema union types
+  // like ["string","null"] → type "string" + nullable true.
+  if (Array.isArray(cleaned.type)) {
+    const types = (cleaned.type as unknown[]).filter((t) => t !== "null");
+    if (types.length !== (cleaned.type as unknown[]).length) cleaned.nullable = true;
+    cleaned.type = types[0] ?? "string";
   }
 
   if (

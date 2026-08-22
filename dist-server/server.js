@@ -1871,7 +1871,7 @@ async function handleGatewayCore(req, nowMs, timing) {
           lastText = `Upstream returned an HTML page (Error ${candidateResp.status}). Check the provider Base URL (include /v1).`;
           continue;
         }
-        const accountLevel = candidateResp.status === 401 || candidateResp.status === 403 || candidateResp.status === 429;
+        const accountLevel = candidateResp.status === 401 || candidateResp.status === 403 || candidateResp.status === 429 && !(isGoogleProvider && isOAuth);
         if (!accountLevel && candidateUrls.length > 1) {
           continue;
         }

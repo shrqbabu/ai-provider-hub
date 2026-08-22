@@ -547,15 +547,23 @@ async function handleGatewayCore(
           continue;
         }
 
-        // Account-level failures (401/403/429) share the same credentials
-        // across EVERY candidate URL variant, so retrying the variants just
-        // burns round-trips (up to 6 sequential calls per failing combo
-        // member = multi-second agent stalls). Hand the error to the outer
-        // fallback loop (next key / next combo member) instead.
+        // Account-level failures (401/403/429) usually share the same
+        // credentials across EVERY candidate URL variant, so retrying the
+        // variants just burns round-trips (up to 6 sequential calls per
+        // failing combo member = multi-second agent stalls): hand the error
+        // to the outer fallback loop (next key / next combo member) instead.
+        //
+        // EXCEPTION — Google CloudCode (Antigravity OAuth) 429s:
+        // cloudcode-pa.googleapis.com and daily-cloudcode-pa.googleapis.com
+        // are separate frontends with SEPARATE quota buckets, so a 429 from
+        // the primary MUST fall through to the daily variant. The in-app
+        // model test (api/proxy.ts) does exactly this, which is why the app
+        // kept serving models while Claude Code — the gateway /messages
+        // path — got a raw 429 for the very same model.
         const accountLevel =
           candidateResp.status === 401 ||
           candidateResp.status === 403 ||
-          candidateResp.status === 429;
+          (candidateResp.status === 429 && !(isGoogleProvider && isOAuth));
 
         // If candidate url returned a shape-level error (400/404/5xx), try
         // the next URL variant — endpoint availability differs per model.

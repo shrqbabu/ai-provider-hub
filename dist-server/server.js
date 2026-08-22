@@ -1556,6 +1556,7 @@ async function handleGatewayCore(req, nowMs, timing) {
   if (!Array.isArray(providers)) providers = [];
   if (!Array.isArray(models)) models = [];
   if (!Array.isArray(combos)) combos = [];
+  let providersOwnerUid = uid;
   if (!providers || providers.length === 0) {
     if (uid !== "local_user") {
       const [localProv, localMod, localComb] = await Promise.all([
@@ -1565,6 +1566,7 @@ async function handleGatewayCore(req, nowMs, timing) {
       ]);
       if (localProv && localProv.length > 0) {
         providers = localProv;
+        providersOwnerUid = "local_user";
         if (!models || models.length === 0) models = localMod;
         if (!combos || combos.length === 0) combos = localComb;
       }
@@ -1709,6 +1711,7 @@ async function handleGatewayCore(req, nowMs, timing) {
       isAnthropicReq
     );
   }
+  await refreshExpiredOAuthTokens(providers, providersOwnerUid);
   const requestedModel = String(body.model ?? "");
   const resolved = resolveAttempts(requestedModel, providers, models, combos);
   if ("error" in resolved) {
@@ -2016,6 +2019,16 @@ function buildUpstreamHeaders(provider, cred, endpoint) {
     headers.set("x-grok-client-surface", "cli");
   } else if (provider.authMode === "cookie") {
     headers.set("Cookie", cred);
+  } else if (
+    // Google endpoints (Cloud Code / Generative Language) expect OAuth creds
+    // as a Bearer token — NEVER Anthropic-style x-api-key. Without this,
+    // /messages (Claude Code) requests to Antigravity went out with
+    // "x-api-key: ya29.…" because endpoint==="/messages" forced the
+    // isAnthropic branch, and Google answered 401 UNAUTHENTICATED on every
+    // attempt — while OpenAI-format clients worked fine (Bearer branch).
+    (provider.key === "google" || provider.key === "antigravity" || (provider.baseURL ?? "").includes("googleapis.com")) && (provider.authMode === "oauth" || cred.startsWith("ya29."))
+  ) {
+    headers.set("Authorization", `Bearer ${cred}`);
   } else if (isAnthropic) {
     headers.set("x-api-key", cred);
     headers.set("anthropic-version", "2023-06-01");
@@ -3795,6 +3808,69 @@ function formatServerTiming(entries) {
     const desc = e.desc ? `;desc="${e.desc.replace(/[^a-zA-Z0-9_./+-]/g, "")}"` : "";
     return `${e.name};dur=${dur}${desc}`;
   }).join(", ");
+}
+async function refreshGoogleOAuthToken(refreshToken) {
+  const cfg = OAUTH_PROVIDERS.antigravity;
+  if (!cfg?.tokenUrl || !cfg.clientId) return null;
+  try {
+    const res = await fetch(cfg.tokenUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json"
+      },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        client_id: cfg.clientId,
+        ...cfg.clientSecret ? { client_secret: cfg.clientSecret } : {},
+        refresh_token: refreshToken
+      })
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.access_token) {
+      console.warn(
+        `[gateway] OAuth token refresh failed (${res.status}): ${data?.error ?? "no access_token"}`
+      );
+      return null;
+    }
+    return {
+      accessToken: data.access_token,
+      expiresInSec: Number(data.expires_in) || 3600
+    };
+  } catch (err) {
+    console.warn("[gateway] OAuth token refresh error:", err);
+    return null;
+  }
+}
+async function refreshExpiredOAuthTokens(providers, ownerUid) {
+  let changed = false;
+  for (const p of providers) {
+    if (!p || p.authMode !== "oauth") continue;
+    const isGoogleOAuth = p.key === "google" || p.key === "antigravity" || (p.baseURL ?? "").includes("googleapis.com");
+    if (!isGoogleOAuth) continue;
+    if (!p.refreshToken || !p.tokenExpiry) continue;
+    let expiryMs = Number(p.tokenExpiry);
+    if (Number.isFinite(expiryMs) && expiryMs > 0 && expiryMs < 1e12) {
+      expiryMs *= 1e3;
+    }
+    if (!Number.isFinite(expiryMs) || Date.now() < expiryMs - 6e4) continue;
+    const usedToken = providerKeys(p)[0] || p.apiKey || "";
+    const fresh = await refreshGoogleOAuthToken(p.refreshToken);
+    if (!fresh) continue;
+    p.apiKey = fresh.accessToken;
+    p.tokenExpiry = Date.now() + fresh.expiresInSec * 1e3;
+    if (Array.isArray(p.apiKeys)) {
+      p.apiKeys = p.apiKeys.map((k) => k === usedToken ? fresh.accessToken : k);
+    }
+    changed = true;
+    console.log(
+      `[gateway] refreshed expired OAuth access token for provider "${p.displayName ?? p.id ?? p.key}"`
+    );
+  }
+  if (changed) {
+    void writeKV(ownerUid, "providers", providers, Date.now()).catch(() => {
+    });
+  }
 }
 
 // api/_lib/keys-core.ts

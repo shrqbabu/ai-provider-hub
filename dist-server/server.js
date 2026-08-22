@@ -1895,7 +1895,9 @@ async function handleGatewayCore(req, nowMs, timing) {
     }
     if (shouldFallback(upstream.status) && i < tries.length - 1) {
       lastStatus = upstream.status;
-      lastText = await safeText(upstream);
+      if (!upstream.bodyUsed) {
+        lastText = await safeText(upstream);
+      }
       if (isCombo) {
         comboAttempts.push({
           providerId: provider.id,
@@ -1916,7 +1918,7 @@ async function handleGatewayCore(req, nowMs, timing) {
       lastStatus = upstream.status;
     }
     if (isCombo && resolved.combo) {
-      const attemptError = succeeded ? void 0 : await safeText(upstream.clone()).catch(() => `HTTP ${upstream.status}`);
+      const attemptError = succeeded ? void 0 : lastText || `HTTP ${upstream.status}`;
       comboAttempts.push({
         providerId: provider.id,
         modelId,
@@ -1939,6 +1941,13 @@ async function handleGatewayCore(req, nowMs, timing) {
         createdAt: Date.now()
       }).catch(() => {
       });
+    }
+    if (!succeeded) {
+      return formatGatewayError(
+        lastStatus,
+        `Upstream error (${lastStatus}): ${lastText}`,
+        isAnthropicReq
+      );
     }
     if (needsTranslation && isGoogleProvider) {
       return await translateGoogleResponseToAnthropic(upstream, wantsStream, modelId, body);

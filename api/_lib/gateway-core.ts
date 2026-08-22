@@ -498,6 +498,9 @@ async function handleGatewayCore(
 
     let upstream: Response | null = null;
     const upStart = Date.now();
+    // NOTE: every failed candidate's body is consumed below via safeText and
+    // kept in lastText. If the last attempt also fails, that text is what we
+    // surface to the caller (see the !succeeded branch after combo logging).
 
     for (const url of candidateUrls) {
       try {
@@ -575,7 +578,12 @@ async function handleGatewayCore(
 
     if (shouldFallback(upstream.status) && i < tries.length - 1) {
       lastStatus = upstream.status;
-      lastText = await safeText(upstream);
+      // The body may already have been read by the candidate-URL loop's
+      // safeText (e.g. an account-level 401/403/429 response that escaped
+      // the cascade) — keep that text instead of re-reading a used body.
+      if (!upstream.bodyUsed) {
+        lastText = await safeText(upstream);
+      }
       if (isCombo) {
         comboAttempts.push({
           providerId: provider.id,
@@ -602,11 +610,15 @@ async function handleGatewayCore(
     }
 
     if (isCombo && resolved.combo) {
-      // Read the error body from a clone so the original stream still relays
-      // to the client intact.
+      // On failure paths the response body was almost always already consumed
+      // (the candidate-URL loop's safeText, or the fallback check above), so
+      // upstream.clone() here would throw "Response.clone: Body has already
+      // been consumed" — crashing the request with an opaque 500 instead of
+      // returning the REAL upstream error. lastText already holds that error
+      // body on every failure path — reuse it.
       const attemptError = succeeded
         ? undefined
-        : await safeText(upstream.clone()).catch(() => `HTTP ${upstream.status}`);
+        : lastText || `HTTP ${upstream.status}`;
       comboAttempts.push({
         providerId: provider.id,
         modelId: modelId,
@@ -628,6 +640,19 @@ async function handleGatewayCore(
         durationMs: Date.now() - comboStart,
         createdAt: Date.now(),
       }).catch(() => {});
+    }
+
+    if (!succeeded) {
+      // Failed responses already had their bodies consumed (safeText in the
+      // candidate loop / fallback check), so relay() or the translators would
+      // only forward an empty husk with a bare status like "401 ". Return the
+      // REAL upstream error text instead — operators must see "token expired"
+      // / "quota exhausted" / actual provider messages to act on them.
+      return formatGatewayError(
+        lastStatus,
+        `Upstream error (${lastStatus}): ${lastText}`,
+        isAnthropicReq
+      );
     }
 
     if (needsTranslation && isGoogleProvider) {

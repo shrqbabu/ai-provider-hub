@@ -2979,6 +2979,8 @@ function translateGoogleStreamToOpenAI(upstream, modelId, requestBody) {
         }
         let buffer = "";
         let toolIndex = 0;
+        let sawToolCall = false;
+        let roleSent = false;
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -3011,6 +3013,10 @@ function translateGoogleStreamToOpenAI(upstream, modelId, requestBody) {
                       const cleanText = sanitizeGoogleOutputText(p.text);
                       if (cleanText) {
                         const delta = p.thought ? { reasoning_content: cleanText } : { content: cleanText };
+                        if (!roleSent) {
+                          delta.role = "assistant";
+                          roleSent = true;
+                        }
                         controller.enqueue(
                           encoder.encode(
                             `data: ${JSON.stringify({
@@ -3032,6 +3038,24 @@ function translateGoogleStreamToOpenAI(upstream, modelId, requestBody) {
                   for (const p of parts) {
                     if (p.functionCall?.name && isDeclaredTool(p.functionCall.name, toolNameMap)) {
                       const exactName = restoreToolName(p.functionCall.name, toolNameMap);
+                      sawToolCall = true;
+                      const delta = {
+                        tool_calls: [
+                          {
+                            index: toolIndex++,
+                            id: `call_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+                            type: "function",
+                            function: {
+                              name: exactName,
+                              arguments: JSON.stringify(p.functionCall.args || {})
+                            }
+                          }
+                        ]
+                      };
+                      if (!roleSent) {
+                        delta.role = "assistant";
+                        roleSent = true;
+                      }
                       controller.enqueue(
                         encoder.encode(
                           `data: ${JSON.stringify({
@@ -3042,19 +3066,7 @@ function translateGoogleStreamToOpenAI(upstream, modelId, requestBody) {
                             choices: [
                               {
                                 index: 0,
-                                delta: {
-                                  tool_calls: [
-                                    {
-                                      index: toolIndex++,
-                                      id: `call_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-                                      type: "function",
-                                      function: {
-                                        name: exactName,
-                                        arguments: JSON.stringify(p.functionCall.args || {})
-                                      }
-                                    }
-                                  ]
-                                },
+                                delta,
                                 finish_reason: null
                               }
                             ]
@@ -3066,7 +3078,7 @@ function translateGoogleStreamToOpenAI(upstream, modelId, requestBody) {
                     }
                   }
                   if (candidate?.finishReason) {
-                    const hasTool = parts.some((p) => p.functionCall);
+                    const hasTool = sawToolCall || parts.some((p) => p.functionCall);
                     controller.enqueue(
                       encoder.encode(
                         `data: ${JSON.stringify({

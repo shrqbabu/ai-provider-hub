@@ -1869,6 +1869,13 @@ function translateGoogleStreamToOpenAI(
 
         let buffer = "";
         let toolIndex = 0;
+        // Stream-wide flags: Gemini delivers finishReason in a separate final
+        // chunk with EMPTY parts (the functionCall came in an earlier chunk),
+        // so per-chunk tool detection would emit finish_reason "stop" after a
+        // tool call — making agent clients (Cline, OpenCode, etc.) end their
+        // tool loop after a single step instead of continuing.
+        let sawToolCall = false;
+        let roleSent = false;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -1904,9 +1911,13 @@ function translateGoogleStreamToOpenAI(
                     if (p.text) {
                       const cleanText = sanitizeGoogleOutputText(p.text);
                       if (cleanText) {
-                        const delta = (p as any).thought
+                        const delta: Record<string, unknown> = (p as any).thought
                           ? { reasoning_content: cleanText }
                           : { content: cleanText };
+                        if (!roleSent) {
+                          delta.role = "assistant";
+                          roleSent = true;
+                        }
                         controller.enqueue(
                           encoder.encode(
                             `data: ${JSON.stringify({
@@ -1926,6 +1937,24 @@ function translateGoogleStreamToOpenAI(
                   for (const p of parts) {
                     if (p.functionCall?.name && isDeclaredTool(p.functionCall.name, toolNameMap)) {
                       const exactName = restoreToolName(p.functionCall.name, toolNameMap);
+                      sawToolCall = true;
+                      const delta: Record<string, unknown> = {
+                        tool_calls: [
+                          {
+                            index: toolIndex++,
+                            id: `call_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+                            type: "function",
+                            function: {
+                              name: exactName,
+                              arguments: JSON.stringify(p.functionCall.args || {}),
+                            },
+                          },
+                        ],
+                      };
+                      if (!roleSent) {
+                        delta.role = "assistant";
+                        roleSent = true;
+                      }
                       controller.enqueue(
                         encoder.encode(
                           `data: ${JSON.stringify({
@@ -1936,19 +1965,7 @@ function translateGoogleStreamToOpenAI(
                             choices: [
                               {
                                 index: 0,
-                                delta: {
-                                  tool_calls: [
-                                    {
-                                      index: toolIndex++,
-                                      id: `call_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-                                      type: "function",
-                                      function: {
-                                        name: exactName,
-                                        arguments: JSON.stringify(p.functionCall.args || {}),
-                                      },
-                                    },
-                                  ],
-                                },
+                                delta,
                                 finish_reason: null,
                               },
                             ],
@@ -1958,7 +1975,10 @@ function translateGoogleStreamToOpenAI(
                     }
                   }
                   if (candidate?.finishReason) {
-                    const hasTool = parts.some((p: any) => p.functionCall);
+                    // Whole-stream flag (see sawToolCall above): finishReason
+                    // arrives in a later, tool-less chunk, so `parts` here
+                    // almost never contains the functionCall.
+                    const hasTool = sawToolCall || parts.some((p: any) => p.functionCall);
                     controller.enqueue(
                       encoder.encode(
                         `data: ${JSON.stringify({

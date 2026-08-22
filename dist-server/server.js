@@ -1502,12 +1502,28 @@ var UPSTREAM_TTFB_MS = (() => {
 async function handleGateway(req, nowMs) {
   const timing = [];
   const t0 = Date.now();
-  const res = await handleGatewayCore(req, nowMs, timing);
-  timing.push({ name: "total", dur: Date.now() - t0 });
-  const st = formatServerTiming(timing);
-  const headers = { ...res.headers ?? {} };
-  headers["Server-Timing"] = headers["Server-Timing"] ? `${headers["Server-Timing"]}, ${st}` : st;
-  return { ...res, headers };
+  try {
+    const res = await handleGatewayCore(req, nowMs, timing);
+    timing.push({ name: "total", dur: Date.now() - t0 });
+    const st = formatServerTiming(timing);
+    const headers = { ...res.headers ?? {} };
+    headers["Server-Timing"] = headers["Server-Timing"] ? `${headers["Server-Timing"]}, ${st}` : st;
+    return { ...res, headers };
+  } catch (err) {
+    console.error("[gateway] unhandled error:", err);
+    timing.push({ name: "total", dur: Date.now() - t0 });
+    const message = err instanceof Error ? err.message : String(err);
+    const isAnthropicReq = req.subPath.toLowerCase().includes("messages");
+    const res = formatGatewayError(
+      500,
+      `Gateway internal error: ${message}`,
+      isAnthropicReq
+    );
+    return {
+      ...res,
+      headers: { ...res.headers ?? {}, "Server-Timing": formatServerTiming(timing) }
+    };
+  }
 }
 async function handleGatewayCore(req, nowMs, timing) {
   const isAnthropicReq = req.subPath.toLowerCase().includes("messages");
@@ -1537,6 +1553,9 @@ async function handleGatewayCore(req, nowMs, timing) {
     readKV(uid, "models", []),
     readKV(uid, "combos", [])
   ]);
+  if (!Array.isArray(providers)) providers = [];
+  if (!Array.isArray(models)) models = [];
+  if (!Array.isArray(combos)) combos = [];
   if (!providers || providers.length === 0) {
     if (uid !== "local_user") {
       const [localProv, localMod, localComb] = await Promise.all([

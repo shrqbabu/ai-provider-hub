@@ -72,14 +72,33 @@ export async function handleGateway(
 ): Promise<CoreResponse> {
   const timing: GwTiming[] = [];
   const t0 = Date.now();
-  const res = await handleGatewayCore(req, nowMs, timing);
-  timing.push({ name: "total", dur: Date.now() - t0 });
-  const st = formatServerTiming(timing);
-  const headers: Record<string, string> = { ...(res.headers ?? {}) };
-  headers["Server-Timing"] = headers["Server-Timing"]
-    ? `${headers["Server-Timing"]}, ${st}`
-    : st;
-  return { ...res, headers };
+  try {
+    const res = await handleGatewayCore(req, nowMs, timing);
+    timing.push({ name: "total", dur: Date.now() - t0 });
+    const st = formatServerTiming(timing);
+    const headers: Record<string, string> = { ...(res.headers ?? {}) };
+    headers["Server-Timing"] = headers["Server-Timing"]
+      ? `${headers["Server-Timing"]}, ${st}`
+      : st;
+    return { ...res, headers };
+  } catch (err) {
+    // Never leak an opaque adapter-level 500: log the real cause server-side
+    // AND put it in the client-facing error body (with timings), otherwise
+    // data-shape bugs (e.g. a malformed KV doc) are invisible to operators.
+    console.error("[gateway] unhandled error:", err);
+    timing.push({ name: "total", dur: Date.now() - t0 });
+    const message = err instanceof Error ? err.message : String(err);
+    const isAnthropicReq = req.subPath.toLowerCase().includes("messages");
+    const res = formatGatewayError(
+      500,
+      `Gateway internal error: ${message}`,
+      isAnthropicReq
+    );
+    return {
+      ...res,
+      headers: { ...(res.headers ?? {}), "Server-Timing": formatServerTiming(timing) },
+    };
+  }
 }
 
 async function handleGatewayCore(
@@ -129,6 +148,15 @@ async function handleGatewayCore(
     readKV<GwModel[]>(uid, "models", []),
     readKV<GwCombo[]>(uid, "combos", []),
   ]);
+
+  // Defensive: these KV docs are expected to be arrays. A malformed or
+  // object-shaped doc (e.g. dict-notation export from an older UI) used to
+  // crash POST requests downstream with "providers.map is not a function"
+  // (500), while GET /models survived because it guards with Array.isArray.
+  // Normalize instead — the user then gets a clear "no providers" 400.
+  if (!Array.isArray(providers)) providers = [];
+  if (!Array.isArray(models)) models = [];
+  if (!Array.isArray(combos)) combos = [];
 
   if (!providers || providers.length === 0) {
     if (uid !== "local_user") {

@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
-import { Star, Trash2, Save, Eye, FileText, Zap, Brain, Wrench, CheckCircle2, XCircle, TestTube2, Loader2, Plug, PlugZap } from "lucide-react";
+import { useState } from "react";
+import { Star, Trash2, Save, Eye, FileText, Zap, Brain, Wrench, CheckCircle2, XCircle, TestTube2, Loader2, Plug, PlugZap, Copy, Check } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,16 @@ export function ModelCard({
   isTesting,
   passedTest = model.working,
 }: Props) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyId = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(model.modelId).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
   return (
     <motion.div
       layout
@@ -73,8 +84,20 @@ export function ModelCard({
               <div className="font-semibold text-sm truncate">
                 {model.displayName}
               </div>
-              <div className="text-[11px] text-muted-foreground truncate font-mono">
-                {model.modelId}
+              <div className="text-[11px] text-muted-foreground truncate font-mono flex items-center gap-1">
+                <span className="truncate">{model.modelId}</span>
+                <button
+                  type="button"
+                  onClick={handleCopyId}
+                  className="p-0.5 rounded hover:bg-secondary transition shrink-0 text-muted-foreground hover:text-foreground"
+                  title={copied ? "Copied!" : "Copy model ID"}
+                >
+                  {copied ? (
+                    <Check className="w-3 h-3 text-emerald-500" />
+                  ) : (
+                    <Copy className="w-3 h-3" />
+                  )}
+                </button>
               </div>
             </div>
             {onTest && (

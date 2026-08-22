@@ -59,6 +59,21 @@ export function Sidebar() {
     setMobileOpen(false);
   }, [location.pathname, location.search, setMobileOpen]);
 
+  // Lock body scroll while the mobile drawer is open, and ALWAYS release it on
+  // close/unmount. Without the cleanup, an interrupted close (e.g. drag + route
+  // change firing together) could leave `overflow: hidden` stuck on <body>,
+  // which reads as a frozen/stuck page until the user refreshes.
+  useEffect(() => {
+    if (mobileOpen && window.innerWidth < 768) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [mobileOpen]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") setMobileOpen(false);
@@ -282,8 +297,9 @@ export function Sidebar() {
               animate={{ x: 0 }}
               exit={{ x: "-100%" }}
               drag="x"
-              dragConstraints={{ left: -320, right: 0 }}
-              dragElastic={0.1}
+              dragConstraints={{ left: 0, right: 0 }}
+              dragElastic={{ left: 0.2, right: 0 }}
+              dragSnapToOrigin
               onDragEnd={(_e, info) => {
                 if (info.offset.x < -60 || info.velocity.x < -200) {
                   setMobileOpen(false);

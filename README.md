@@ -151,15 +151,22 @@ You can backup and restore all your data anytime from the UI:
 
 ## 🔄 Updating Your VPS Deployment
 
-Whenever you push new updates to GitHub:
+The repo **already ships the built output** (`dist/` frontend + `dist-server/` server bundle are tracked in git), so most updates need **no build on the VPS** at all:
 
 ```bash
 cd ai-provider-hub
 git pull origin main
-npm install
-npm run build
+# Only if package.json changed:  npm ci --omit=dev
 pm2 restart ai-provider-hub
 ```
+
+> **⚠️ Low-RAM VPS (1GB) warning:** running `npm run build` (Vite) **on the VPS** while PM2 is live will eat all RAM and swap-thrash at 100% CPU (build never finishes). Either use the no-build pull flow above, or build on your PC and commit `dist/` + `dist-server/`, or as a last resort stop the app first:
+> ```bash
+> pm2 stop ai-provider-hub
+> NODE_OPTIONS="--max-old-space-size=700" npm run build
+> pm2 restart ai-provider-hub
+> ```
+
 *(Or with Docker: `docker compose up -d --build`)*
 
 ---

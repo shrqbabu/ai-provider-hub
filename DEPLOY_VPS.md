@@ -138,8 +138,10 @@ Jab bhi naya code push ho, VPS par sirf yeh commands run karein:
 
 ```bash
 git pull origin main
-npm install
-npm run build
+# sirf tab chalayein jab package.json change hua ho:  npm ci --omit=dev
 pm2 restart ai-provider-hub
 ```
+
+> **⚠️ 1GB RAM VPS ke liye dhyan dein:** repo mein `dist/` (frontend) aur `dist-server/` (server bundle) pehle se built aur tracked hain — isliye VPS par `npm run build` chalane ki zaroorat **nahi** hai. PM2 chalte hue Vite build VPS ki poori RAM kha jaata hai (CPU 100%, build atak jaata hai). Agar kabhi VPS par build karna hi ho to pehle `pm2 stop ai-provider-hub` karein, phir `NODE_OPTIONS="--max-old-space-size=700" npm run build`, phir `pm2 restart ai-provider-hub`. Behtar: PC par `npm run build` karke `dist/`+`dist-server/` commit/push karein aur VPS par sirf pull karein.
+
 *(Ya agar Docker use kar rahe hain: `git pull && docker compose up -d --build`)*

@@ -127,6 +127,7 @@ You can backup and restore all your data anytime from the UI:
 | `HOST` | Optional | Host bind address | `0.0.0.0` |
 | `NODE_ENV` | Optional | Environment mode | `production` |
 | `DATA_DIR` | Optional | Path for local SQLite / persistent database | `./data` |
+| `GATEWAY_UPSTREAM_TTFB_MS` | Optional | Max wait for an upstream provider's first byte before falling back to the next key/combo member. Streams are never cut after headers arrive. `0` disables. | `60000` |
 | `FIREBASE_SERVICE_ACCOUNT` | **Optional** | Firebase Admin SDK JSON (If not set, uses local VPS SQLite DB) | `{"type":"service_account",...}` |
 | `ANTIGRAVITY_CLIENT_ID` | Optional | Google OAuth Client ID for Antigravity login | `10710...apps.googleusercontent.com` |
 | `ANTIGRAVITY_CLIENT_SECRET` | Optional | Google OAuth Client Secret | `GOCSPX-...` |

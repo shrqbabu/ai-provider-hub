@@ -1495,7 +1495,21 @@ var HOP_BY_HOP = /* @__PURE__ */ new Set([
 function shouldFallback(status) {
   return status === 400 || status === 401 || status === 403 || status === 404 || status === 422 || status === 429 || status >= 500;
 }
+var UPSTREAM_TTFB_MS = (() => {
+  const v = parseInt(process.env.GATEWAY_UPSTREAM_TTFB_MS || "", 10);
+  return Number.isFinite(v) && v >= 0 ? v : 6e4;
+})();
 async function handleGateway(req, nowMs) {
+  const timing = [];
+  const t0 = Date.now();
+  const res = await handleGatewayCore(req, nowMs, timing);
+  timing.push({ name: "total", dur: Date.now() - t0 });
+  const st = formatServerTiming(timing);
+  const headers = { ...res.headers ?? {} };
+  headers["Server-Timing"] = headers["Server-Timing"] ? `${headers["Server-Timing"]}, ${st}` : st;
+  return { ...res, headers };
+}
+async function handleGatewayCore(req, nowMs, timing) {
   const isAnthropicReq = req.subPath.toLowerCase().includes("messages");
   const raw = bearerToken(req) || req.header("x-api-key") || req.header("api-key") || req.query.get("key") || req.query.get("api_key");
   if (!raw) {
@@ -1507,14 +1521,17 @@ async function handleGateway(req, nowMs) {
   }
   const connectionId = req.header("x-connection-id") || req.header("x-provider-id");
   const providerKeyHeader = req.header("x-provider-key");
+  const authStart = Date.now();
   let uid = raw ? await resolveApiKey(raw) : null;
   if (!uid) {
     uid = await requireUser(req);
   }
+  timing.push({ name: "auth", dur: Date.now() - authStart });
   if (!uid) {
     return formatGatewayError(401, "Invalid or revoked API key.", isAnthropicReq);
   }
   const path4 = req.subPath.replace(/^\/+/, "").replace(/\/+$/, "").toLowerCase();
+  const kvStart = Date.now();
   let [providers, models, combos] = await Promise.all([
     readKV(uid, "providers", []),
     readKV(uid, "models", []),
@@ -1534,6 +1551,7 @@ async function handleGateway(req, nowMs) {
       }
     }
   }
+  timing.push({ name: "cfg", dur: Date.now() - kvStart, desc: "providers+models+combos" });
   if (path4 === "models" || path4 === "v1/models") {
     let detectProviderKey2 = function(p) {
       const url = (p.baseURL || "").toLowerCase();
@@ -1715,6 +1733,7 @@ async function handleGateway(req, nowMs) {
       const streamEndpoint = wantsStream ? "streamGenerateContent" : "generateContent";
       const sseParam = wantsStream ? isOAuth ? "?alt=sse" : "&alt=sse" : "";
       if (isOAuth) {
+        const projStart = Date.now();
         let projectId = provider.extraHeaders?.projectId || "";
         if (!projectId) {
           try {
@@ -1722,6 +1741,7 @@ async function handleGateway(req, nowMs) {
           } catch {
           }
         }
+        timing.push({ name: "proj", dur: Date.now() - projStart, desc: "antigravity-project" });
         candidateUrls.push(
           `https://cloudcode-pa.googleapis.com/v1internal:${streamEndpoint}${sseParam}`,
           `https://daily-cloudcode-pa.googleapis.com/v1internal:${streamEndpoint}${sseParam}`,
@@ -1753,6 +1773,7 @@ async function handleGateway(req, nowMs) {
       const streamEndpoint = wantsStream ? "streamGenerateContent" : "generateContent";
       const sseParam = wantsStream ? isOAuth ? "?alt=sse" : "&alt=sse" : "";
       if (isOAuth) {
+        const projStart = Date.now();
         let projectId = provider.extraHeaders?.projectId || "";
         if (!projectId) {
           try {
@@ -1760,6 +1781,7 @@ async function handleGateway(req, nowMs) {
           } catch {
           }
         }
+        timing.push({ name: "proj", dur: Date.now() - projStart, desc: "antigravity-project" });
         candidateUrls.push(
           `https://cloudcode-pa.googleapis.com/v1internal:${streamEndpoint}${sseParam}`,
           `https://daily-cloudcode-pa.googleapis.com/v1internal:${streamEndpoint}${sseParam}`,
@@ -1803,13 +1825,14 @@ async function handleGateway(req, nowMs) {
     }
     const headers = isGoogleProvider ? buildUpstreamHeaders(provider, cred, actualEndpoint) : buildUpstreamHeaders(provider, cred, actualEndpoint);
     let upstream = null;
+    const upStart = Date.now();
     for (const url of candidateUrls) {
       try {
-        const candidateResp = await fetch(url, {
+        const candidateResp = await fetchUpstream(url, {
           method: "POST",
           headers,
           body: upstreamBody
-        });
+        }, UPSTREAM_TTFB_MS);
         const ct = (candidateResp.headers.get("content-type") ?? "").toLowerCase();
         if (ct.includes("text/html")) {
           lastStatus = candidateResp.status || 502;
@@ -1836,6 +1859,7 @@ async function handleGateway(req, nowMs) {
         lastText = err instanceof Error ? err.message : "Upstream fetch failed.";
       }
     }
+    timing.push({ name: `up${i + 1}`, dur: Date.now() - upStart, desc: cleanModelId });
     if (!upstream) {
       if (isCombo) {
         comboAttempts.push({
@@ -3668,6 +3692,33 @@ async function recordComboLog(uid, entry) {
   const nextList = [entry, ...list].slice(0, 1e3);
   await writeKV(uid, KEY, nextList, entry.createdAt);
 }
+async function fetchUpstream(url, init2, ttfbMs) {
+  if (!Number.isFinite(ttfbMs) || ttfbMs <= 0) return fetch(url, init2);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => {
+    ctrl.abort(
+      new Error(
+        `Upstream did not start responding within ${ttfbMs}ms (GATEWAY_UPSTREAM_TTFB_MS). Trying next option.`
+      )
+    );
+  }, ttfbMs);
+  if (typeof timer.unref === "function") timer.unref();
+  try {
+    const res = await fetch(url, { ...init2, signal: ctrl.signal });
+    clearTimeout(timer);
+    return res;
+  } catch (err) {
+    clearTimeout(timer);
+    throw err;
+  }
+}
+function formatServerTiming(entries) {
+  return entries.map((e) => {
+    const dur = Math.max(0, e.dur).toFixed(1);
+    const desc = e.desc ? `;desc="${e.desc.replace(/[^a-zA-Z0-9_./+-]/g, "")}"` : "";
+    return `${e.name};dur=${dur}${desc}`;
+  }).join(", ");
+}
 
 // api/_lib/keys-core.ts
 async function handleKeys(req, nowMs) {
@@ -4614,6 +4665,7 @@ function setCorsHeaders(req, res) {
     "Access-Control-Allow-Headers",
     "Content-Type, Authorization, x-api-key, x-provider-key, x-provider-cookie, x-auth-mode, anthropic-version, openai-organization"
   );
+  res.setHeader("Access-Control-Expose-Headers", "Server-Timing");
   res.setHeader("Access-Control-Allow-Credentials", "true");
 }
 async function handleWebRequest(req, res, handler2) {

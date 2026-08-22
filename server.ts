@@ -59,6 +59,9 @@ function setCorsHeaders(req: IncomingMessage, res: ServerResponse) {
     "Access-Control-Allow-Headers",
     "Content-Type, Authorization, x-api-key, x-provider-key, x-provider-cookie, x-auth-mode, anthropic-version, openai-organization"
   );
+  // Let browser-based clients read the gateway's per-phase latency breakdown
+  // (Server-Timing) from JS, e.g. for the app's own diagnostics views.
+  res.setHeader("Access-Control-Expose-Headers", "Server-Timing");
   res.setHeader("Access-Control-Allow-Credentials", "true");
 }
 

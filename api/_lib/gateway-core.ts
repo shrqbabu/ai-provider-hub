@@ -51,9 +51,41 @@ function shouldFallback(status: number): boolean {
   );
 }
 
+// Max time to wait for an upstream provider to return response *headers*
+// (time-to-first-byte). Once headers arrive the timer is cleared, so slow
+// generations / long SSE streams are never cut — but a hung upstream fails
+// over to the next key/combo member instead of stalling the client forever.
+// Override with GATEWAY_UPSTREAM_TTFB_MS; set 0 to disable.
+const UPSTREAM_TTFB_MS = (() => {
+  const v = parseInt(process.env.GATEWAY_UPSTREAM_TTFB_MS || "", 10);
+  return Number.isFinite(v) && v >= 0 ? v : 60000;
+})();
+
+// Per-request latency breakdown, surfaced as a Server-Timing header so it is
+// visible with plain `curl -i` or browser devtools. This lets deployments
+// answer "is the 3.6s TTFB the hub or the upstream?" with real numbers.
+type GwTiming = { name: string; dur: number; desc?: string };
+
 export async function handleGateway(
   req: CoreRequest,
   nowMs: number
+): Promise<CoreResponse> {
+  const timing: GwTiming[] = [];
+  const t0 = Date.now();
+  const res = await handleGatewayCore(req, nowMs, timing);
+  timing.push({ name: "total", dur: Date.now() - t0 });
+  const st = formatServerTiming(timing);
+  const headers: Record<string, string> = { ...(res.headers ?? {}) };
+  headers["Server-Timing"] = headers["Server-Timing"]
+    ? `${headers["Server-Timing"]}, ${st}`
+    : st;
+  return { ...res, headers };
+}
+
+async function handleGatewayCore(
+  req: CoreRequest,
+  nowMs: number,
+  timing: GwTiming[]
 ): Promise<CoreResponse> {
   const isAnthropicReq = req.subPath.toLowerCase().includes("messages");
 
@@ -76,11 +108,13 @@ export async function handleGateway(
   const connectionId = req.header("x-connection-id") || req.header("x-provider-id");
   const providerKeyHeader = req.header("x-provider-key");
 
+  const authStart = Date.now();
   let uid = raw ? await resolveApiKey(raw) : null;
   if (!uid) {
     // Also accept direct Firebase session token or authenticated user
     uid = await requireUser(req);
   }
+  timing.push({ name: "auth", dur: Date.now() - authStart });
 
   if (!uid) {
     return formatGatewayError(401, "Invalid or revoked API key.", isAnthropicReq);
@@ -89,6 +123,7 @@ export async function handleGateway(
   const path = req.subPath.replace(/^\/+/, "").replace(/\/+$/, "").toLowerCase();
 
   // Load the user's connected providers + models + combos
+  const kvStart = Date.now();
   let [providers, models, combos] = await Promise.all([
     readKV<GwProvider[]>(uid, "providers", []),
     readKV<GwModel[]>(uid, "models", []),
@@ -109,6 +144,7 @@ export async function handleGateway(
       }
     }
   }
+  timing.push({ name: "cfg", dur: Date.now() - kvStart, desc: "providers+models+combos" });
 
   // â”€â”€ GET models: return working models for active connected providers + combos ────
   if (path === "models" || path === "v1/models") {
@@ -333,12 +369,14 @@ export async function handleGateway(
       const sseParam = wantsStream ? (isOAuth ? "?alt=sse" : "&alt=sse") : "";
 
       if (isOAuth) {
+        const projStart = Date.now();
         let projectId = provider.extraHeaders?.projectId || "";
         if (!projectId) {
           try {
             projectId = await resolveAntigravityProject(cred);
           } catch {}
         }
+        timing.push({ name: "proj", dur: Date.now() - projStart, desc: "antigravity-project" });
 
         candidateUrls.push(
           `https://cloudcode-pa.googleapis.com/v1internal:${streamEndpoint}${sseParam}`,
@@ -374,12 +412,14 @@ export async function handleGateway(
       const sseParam = wantsStream ? (isOAuth ? "?alt=sse" : "&alt=sse") : "";
 
       if (isOAuth) {
+        const projStart = Date.now();
         let projectId = provider.extraHeaders?.projectId || "";
         if (!projectId) {
           try {
             projectId = await resolveAntigravityProject(cred);
           } catch {}
         }
+        timing.push({ name: "proj", dur: Date.now() - projStart, desc: "antigravity-project" });
 
         candidateUrls.push(
           `https://cloudcode-pa.googleapis.com/v1internal:${streamEndpoint}${sseParam}`,
@@ -429,14 +469,15 @@ export async function handleGateway(
         : buildUpstreamHeaders(provider, cred, actualEndpoint);
 
     let upstream: Response | null = null;
+    const upStart = Date.now();
 
     for (const url of candidateUrls) {
       try {
-        const candidateResp = await fetch(url, {
+        const candidateResp = await fetchUpstream(url, {
           method: "POST",
           headers,
           body: upstreamBody,
-        });
+        }, UPSTREAM_TTFB_MS);
 
         // Detect HTML responses — upstream returned a web page, not an API.
         const ct = (candidateResp.headers.get("content-type") ?? "").toLowerCase();
@@ -476,6 +517,8 @@ export async function handleGateway(
         lastText = err instanceof Error ? err.message : "Upstream fetch failed.";
       }
     }
+
+    timing.push({ name: `up${i + 1}`, dur: Date.now() - upStart, desc: cleanModelId });
 
     if (!upstream) {
       if (isCombo) {
@@ -2703,4 +2746,53 @@ async function recordComboLog(
   const list = await readKV<any[]>(uid, KEY, []);
   const nextList = [entry, ...list].slice(0, 1000);
   await writeKV(uid, KEY, nextList, entry.createdAt);
+}
+
+/**
+ * fetch() wrapper that bounds only the time-to-first-byte (response headers).
+ * The abort timer is cleared the moment headers arrive, so long SSE streams
+ * and slow buffered generations keep flowing — but an upstream that never
+ * starts responding is abandoned after `ttfbMs`, letting the fallback loop
+ * move on to the next candidate URL / key / combo member.
+ */
+async function fetchUpstream(
+  url: string,
+  init: RequestInit,
+  ttfbMs: number
+): Promise<Response> {
+  if (!Number.isFinite(ttfbMs) || ttfbMs <= 0) return fetch(url, init);
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => {
+    ctrl.abort(
+      new Error(
+        `Upstream did not start responding within ${ttfbMs}ms (GATEWAY_UPSTREAM_TTFB_MS). Trying next option.`
+      )
+    );
+  }, ttfbMs);
+  if (typeof timer.unref === "function") timer.unref();
+
+  try {
+    const res = await fetch(url, { ...init, signal: ctrl.signal });
+    // Headers received — stop the clock so the response body can take as
+    // long as the model needs (non-stream 15s+ generations stay intact).
+    clearTimeout(timer);
+    return res;
+  } catch (err) {
+    clearTimeout(timer);
+    throw err;
+  }
+}
+
+/** Serialize the collected phase timings into a Server-Timing header value. */
+function formatServerTiming(entries: GwTiming[]): string {
+  return entries
+    .map((e) => {
+      const dur = Math.max(0, e.dur).toFixed(1);
+      const desc = e.desc
+        ? `;desc="${e.desc.replace(/[^a-zA-Z0-9_./+-]/g, "")}"`
+        : "";
+      return `${e.name};dur=${dur}${desc}`;
+    })
+    .join(", ");
 }

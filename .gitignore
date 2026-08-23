@@ -18,3 +18,7 @@ vite.config.js
 vite.config.d.ts
 *.tsbuildinfo
 .claude
+
+.agents/
+.replit
+.replitignore

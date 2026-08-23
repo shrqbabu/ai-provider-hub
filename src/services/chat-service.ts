@@ -24,6 +24,22 @@ interface OpenAIMessageContent {
 // Auto-continue when the provider cuts the answer at its output-token limit
 // (finish_reason === "length"). Cap rounds so a runaway model can't loop.
 const MAX_CONTINUATIONS = 4;
+// CloudCode/free-tier upstreams frequently DROP the connection mid-answer
+// (no finish_reason, or an SSE error frame after partial text). Instead of
+// surfacing a visibly truncated reply, re-ask the model to continue from
+// where it stopped — same trick as the token-limit continuation below.
+const MAX_RESUMES = 2;
+
+/** Heuristic: does this partial answer look chopped off mid-way? */
+function looksCut(text: string): boolean {
+  const t = text.trimEnd();
+  if (t.length < 40) return false;
+  // Odd number of ``` fences → code block left open mid-stream.
+  const fences = (t.match(/```/g) || []).length;
+  if (fences % 2 === 1) return true;
+  // No terminal punctuation/closer at the very end → likely cut mid-sentence.
+  return !/[.!?\n)\]`"'}:;>*_~]$/.test(t);
+}
 const CONTINUE_PROMPT =
   "Continue your previous response EXACTLY from where it stopped. " +
   "Do not repeat anything, do not re-open code fences that are already open, " +
@@ -166,6 +182,7 @@ export async function streamChat(
     let tokensIn = 0;
     let tokensOut = 0;
     let continuations = 0;
+    let resumes = 0;
 
     const seenImages = new Set<string>();
     const emitImage = (url: string) => {
@@ -179,7 +196,7 @@ export async function streamChat(
       // to pick up where it stopped. (A trailing assistant message alone is
       // rejected as "prefill" by some providers — the user turn avoids that.)
       const requestMessages =
-        continuations === 0
+        continuations === 0 && resumes === 0
           ? baseMessages
           : [
               ...baseMessages,
@@ -187,31 +204,48 @@ export async function streamChat(
               { role: "user" as const, content: CONTINUE_PROMPT },
             ];
 
-      const stream = await createCompletionStream(
-        client,
-        {
-          // Strip the virtual "aip/" prefix before it goes upstream — it's a
-          // display-only tag (see utils/model-prefix). A provider would 404 on
-          // "aip/claude-…" since that's not a real upstream model id.
-          model: model.modelId.replace(/^aip\//i, ""),
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          messages: requestMessages as any,
-          stream: true,
-          stream_options: { include_usage: true },
-        },
-        resolveMaxTokens(model),
-        handlers.signal
-      );
+      let stream: unknown;
+      try {
+        stream = await createCompletionStream(
+          client,
+          {
+            // Strip the virtual "aip/" prefix before it goes upstream — it's a
+            // display-only tag (see utils/model-prefix). A provider would 404 on
+            // "aip/claude-…" since that's not a real upstream model id.
+            model: model.modelId.replace(/^aip\//i, ""),
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            messages: requestMessages as any,
+            stream: true,
+            stream_options: { include_usage: true },
+          },
+          resolveMaxTokens(model),
+          handlers.signal
+        );
+      } catch (createErr: unknown) {
+        // Request-level failure AFTER some text already streamed in a prior
+        // round → resume instead of dying with a partial answer on screen.
+        if ((createErr as { name?: string })?.name === "AbortError") throw createErr;
+        if (accumulated.length > 0 && resumes < MAX_RESUMES) {
+          resumes++;
+          continue;
+        }
+        throw createErr;
+      }
 
       let finishReason: string | null = null;
       let reqIn = 0;
       let reqOut = 0;
 
+      let hadFinishReason = false;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      for await (const chunk of stream as any) {
+      try {
+        for await (const chunk of stream as any) {
         const choice = chunk?.choices?.[0];
         const delta = choice?.delta;
-        if (choice?.finish_reason) finishReason = choice.finish_reason;
+        if (choice?.finish_reason) {
+          finishReason = choice.finish_reason;
+          hadFinishReason = true;
+        }
 
         // Standard text delta.
         const text =
@@ -266,6 +300,18 @@ export async function streamChat(
           reqOut = chunk.usage.completion_tokens ?? reqOut;
         }
       }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } catch (streamErr: any) {
+        if (streamErr?.name === "AbortError") throw streamErr;
+        // Mid-stream failure AFTER partial text (CloudCode SSE error frames,
+        // dropped connections) → resume from accumulated text instead of
+        // leaving a visibly truncated reply on screen.
+        if (accumulated.length > 0 && resumes < MAX_RESUMES) {
+          resumes++;
+          continue;
+        }
+        throw streamErr;
+      }
 
       tokensIn += reqIn;
       tokensOut += reqOut;
@@ -274,6 +320,14 @@ export async function streamChat(
       // same assistant message so the user never has to say "continue".
       if (finishReason === "length" && continuations < MAX_CONTINUATIONS) {
         continuations++;
+        continue;
+      }
+      // Stream ended with NO finish_reason and the text looks chopped mid-way
+      // (open code fence / no closing punctuation) — CloudCode-style free
+      // upstreams cut connections silently. Resume rather than surfacing a
+      // visibly incomplete answer.
+      if (!hadFinishReason && looksCut(accumulated) && resumes < MAX_RESUMES) {
+        resumes++;
         continue;
       }
       break;

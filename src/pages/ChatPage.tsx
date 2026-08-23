@@ -41,6 +41,17 @@ export function ChatPage() {
   const providers = useProviderStore((s) => s.providers);
   const recordUsage = useUsageStore((s) => s.record);
   const [streamingId, setStreamingId] = useState<string | null>(null);
+  // Live streaming ticker — bumps every 500ms while a response streams so the
+  // header shows elapsed time + running token estimate in real time.
+  const [streamTick, setStreamTick] = useState(0);
+  const streamStartRef = useRef(0);
+  useEffect(() => {
+    if (!streamingId) return;
+    streamStartRef.current = Date.now();
+    const iv = setInterval(() => setStreamTick((t) => t + 1), 500);
+    return () => clearInterval(iv);
+  }, [streamingId]);
+  void streamTick;
   const [thinkingId, setThinkingId] = useState<string | null>(null);
   const thinkingStartRef = useRef<number>(0);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -131,13 +142,25 @@ export function ChatPage() {
     }
     const m = models.find((x) => x.id === modelPk);
     if (!m) return;
+    if (m.disabled) {
+      // Test runs auto-DISCONNECT failing models (e.g. a 429 at test time).
+      // If the user explicitly picks such a model in chat, revive it instead
+      // of silently leaving the chat unable to respond.
+      useModelStore.getState().update(m.id, { disabled: false, working: true });
+      toast.info(`"${m.displayName}" was disconnected — re-enabled for this chat.`);
+    }
     updateChat(chat.id, { modelId: m.id, providerId: m.providerId });
   };
 
   const startBufferedFlush = (chatId: string, assistantId: string) => {
     bufferRef.current = { pending: "", msgId: assistantId, done: false };
     let shown = "";
-    const CHARS_PER_FRAME = 3; // ~180 chars/sec at 60fps — smooth but not slow
+    // ~480 chars/sec base at 60fps. Slow replies (Claude Code style large
+    // answers) used to crawl at 3 chars/frame even AFTER the upstream had
+    // finished — the old fixed rate turned the tail of every long answer
+    // into a multi-second wait. Now: smooth typewriter cadence while small,
+    // hard ramp with backlog, and a fast guaranteed drain once done.
+    const BASE_CHARS_PER_FRAME = 8;
 
     const tick = () => {
       const buf = bufferRef.current;
@@ -146,9 +169,16 @@ export function ChatPage() {
         return;
       }
       if (buf.pending.length > 0) {
-        // While buffer is huge (upstream dumped a lot), speed up so we don't
-        // lag behind indefinitely.
-        const step = buf.pending.length > 200 ? 12 : CHARS_PER_FRAME;
+        const len = buf.pending.length;
+        let step: number;
+        if (buf.done) {
+          // Upstream finished: NEVER make the user wait on the animation —
+          // drain whatever is left in ~0.5s (30 frames) regardless of length.
+          step = Math.max(BASE_CHARS_PER_FRAME, Math.ceil(len / 30));
+        } else if (len > 2000) step = 64; // huge burst dump — catch up fast
+        else if (len > 800) step = 32;
+        else if (len > 300) step = 14;
+        else step = BASE_CHARS_PER_FRAME;
         const chunk = buf.pending.slice(0, step);
         buf.pending = buf.pending.slice(step);
         shown += chunk;
@@ -180,7 +210,17 @@ export function ChatPage() {
     }
 
     if (attempts.length === 0) {
-      toast.error("No usable provider/model configuration found.");
+      // Say WHY nothing can respond — a bare "no config" toast leaves users
+      // guessing when a model was auto-disconnected by a failed test run.
+      toast.error(
+        model?.disabled
+          ? `"${model.displayName}" is disconnected — re-enable it on the Models page.`
+          : provider?.disabled
+            ? `Provider "${provider.displayName}" is disconnected — reconnect it first.`
+            : combo
+              ? `No enabled members in combo "${combo.name}" — check the Combos page.`
+              : "No usable provider/model configuration found."
+      );
       return;
     }
 
@@ -539,7 +579,11 @@ export function ChatPage() {
               streamingId ? "text-amber-500 animate-pulse" : "text-emerald-500"
             )}
           />
-          {streamingId ? "Streaming" : "Ready"}
+          {streamingId
+            ? `Streaming · ${((Date.now() - streamStartRef.current) / 1000).toFixed(1)}s · ~${estimateTokens(
+                chat.messages.find((m) => m.id === streamingId)?.content ?? ""
+              )} tok`
+            : "Ready"}
         </div>
 
         <DropdownMenu.Root>

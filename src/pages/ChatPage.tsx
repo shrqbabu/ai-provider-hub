@@ -148,7 +148,12 @@ export function ChatPage() {
   const startBufferedFlush = (chatId: string, assistantId: string) => {
     bufferRef.current = { pending: "", msgId: assistantId, done: false };
     let shown = "";
-    const CHARS_PER_FRAME = 3; // ~180 chars/sec at 60fps — smooth but not slow
+    // ~480 chars/sec base at 60fps. Slow replies (Claude Code style large
+    // answers) used to crawl at 3 chars/frame even AFTER the upstream had
+    // finished — the old fixed rate turned the tail of every long answer
+    // into a multi-second wait. Now: smooth typewriter cadence while small,
+    // hard ramp with backlog, and a fast guaranteed drain once done.
+    const BASE_CHARS_PER_FRAME = 8;
 
     const tick = () => {
       const buf = bufferRef.current;
@@ -157,9 +162,16 @@ export function ChatPage() {
         return;
       }
       if (buf.pending.length > 0) {
-        // While buffer is huge (upstream dumped a lot), speed up so we don't
-        // lag behind indefinitely.
-        const step = buf.pending.length > 200 ? 12 : CHARS_PER_FRAME;
+        const len = buf.pending.length;
+        let step: number;
+        if (buf.done) {
+          // Upstream finished: NEVER make the user wait on the animation —
+          // drain whatever is left in ~0.5s (30 frames) regardless of length.
+          step = Math.max(BASE_CHARS_PER_FRAME, Math.ceil(len / 30));
+        } else if (len > 2000) step = 64; // huge burst dump — catch up fast
+        else if (len > 800) step = 32;
+        else if (len > 300) step = 14;
+        else step = BASE_CHARS_PER_FRAME;
         const chunk = buf.pending.slice(0, step);
         buf.pending = buf.pending.slice(step);
         shown += chunk;

@@ -142,6 +142,13 @@ export function ChatPage() {
     }
     const m = models.find((x) => x.id === modelPk);
     if (!m) return;
+    if (m.disabled) {
+      // Test runs auto-DISCONNECT failing models (e.g. a 429 at test time).
+      // If the user explicitly picks such a model in chat, revive it instead
+      // of silently leaving the chat unable to respond.
+      useModelStore.getState().update(m.id, { disabled: false, working: true });
+      toast.info(`"${m.displayName}" was disconnected — re-enabled for this chat.`);
+    }
     updateChat(chat.id, { modelId: m.id, providerId: m.providerId });
   };
 
@@ -203,7 +210,17 @@ export function ChatPage() {
     }
 
     if (attempts.length === 0) {
-      toast.error("No usable provider/model configuration found.");
+      // Say WHY nothing can respond — a bare "no config" toast leaves users
+      // guessing when a model was auto-disconnected by a failed test run.
+      toast.error(
+        model?.disabled
+          ? `"${model.displayName}" is disconnected — re-enable it on the Models page.`
+          : provider?.disabled
+            ? `Provider "${provider.displayName}" is disconnected — reconnect it first.`
+            : combo
+              ? `No enabled members in combo "${combo.name}" — check the Combos page.`
+              : "No usable provider/model configuration found."
+      );
       return;
     }
 

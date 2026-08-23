@@ -1920,6 +1920,7 @@ async function handleGatewayCore(req, nowMs, timing) {
     } else {
       lastStatus = upstream.status;
     }
+    let comboLogId = "";
     if (isCombo && resolved.combo) {
       const attemptError = succeeded ? void 0 : lastText || `HTTP ${upstream.status}`;
       comboAttempts.push({
@@ -1931,7 +1932,7 @@ async function handleGatewayCore(req, nowMs, timing) {
         durationMs: Date.now() - attemptStart
       });
       void recordComboLog(uid, {
-        id: `glog_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        id: comboLogId = `glog_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         comboId: resolved.combo.id,
         comboName: resolved.combo.name,
         respondingModelId: succeeded ? modelId : "",
@@ -1952,23 +1953,29 @@ async function handleGatewayCore(req, nowMs, timing) {
         isAnthropicReq
       );
     }
+    const respondWithTap = (res) => succeeded && comboLogId ? tapComboLogUsage(res, {
+      uid,
+      logId: comboLogId,
+      startedAt: comboStart,
+      requestBytes: upstreamBody.length
+    }) : res;
     if (needsTranslation && isGoogleProvider) {
-      return await translateGoogleResponseToAnthropic(upstream, wantsStream, modelId, body);
+      return respondWithTap(await translateGoogleResponseToAnthropic(upstream, wantsStream, modelId, body));
     }
     if (isGoogleProvider) {
-      return await translateGoogleResponseToOpenAI(upstream, wantsStream, cleanModelId, body);
+      return respondWithTap(await translateGoogleResponseToOpenAI(upstream, wantsStream, cleanModelId, body));
     }
     if (needsTranslation) {
-      return await translateResponseToAnthropic(upstream, wantsStream, modelId);
+      return respondWithTap(await translateResponseToAnthropic(upstream, wantsStream, modelId));
     }
     if (toAnthropicProvider) {
-      return await translateAnthropicResponseToOpenAI(
+      return respondWithTap(await translateAnthropicResponseToOpenAI(
         upstream,
         wantsStream,
         cleanModelId
-      );
+      ));
     }
-    return relay(upstream, wantsStream, isAnthropicReq);
+    return respondWithTap(relay(upstream, wantsStream, isAnthropicReq));
   }
   if (isCombo && resolved.combo) {
     void recordComboLog(uid, {
@@ -2590,6 +2597,8 @@ data: ${JSON.stringify(obj)}
           thinkingOpen = false;
         }
       };
+      let usageIn = 0;
+      let usageOut = 0;
       const closeText = () => {
         if (textOpen) {
           controller.enqueue(
@@ -2618,6 +2627,11 @@ data: ${JSON.stringify(obj)}
       );
       try {
         let processGoogleChunk2 = function(chunk) {
+          const um = chunk?.response?.usageMetadata || chunk?.usageMetadata || chunk?.result?.usageMetadata;
+          if (um) {
+            if (um.promptTokenCount) usageIn = um.promptTokenCount;
+            if (um.candidatesTokenCount) usageOut = um.candidatesTokenCount;
+          }
           const candidate = chunk.response?.candidates?.[0] || chunk.candidates?.[0] || chunk.result?.candidates?.[0];
           if (candidate) {
             const parts = candidate?.content?.parts ?? [];
@@ -2822,7 +2836,7 @@ data: ${JSON.stringify(obj)}
           {
             type: "message_delta",
             delta: { stop_reason: stopReason, stop_sequence: null },
-            usage: { output_tokens: 0 }
+            usage: { output_tokens: usageOut, input_tokens: usageIn }
           },
           "message_delta"
         )
@@ -3781,6 +3795,96 @@ async function recordComboLog(uid, entry) {
   const list = await readKV(uid, KEY, []);
   const nextList = [entry, ...list].slice(0, 1e3);
   await writeKV(uid, KEY, nextList, entry.createdAt);
+}
+async function updateComboLog(uid, id, patch) {
+  const KEY = "combo_logs";
+  const list = await readKV(uid, KEY, []);
+  const idx = list.findIndex((e) => e && e.id === id);
+  if (idx === -1) return;
+  list[idx] = { ...list[idx], ...patch };
+  await writeKV(uid, KEY, list, Date.now());
+}
+function lastNonZeroMatch(re, s) {
+  let m;
+  let last = 0;
+  while (m = re.exec(s)) {
+    const v = parseInt(m[1], 10);
+    if (v > 0) last = v;
+  }
+  return last;
+}
+function extractStreamUsage(text) {
+  return {
+    tin: lastNonZeroMatch(/"input_tokens"\s*:\s*(\d+)/g, text) || lastNonZeroMatch(/"prompt_tokens"\s*:\s*(\d+)/g, text) || lastNonZeroMatch(/"promptTokenCount"\s*:\s*(\d+)/g, text),
+    tout: lastNonZeroMatch(/"output_tokens"\s*:\s*(\d+)/g, text) || lastNonZeroMatch(/"completion_tokens"\s*:\s*(\d+)/g, text) || lastNonZeroMatch(/"candidatesTokenCount"\s*:\s*(\d+)/g, text)
+  };
+}
+function extractJsonUsage(obj) {
+  const u = obj?.usage ?? {};
+  const gm = obj?.response?.usageMetadata ?? obj?.usageMetadata ?? obj?.result?.usageMetadata ?? {};
+  return {
+    tin: u.input_tokens ?? u.prompt_tokens ?? gm.promptTokenCount ?? 0,
+    tout: u.output_tokens ?? u.completion_tokens ?? gm.candidatesTokenCount ?? 0
+  };
+}
+function tapComboLogUsage(res, opts) {
+  let finished = false;
+  const persist = (tinRaw, toutRaw, outBytes2) => {
+    if (finished) return;
+    finished = true;
+    let tin = Math.trunc(tinRaw) || 0;
+    let tout = Math.trunc(toutRaw) || 0;
+    if (!tout && outBytes2 > 0) tout = Math.ceil(outBytes2 / 4);
+    if (!tin) tin = Math.ceil(opts.requestBytes / 4);
+    void updateComboLog(opts.uid, opts.logId, {
+      tokensIn: tin,
+      tokensOut: tout,
+      durationMs: Date.now() - opts.startedAt
+    }).catch(() => {
+    });
+  };
+  if (!res) return res;
+  if (res.jsonBody !== void 0) {
+    const { tin, tout } = extractJsonUsage(res.jsonBody);
+    persist(tin, tout, 0);
+    return res;
+  }
+  if (typeof res.streamBody?.getReader !== "function") return res;
+  const reader = res.streamBody.getReader();
+  const dec = new TextDecoder();
+  let head = "";
+  let tail = "";
+  let outBytes = 0;
+  const wrapped = new ReadableStream({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          const { tin, tout } = extractStreamUsage(head + tail);
+          persist(tin, tout, outBytes);
+          controller.close();
+          return;
+        }
+        outBytes += value?.byteLength ?? 0;
+        const text = dec.decode(value, { stream: true });
+        if (head.length < 4096) head = (head + text).slice(0, 8192);
+        else tail = (tail + text).slice(-16384);
+        controller.enqueue(value);
+      } catch {
+        try {
+          controller.close();
+        } catch {
+        }
+      }
+    },
+    cancel() {
+      const { tin, tout } = extractStreamUsage(head + tail);
+      persist(tin, tout, outBytes);
+      void reader.cancel().catch(() => {
+      });
+    }
+  });
+  return { ...res, streamBody: wrapped };
 }
 async function fetchUpstream(url, init2, ttfbMs) {
   if (!Number.isFinite(ttfbMs) || ttfbMs <= 0) return fetch(url, init2);

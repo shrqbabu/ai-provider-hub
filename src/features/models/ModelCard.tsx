@@ -1,5 +1,6 @@
+import { useState, type MouseEvent } from "react";
 import { motion } from "framer-motion";
-import { Star, Trash2, Save, Eye, FileText, Zap, Brain, Wrench, CheckCircle2, XCircle, TestTube2, Loader2, Plug, PlugZap } from "lucide-react";
+import { Star, Trash2, Save, Eye, FileText, Zap, Brain, Wrench, CheckCircle2, XCircle, TestTube2, Loader2, Plug, PlugZap, Copy, Check } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,6 +9,21 @@ import { TierBadge } from "@/components/TierBadge";
 import type { DiscoveredModel, ProviderKey } from "@/types";
 import { formatNumber } from "@/utils";
 import { cn } from "@/utils";
+
+function fallbackCopyText(text: string) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand("copy");
+  } catch {
+    // ignore
+  }
+  document.body.removeChild(ta);
+}
 
 interface Props {
   model: DiscoveredModel;
@@ -36,6 +52,27 @@ export function ModelCard({
   isTesting,
   passedTest = model.working,
 }: Props) {
+  const [copiedId, setCopiedId] = useState(false);
+
+  const copyModelId = (e: MouseEvent) => {
+    // The whole card opens a chat on click — never let the copy click bubble.
+    e.preventDefault();
+    e.stopPropagation();
+    const done = () => {
+      setCopiedId(true);
+      setTimeout(() => setCopiedId(false), 1500);
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(model.modelId).then(done, () => {
+        fallbackCopyText(model.modelId);
+        done();
+      });
+    } else {
+      fallbackCopyText(model.modelId);
+      done();
+    }
+  };
+
   return (
     <motion.div
       layout
@@ -73,8 +110,23 @@ export function ModelCard({
               <div className="font-semibold text-sm truncate">
                 {model.displayName}
               </div>
-              <div className="text-[11px] text-muted-foreground truncate font-mono">
-                {model.modelId}
+              <div className="flex items-center gap-1 min-w-0">
+                <div className="text-[11px] text-muted-foreground truncate font-mono">
+                  {model.modelId}
+                </div>
+                <button
+                  type="button"
+                  onClick={copyModelId}
+                  className="p-1 rounded-md text-muted-foreground hover:bg-primary/20 hover:text-primary transition shrink-0"
+                  title={copiedId ? "Copied!" : "Copy model ID"}
+                  aria-label="Copy model ID"
+                >
+                  {copiedId ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-500" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5" />
+                  )}
+                </button>
               </div>
             </div>
             {onTest && (

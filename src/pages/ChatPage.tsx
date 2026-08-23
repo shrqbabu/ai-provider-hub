@@ -41,6 +41,17 @@ export function ChatPage() {
   const providers = useProviderStore((s) => s.providers);
   const recordUsage = useUsageStore((s) => s.record);
   const [streamingId, setStreamingId] = useState<string | null>(null);
+  // Live streaming ticker — bumps every 500ms while a response streams so the
+  // header shows elapsed time + running token estimate in real time.
+  const [streamTick, setStreamTick] = useState(0);
+  const streamStartRef = useRef(0);
+  useEffect(() => {
+    if (!streamingId) return;
+    streamStartRef.current = Date.now();
+    const iv = setInterval(() => setStreamTick((t) => t + 1), 500);
+    return () => clearInterval(iv);
+  }, [streamingId]);
+  void streamTick;
   const [thinkingId, setThinkingId] = useState<string | null>(null);
   const thinkingStartRef = useRef<number>(0);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -539,7 +550,11 @@ export function ChatPage() {
               streamingId ? "text-amber-500 animate-pulse" : "text-emerald-500"
             )}
           />
-          {streamingId ? "Streaming" : "Ready"}
+          {streamingId
+            ? `Streaming · ${((Date.now() - streamStartRef.current) / 1000).toFixed(1)}s · ~${estimateTokens(
+                chat.messages.find((m) => m.id === streamingId)?.content ?? ""
+              )} tok`
+            : "Ready"}
         </div>
 
         <DropdownMenu.Root>

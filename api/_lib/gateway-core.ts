@@ -628,6 +628,7 @@ async function handleGatewayCore(
       lastStatus = upstream.status;
     }
 
+    let comboLogId = "";
     if (isCombo && resolved.combo) {
       // On failure paths the response body was almost always already consumed
       // (the candidate-URL loop's safeText, or the fallback check above), so
@@ -647,7 +648,7 @@ async function handleGatewayCore(
         durationMs: Date.now() - attemptStart,
       });
       void recordComboLog(uid, {
-        id: `glog_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        id: (comboLogId = `glog_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`),
         comboId: resolved.combo.id,
         comboName: resolved.combo.name,
         respondingModelId: succeeded ? modelId : "",
@@ -674,23 +675,36 @@ async function handleGatewayCore(
       );
     }
 
+    // Successful combo response: wrap it in the usage tap so the combo log
+    // written above gets patched with real token counts + true duration once
+    // the stream/JSON body actually finishes reaching the client.
+    const respondWithTap = (res: any) =>
+      succeeded && comboLogId
+        ? tapComboLogUsage(res, {
+            uid,
+            logId: comboLogId,
+            startedAt: comboStart,
+            requestBytes: upstreamBody.length,
+          })
+        : res;
+
     if (needsTranslation && isGoogleProvider) {
-      return await translateGoogleResponseToAnthropic(upstream, wantsStream, modelId, body);
+      return respondWithTap(await translateGoogleResponseToAnthropic(upstream, wantsStream, modelId, body));
     }
     if (isGoogleProvider) {
-      return await translateGoogleResponseToOpenAI(upstream, wantsStream, cleanModelId, body);
+      return respondWithTap(await translateGoogleResponseToOpenAI(upstream, wantsStream, cleanModelId, body));
     }
     if (needsTranslation) {
-      return await translateResponseToAnthropic(upstream, wantsStream, modelId);
+      return respondWithTap(await translateResponseToAnthropic(upstream, wantsStream, modelId));
     }
     if (toAnthropicProvider) {
-      return await translateAnthropicResponseToOpenAI(
+      return respondWithTap(await translateAnthropicResponseToOpenAI(
         upstream,
         wantsStream,
         cleanModelId
-      );
+      ));
     }
-    return relay(upstream, wantsStream, isAnthropicReq);
+    return respondWithTap(relay(upstream, wantsStream, isAnthropicReq));
   }
 
   if (isCombo && resolved.combo) {
@@ -1482,6 +1496,12 @@ function translateGoogleStreamToAnthropic(
         }
       };
 
+      // Real usage: CloudCode/Gemini attach usageMetadata only to the FINAL
+      // stream chunk — capture it so Claude Code (and the combo logs, via the
+      // wire tap) see real token counts instead of hardcoded zeros.
+      let usageIn = 0;
+      let usageOut = 0;
+
       const closeText = () => {
         if (textOpen) {
           controller.enqueue(
@@ -1574,6 +1594,15 @@ function translateGoogleStreamToAnthropic(
         }
 
         function processGoogleChunk(chunk: any) {
+          // usageMetadata rides on the final Google/CloudCode frame — stash it.
+          const um =
+            chunk?.response?.usageMetadata ||
+            chunk?.usageMetadata ||
+            chunk?.result?.usageMetadata;
+          if (um) {
+            if (um.promptTokenCount) usageIn = um.promptTokenCount;
+            if (um.candidatesTokenCount) usageOut = um.candidatesTokenCount;
+          }
           const candidate =
             chunk.response?.candidates?.[0] ||
             chunk.candidates?.[0] ||
@@ -1736,7 +1765,7 @@ function translateGoogleStreamToAnthropic(
           {
             type: "message_delta",
             delta: { stop_reason: stopReason, stop_sequence: null },
-            usage: { output_tokens: 0 },
+            usage: { output_tokens: usageOut, input_tokens: usageIn },
           },
           "message_delta"
         )
@@ -2911,6 +2940,139 @@ async function recordComboLog(
   const list = await readKV<any[]>(uid, KEY, []);
   const nextList = [entry, ...list].slice(0, 1000);
   await writeKV(uid, KEY, nextList, entry.createdAt);
+}
+
+/**
+ * Patch an already-recorded combo log with REAL token usage + true end-to-end
+ * duration once the upstream response actually finishes. The initial entry is
+ * written with zeros so the Logs UI shows the attempt immediately (it polls
+ * every few seconds); this fills in the real numbers right after.
+ */
+async function updateComboLog(
+  uid: string,
+  id: string,
+  patch: { tokensIn?: number; tokensOut?: number; durationMs?: number }
+): Promise<void> {
+  const KEY = "combo_logs";
+  const list = await readKV<any[]>(uid, KEY, []);
+  const idx = list.findIndex((e) => e && e.id === id);
+  if (idx === -1) return;
+  list[idx] = { ...list[idx], ...patch };
+  await writeKV(uid, KEY, list, Date.now());
+}
+
+/** Last non-zero regex capture in `s` (message_start reports 0s; the real
+ * numbers arrive in later frames). */
+/** Last non-zero capture-group-1 of `re` in `s`: message_start reports 0s,
+ * the real numbers arrive in later frames — keep the LAST non-zero hit. */
+function lastNonZeroMatch(re: RegExp, s: string): number {
+  let m: RegExpExecArray | null;
+  let last = 0;
+  while ((m = re.exec(s))) {
+    const v = parseInt(m[1], 10);
+    if (v > 0) last = v;
+  }
+  return last;
+}
+
+// NOTE: these MUST stay regex literals — building them from strings silently
+// mangles "\s"/"\d" into "s"/"d" (JS drops unknown string escapes) and the
+// patterns would quietly never match.
+function extractStreamUsage(text: string): { tin: number; tout: number } {
+  return {
+    tin:
+      lastNonZeroMatch(/"input_tokens"\s*:\s*(\d+)/g, text) ||
+      lastNonZeroMatch(/"prompt_tokens"\s*:\s*(\d+)/g, text) ||
+      lastNonZeroMatch(/"promptTokenCount"\s*:\s*(\d+)/g, text),
+    tout:
+      lastNonZeroMatch(/"output_tokens"\s*:\s*(\d+)/g, text) ||
+      lastNonZeroMatch(/"completion_tokens"\s*:\s*(\d+)/g, text) ||
+      lastNonZeroMatch(/"candidatesTokenCount"\s*:\s*(\d+)/g, text),
+  };
+}
+
+function extractJsonUsage(obj: any): { tin: number; tout: number } {
+  const u = obj?.usage ?? {};
+  const gm =
+    obj?.response?.usageMetadata ??
+    obj?.usageMetadata ??
+    obj?.result?.usageMetadata ??
+    {};
+  return {
+    tin: u.input_tokens ?? u.prompt_tokens ?? gm.promptTokenCount ?? 0,
+    tout: u.output_tokens ?? u.completion_tokens ?? gm.candidatesTokenCount ?? 0,
+  };
+}
+
+/**
+ * Pass-through wrapper around the outgoing gateway response: observes bytes
+ * flowing to the client and, when the stream completes (or a JSON body is
+ * known), patches the combo log entry created at response start with the real
+ * usage + wall-clock duration. Zero overhead for non-combo requests.
+ */
+function tapComboLogUsage(
+  res: any,
+  opts: { uid: string; logId: string; startedAt: number; requestBytes: number }
+): any {
+  let finished = false;
+  const persist = (tinRaw: number, toutRaw: number, outBytes: number) => {
+    if (finished) return;
+    finished = true;
+    let tin = Math.trunc(tinRaw) || 0;
+    let tout = Math.trunc(toutRaw) || 0;
+    if (!tout && outBytes > 0) tout = Math.ceil(outBytes / 4); // ~4 bytes/token
+    if (!tin) tin = Math.ceil(opts.requestBytes / 4); // prompt-size estimate
+    void updateComboLog(opts.uid, opts.logId, {
+      tokensIn: tin,
+      tokensOut: tout,
+      durationMs: Date.now() - opts.startedAt,
+    }).catch(() => {});
+  };
+
+  if (!res) return res;
+  if (res.jsonBody !== undefined) {
+    const { tin, tout } = extractJsonUsage(res.jsonBody);
+    persist(tin, tout, 0);
+    return res;
+  }
+  if (typeof res.streamBody?.getReader !== "function") return res;
+
+  const reader = res.streamBody.getReader();
+  const dec = new TextDecoder();
+  let head = "";
+  let tail = "";
+  let outBytes = 0;
+
+  const wrapped = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          const { tin, tout } = extractStreamUsage(head + tail);
+          persist(tin, tout, outBytes);
+          controller.close();
+          return;
+        }
+        outBytes += value?.byteLength ?? 0;
+        const text = dec.decode(value, { stream: true });
+        // Anthropic/OpenAI usage frames sit at the very START (message_start)
+        // and the very END (message_delta / final OpenAI usage chunk) of the
+        // stream — a 8KB head + 16KB tail window captures both without
+        // buffering the entire response in memory.
+        if (head.length < 4096) head = (head + text).slice(0, 8192);
+        else tail = (tail + text).slice(-16384);
+        controller.enqueue(value);
+      } catch {
+        try { controller.close(); } catch {}
+      }
+    },
+    cancel() {
+      const { tin, tout } = extractStreamUsage(head + tail);
+      persist(tin, tout, outBytes);
+      void reader.cancel().catch(() => {});
+    },
+  });
+  return { ...res, streamBody: wrapped };
 }
 
 /**

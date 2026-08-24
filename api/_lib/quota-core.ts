@@ -1,4 +1,4 @@
-/ Quota core — read-only provider account quota snapshot for the signed-in
+// Quota core — read-only provider account quota snapshot for the signed-in
 // user. Currently targets Google Antigravity (cloudcode-pa) accounts: it calls
 // the same internal endpoints the Antigravity IDE / agy CLI themselves call:
 //

@@ -5,6 +5,7 @@ import type { IncomingMessage, ServerResponse } from "http";
 import { handleData } from "./api/_lib/data-core";
 import { handleKeys } from "./api/_lib/keys-core";
 import { handleGateway } from "./api/_lib/gateway-core";
+import { handleQuota } from "./api/_lib/quota-core";
 import { toCoreRequest, sendCoreResponse } from "./api/_lib/node-adapter";
 import type { CoreRequest, CoreResponse } from "./api/_lib/http";
 
@@ -89,6 +90,7 @@ export default defineConfig(({ mode }) => {
         mount("/api/data", handleData);
         mount("/api/keys", handleKeys);
         mount("/api/v1", handleGateway, { subPathFromUrl: true });
+        mount("/api/quota", handleQuota);
       },
     },
     {

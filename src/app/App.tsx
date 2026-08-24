@@ -30,6 +30,7 @@ function lazyRetry<T extends React.ComponentType<any>>(
 
 // Lazy-loaded route pages for minimal initial bundle size & fast loading
 const ProvidersPage = lazyRetry(() => import("@/pages/ProvidersPage").then((m) => ({ default: m.ProvidersPage })));
+const QuotaPage = lazyRetry(() => import("@/pages/QuotaPage").then((m) => ({ default: m.QuotaPage })));
 const ModelsPage = lazyRetry(() => import("@/pages/ModelsPage").then((m) => ({ default: m.ModelsPage })));
 const CombosPage = lazyRetry(() => import("@/pages/CombosPage").then((m) => ({ default: m.CombosPage })));
 const ChatPage = lazyRetry(() => import("@/pages/ChatPage").then((m) => ({ default: m.ChatPage })));
@@ -226,6 +227,8 @@ export default function App() {
             <Route path="/" element={<RedirectToChat />} />
             <Route path="/chat" element={<RedirectToChat />} />
             <Route path="/providers" element={<ProvidersPage />} />
+            <Route path="/quota" element={<QuotaPage />} />
+            <Route path="/provider-quota" element={<QuotaPage />} />
             <Route path="/cookies" element={<CookieManagerPage />} />
             <Route path="/api-keys" element={<ApiKeysPage />} />
             <Route path="/keystore" element={<KeyStorePage />} />

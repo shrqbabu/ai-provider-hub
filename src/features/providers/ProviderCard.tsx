@@ -12,7 +12,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ProviderLogo } from "@/components/ProviderLogo";
-import { AntigravityQuotaCard } from "./AntigravityQuotaCard";
 import type { ConnectedProvider } from "@/types";
 import { PROVIDERS } from "@/constants/providers";
 import { timeAgo, truncate } from "@/utils";
@@ -103,10 +102,6 @@ export function ProviderCard({
               </div>
             </div>
           </div>
-
-          {(provider.key === "antigravity" || /cloudcode-pa\.googleapis\.com/.test(provider.baseURL || "")) && !provider.disabled && (
-            <AntigravityQuotaCard provider={provider} />
-          )}
 
           <div className="flex flex-wrap gap-2 mt-4">
             <Button size="sm" variant="outline" onClick={onRefresh} disabled={provider.disabled}>

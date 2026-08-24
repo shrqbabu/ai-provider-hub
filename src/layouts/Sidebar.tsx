@@ -19,6 +19,7 @@ import {
   Activity,
   Cookie,
   User,
+  Gauge,
 } from "lucide-react";
 import { useChatStore } from "@/store/chat-store";
 import { useUIStore } from "@/store/ui-store";
@@ -31,6 +32,7 @@ import { SearchDialog } from "@/features/search/SearchDialog";
 const nav = [
   { to: "/profile", label: "My Profile", icon: User },
   { to: "/providers", label: "Providers", icon: Plug2 },
+  { to: "/quota", label: "Provider Quota", icon: Gauge },
   { to: "/cookies", label: "Cookie Manager", icon: Cookie },
   { to: "/api-keys", label: "Gateway Keys", icon: KeyRound },
   { to: "/keystore", label: "Key Store", icon: KeyRound },

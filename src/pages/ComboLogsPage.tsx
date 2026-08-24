@@ -30,6 +30,10 @@ export function ComboLogsPage() {
   const hydrate = useComboLogStore((s) => s.hydrate);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "success" | "failed">("all");
+  // "request" = ek card per combo request with the full fallback chain
+  // (shows the chain STOPPING at the responder); "attempt" = flat per-attempt
+  // rows for debugging.
+  const [viewMode, setViewMode] = useState<"request" | "attempt">("request");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -95,6 +99,29 @@ export function ComboLogsPage() {
       });
     }
     return out;
+  }, [logs, search, statusFilter]);
+
+  // Log-level filtering for the REQUEST (grouped) view.
+  const filteredLogs = useMemo(() => {
+    return logs.filter((log) => {
+      if (statusFilter === "success" && !log.respondingModelId) return false;
+      if (statusFilter === "failed" && log.respondingModelId) return false;
+      if (search) {
+        const q = search.toLowerCase();
+        const hit =
+          log.comboName.toLowerCase().includes(q) ||
+          log.respondingModelId.toLowerCase().includes(q) ||
+          (log.respondingModelName && log.respondingModelName.toLowerCase().includes(q)) ||
+          log.attempts.some(
+            (a) =>
+              a.modelId.toLowerCase().includes(q) ||
+              (a.displayName && a.displayName.toLowerCase().includes(q)) ||
+              (a.error && a.error.toLowerCase().includes(q))
+          );
+        if (!hit) return false;
+      }
+      return true;
+    });
   }, [logs, search, statusFilter]);
 
   const stats = useMemo(() => {
@@ -252,7 +279,26 @@ export function ComboLogsPage() {
             className="pl-9 bg-card/40 border-border/60 h-9 sm:h-10"
           />
         </div>
-        <div className="flex items-center gap-2 self-start sm:self-auto">
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <Button
+            size="sm"
+            variant={viewMode === "request" ? "default" : "outline"}
+            onClick={() => setViewMode("request")}
+            className="h-8 sm:h-9 text-xs"
+            title="Ek card per request — pura fallback chain order mein"
+          >
+            Requests
+          </Button>
+          <Button
+            size="sm"
+            variant={viewMode === "attempt" ? "default" : "outline"}
+            onClick={() => setViewMode("attempt")}
+            className="h-8 sm:h-9 text-xs"
+            title="Har attempt ka alag row (debug view)"
+          >
+            Attempts
+          </Button>
+          <span className="w-px h-5 bg-border/60 hidden sm:block" />
           <Button
             variant={statusFilter === "all" ? "default" : "outline"}
             size="sm"
@@ -283,7 +329,149 @@ export function ComboLogsPage() {
       {/* Logs Feed — one row per attempt: every fallback step + the member
           that actually responded gets its own log entry */}
       <div className="flex-1 space-y-2 pb-8">
-        {rows.length === 0 ? (
+        {viewMode === "request" ? (
+          <>
+            {filteredLogs.length === 0 ? (
+              <Card className="bg-card/40 backdrop-blur-xl border-border/60 p-8 text-center">
+                <Boxes className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-50" />
+                <h3 className="text-base font-semibold">No Combo Logs Found</h3>
+                <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
+                  Requests through your Combos will appear here in real-time with detailed fallback traces.
+                </p>
+              </Card>
+            ) : (
+              filteredLogs.map((log) => {
+                const isExpanded = expandedId === log.id;
+                const isSuccess = Boolean(log.respondingModelId);
+                const tokens = log.tokensIn + log.tokensOut;
+                return (
+                  <Card
+                    key={log.id}
+                    className="bg-card/40 backdrop-blur-xl border-border/60 transition-colors hover:border-border"
+                  >
+                    {/* Request header */}
+                    <div
+                      onClick={() => toggleExpand(log.id)}
+                      className="p-3 sm:p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3 cursor-pointer select-none"
+                    >
+                      <div className="flex min-w-0 flex-1 items-center gap-3">
+                        <button className="shrink-0 text-muted-foreground hover:text-foreground">
+                          {isExpanded ? (
+                            <ChevronDown className="w-4 h-4" />
+                          ) : (
+                            <ChevronRight className="w-4 h-4" />
+                          )}
+                        </button>
+                        <span
+                          className={cn(
+                            "shrink-0 px-2 py-0.5 text-[11px] font-medium rounded-full flex items-center gap-1",
+                            isSuccess
+                              ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20"
+                              : "bg-rose-500/10 text-rose-500 border border-rose-500/20"
+                          )}
+                        >
+                          {isSuccess ? (
+                            <>
+                              <CheckCircle2 className="w-3 h-3" />
+                              Served
+                            </>
+                          ) : (
+                            <>
+                              <XCircle className="w-3 h-3" />
+                              Failed
+                            </>
+                          )}
+                        </span>
+                        <div className="min-w-0 space-y-0.5">
+                          <div className="flex min-w-0 flex-wrap items-center gap-x-2 text-sm">
+                            <span className="truncate font-semibold">{log.comboName}</span>
+                            <span className="text-[11px] text-muted-foreground shrink-0">
+                              · {log.attempts.length} attempt(s)
+                            </span>
+                          </div>
+                          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
+                            <span className="shrink-0">{formatIndianDateTime(log.createdAt)}</span>
+                            {isSuccess && (
+                              <>
+                                <span className="shrink-0">•</span>
+                                <span className="truncate">
+                                  served by{" "}
+                                  <span className="text-foreground/80 font-medium">
+                                    {log.respondingModelName || log.respondingModelId}
+                                  </span>
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex min-w-0 items-center gap-4 sm:gap-6 text-xs shrink-0 pl-8 lg:pl-0">
+                        <div className="text-left lg:text-right">
+                          <div className="text-muted-foreground font-medium text-[11px]">Latency</div>
+                          <div className="mt-0.5 flex items-center gap-1 font-medium text-foreground lg:justify-end">
+                            <Clock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                            <span>
+                              {log.durationMs >= 1000
+                                ? `${(log.durationMs / 1000).toFixed(2)}s`
+                                : `${log.durationMs}ms`}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-left lg:text-right">
+                          <div className="text-muted-foreground font-medium text-[11px]">Tokens</div>
+                          <div className="mt-0.5 flex items-center gap-1 font-medium text-foreground lg:justify-end">
+                            <Zap className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                            <span>{tokens > 0 ? formatNumber(tokens) : "—"}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Fallback chain — ek hi request ke saare attempts ORDER mein.
+                        Jaisa hi koi member respond karta hai, chain ruk jaati hai
+                        (uske baad koi member call NAHI hota). */}
+                    <div className="border-t border-border/40 px-3 sm:px-4 py-2 bg-muted/10 space-y-1">
+                      {log.attempts.map((a, i) => (
+                        <div key={i} className="min-w-0">
+                          <div className="flex items-center gap-2 text-xs min-w-0 py-0.5">
+                            <span className="w-5 h-5 rounded-full bg-secondary flex items-center justify-center text-[10px] font-bold shrink-0">
+                              {i + 1}
+                            </span>
+                            <ArrowRight className="w-3 h-3 text-muted-foreground shrink-0" />
+                            <span className="min-w-0 truncate font-medium">
+                              {a.displayName || a.modelId}
+                            </span>
+                            {a.status === "success" ? (
+                              <span className="shrink-0 text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded text-[10px] font-semibold">
+                                Responded ✓ stopped here
+                              </span>
+                            ) : (
+                              <span className="shrink-0 text-rose-500 bg-rose-500/10 px-1.5 py-0.5 rounded text-[10px] font-semibold">
+                                Failed
+                              </span>
+                            )}
+                            {a.durationMs !== undefined && (
+                              <span className="shrink-0 text-muted-foreground ml-auto">
+                                {a.durationMs >= 1000
+                                  ? `${(a.durationMs / 1000).toFixed(2)}s`
+                                  : `${a.durationMs}ms`}
+                              </span>
+                            )}
+                          </div>
+                          {isExpanded && a.error && (
+                            <div className="mt-1 ml-7 rounded-lg border border-rose-500/20 bg-rose-500/5 p-2 font-mono text-[11px] text-rose-400 [overflow-wrap:anywhere] whitespace-pre-wrap">
+                              {a.error}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+                );
+              })
+            )}
+          </>
+        ) : rows.length === 0 ? (
           <Card className="bg-card/40 backdrop-blur-xl border-border/60 p-8 text-center">
             <Boxes className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-50" />
             <h3 className="text-base font-semibold">No Combo Logs Found</h3>

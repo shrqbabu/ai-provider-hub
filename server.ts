@@ -7,6 +7,7 @@ import { handleKeys } from "./api/_lib/keys-core.js";
 import { handleData } from "./api/_lib/data-core.js";
 import { handleBackup } from "./api/_lib/backup-core.js";
 import { handleOAuth } from "./api/_lib/oauth/oauth-core.js";
+import { handleQuota } from "./api/_lib/quota-core.js";
 import { toCoreRequest, sendCoreResponse, sendError } from "./api/_lib/node-adapter.js";
 import handleProxy from "./api/proxy.js";
 
@@ -244,6 +245,14 @@ const server = http.createServer(async (req, res) => {
     if (pathname.startsWith("/api/backup")) {
       const core = toCoreRequest(req, "", query);
       const result = await handleBackup(core, Date.now());
+      await sendCoreResponse(res, result);
+      return;
+    }
+
+    // 8. Provider Quota: /api/quota
+    if (pathname.startsWith("/api/quota")) {
+      const core = toCoreRequest(req, "", query);
+      const result = await handleQuota(core, Date.now());
       await sendCoreResponse(res, result);
       return;
     }

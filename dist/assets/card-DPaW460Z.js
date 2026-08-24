@@ -1,0 +1,1 @@
+import{j as s,x as o}from"./index-6Gc1wiCU.js";function e({className:r,...a}){return s.jsx("div",{className:o("rounded-2xl border border-border/60 bg-card/70 backdrop-blur-xl shadow-sm",r),...a})}function n({className:r,...a}){return s.jsx("div",{className:o("p-5 pt-0",r),...a})}export{e as C,n as a};

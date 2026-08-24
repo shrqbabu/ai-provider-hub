@@ -1848,6 +1848,7 @@ async function handleGatewayCore(req, nowMs, timing) {
     const headers = isGoogleProvider ? buildUpstreamHeaders(provider, cred, actualEndpoint) : buildUpstreamHeaders(provider, cred, actualEndpoint);
     let upstream = null;
     const upStart = Date.now();
+    let memberFirstError = "";
     for (const url of candidateUrls) {
       try {
         const candidateResp = await fetchUpstream(url, {
@@ -1867,6 +1868,9 @@ async function handleGatewayCore(req, nowMs, timing) {
         }
         lastStatus = candidateResp.status;
         lastText = await safeText(candidateResp);
+        if (!memberFirstError && lastText && !isHtmlLike(lastText)) {
+          memberFirstError = lastText;
+        }
         if (isHtmlLike(lastText)) {
           lastText = `Upstream returned an HTML page (Error ${candidateResp.status}). Check the provider Base URL (include /v1).`;
           continue;
@@ -1882,6 +1886,7 @@ async function handleGatewayCore(req, nowMs, timing) {
         lastText = err instanceof Error ? err.message : "Upstream fetch failed.";
       }
     }
+    if (memberFirstError) lastText = memberFirstError;
     timing.push({ name: `up${i + 1}`, dur: Date.now() - upStart, desc: cleanModelId });
     if (!upstream) {
       if (isCombo) {

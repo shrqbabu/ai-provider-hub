@@ -509,6 +509,10 @@ async function handleGatewayCore(
 
     let upstream: Response | null = null;
     const upStart = Date.now();
+    // First REAL API error across this member's candidate URLs — generic
+    // fallback tail errors (the v1alpha variant's HTML 404 page) must not
+    // mask it in surfaced errors / combo logs.
+    let memberFirstError = "";
     // NOTE: every failed candidate's body is consumed below via safeText and
     // kept in lastText. If the last attempt also fails, that text is what we
     // surface to the caller (see the !succeeded branch after combo logging).
@@ -536,6 +540,9 @@ async function handleGatewayCore(
 
         lastStatus = candidateResp.status;
         lastText = await safeText(candidateResp);
+        if (!memberFirstError && lastText && !isHtmlLike(lastText)) {
+          memberFirstError = lastText;
+        }
 
         // Content-sniff non-ok bodies: some servers return an HTML page with a
         // mislabeled/missing content-type header (e.g. a WAF or captive portal
@@ -578,6 +585,11 @@ async function handleGatewayCore(
         lastText = err instanceof Error ? err.message : "Upstream fetch failed.";
       }
     }
+
+    // Surface the REAL upstream reason (quota / bad payload / auth) instead
+    // of the generic tail candidate error (e.g. an HTML 404 from the
+    // v1alpha variant) whenever one was seen.
+    if (memberFirstError) lastText = memberFirstError;
 
     timing.push({ name: `up${i + 1}`, dur: Date.now() - upStart, desc: cleanModelId });
 

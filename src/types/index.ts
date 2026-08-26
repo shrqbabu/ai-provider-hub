@@ -73,6 +73,15 @@ export interface ConnectedProvider {
   disabled?: boolean;
 }
 
+export type CompressMode = "off" | "light" | "smart" | "aggressive";
+export type PromptKind = "snippet" | "context";
+
+export interface CompressStats {
+  tokensSaved: number;
+  runs: number;
+  lastAt?: number;
+}
+
 export interface DiscoveredModel {
   id: string;
   providerId: string;
@@ -94,6 +103,22 @@ export interface DiscoveredModel {
   working?: boolean;
   tier?: "free" | "paid" | "unknown";
   disabled?: boolean;
+  /** Per-model output token cap. Overrides global Settings.maxTokens when set. */
+  maxTokens?: number;
+  /** Per-model input/context budget. Overrides contextWindow when set. */
+  tokenLimit?: number;
+  /** Sampling temperature sent to the provider (0–2). */
+  temperature?: number;
+  /** Attached context-prompt id from the prompt library. */
+  contextPromptId?: string;
+  /** Extra system instructions always prepended for this model. */
+  customSystemPrompt?: string;
+  /** Override global token-compress toggle. undefined = inherit. */
+  tokenCompress?: boolean;
+  /** Override global prompt-compress toggle. undefined = inherit. */
+  promptCompress?: boolean;
+  /** Override global compress mode. */
+  compressMode?: CompressMode;
 }
 
 // A named group of models with a user-defined fallback priority order. When
@@ -159,6 +184,15 @@ export interface Chat {
   pinned?: boolean;
   deleted?: boolean;
   systemPrompt?: string;
+  /** Context prompt attached to this chat (wins over model/global default). */
+  contextPromptId?: string;
+  /** Per-chat output token cap. */
+  maxTokens?: number;
+  /** Per-chat token-compress override. */
+  tokenCompress?: boolean;
+  /** Per-chat prompt-compress override. */
+  promptCompress?: boolean;
+  compressMode?: CompressMode;
 }
 
 export interface Prompt {
@@ -170,6 +204,9 @@ export interface Prompt {
   favorite?: boolean;
   createdAt: number;
   updatedAt: number;
+  /** snippet = copy-into-chat; context = system/context prompt. */
+  kind?: PromptKind;
+  isDefault?: boolean;
 }
 
 export interface UsageEntry {
@@ -218,4 +255,14 @@ export interface AppSettings {
   // 32K reasoning models).
   maxTokens?: number;
   defaultModelId?: string;
+  tokenCompress?: boolean;
+  promptCompress?: boolean;
+  tokenCompressMode?: CompressMode;
+  promptCompressMode?: CompressMode;
+  tokenCompressThreshold?: number;
+  keepLastMessages?: number;
+  contextReserveTokens?: number;
+  defaultContextPromptId?: string;
+  contextPromptsSeeded?: boolean;
+  compressStats?: CompressStats;
 }

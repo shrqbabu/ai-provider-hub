@@ -17,6 +17,8 @@ import {
 import { useNavigate } from "react-router-dom";
 import { useChatStore } from "@/store/chat-store";
 import { AddModelDialog } from "@/features/models/AddModelDialog";
+import { CustomizeModelDialog } from "@/features/models/CustomizeModelDialog";
+import type { DiscoveredModel } from "@/types";
 
 export function ModelsPage() {
   const models = useModelStore((s) => s.models);
@@ -36,6 +38,7 @@ export function ModelsPage() {
   const [showDisconnected, setShowDisconnected] = useState(false);
   const [tierFilter, setTierFilter] = useState<"all" | "free" | "paid">("all");
   const [addFor, setAddFor] = useState<string | undefined>();
+  const [customizing, setCustomizing] = useState<DiscoveredModel | null>(null);
   const [testResults, setTestResults] = useState<Record<string, boolean>>({});
   const [isTesting, setIsTesting] = useState(false);
   const [testingSingleId, setTestingSingleId] = useState<string | null>(null);
@@ -179,7 +182,7 @@ export function ModelsPage() {
   );
 
   return (
-    <div className="h-full overflow-y-auto scrollbar-thin">
+    <div className="h-full overflow-y-auto scrollbar-thin pb-24 md:pb-0">
       <div className="max-w-6xl mx-auto p-4 md:p-8">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
           <div>
@@ -371,6 +374,13 @@ export function ModelsPage() {
             open={!!addFor}
             onOpenChange={(v) => !v && setAddFor(undefined)}
             provider={providers.find((p) => p.id === addFor)!}
+          />
+        )}
+        {customizing && (
+          <CustomizeModelDialog
+            open={!!customizing}
+            onOpenChange={(v) => !v && setCustomizing(null)}
+            model={customizing}
           />
         )}
       </div>

@@ -48,6 +48,7 @@ export const useChatStore = create<State & Actions>((set, get) => ({
       (m) => m.id === defaultModelId || m.modelId === defaultModelId
     );
 
+    const settings = useSettingsStore.getState().settings;
     const chat: Chat = {
       id: uuid(),
       title: init.title ?? "New chat",
@@ -57,6 +58,11 @@ export const useChatStore = create<State & Actions>((set, get) => ({
       createdAt: Date.now(),
       updatedAt: Date.now(),
       systemPrompt: init.systemPrompt,
+      contextPromptId: init.contextPromptId ?? settings.defaultContextPromptId,
+      tokenCompress: init.tokenCompress,
+      promptCompress: init.promptCompress,
+      compressMode: init.compressMode,
+      maxTokens: init.maxTokens,
     };
     const list = [chat, ...get().chats];
     set({ chats: list, activeId: chat.id });

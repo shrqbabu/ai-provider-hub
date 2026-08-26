@@ -31,6 +31,27 @@ A powerful, universal AI Gateway, Proxy, and Multi-Provider Management Platform.
 - **🧪 Live Model Testing & Filtering**:
   - 1-Click model connectivity and latency testing.
   - Filter models by provider, tier (free/paid), favorite, or disconnected state.
+- **📉 Token Compress & Prompt Compress**:
+  - Extractive compression of older chat turns when the context window fills up (Light / Smart / Max).
+  - Prompt compress tightens system + context prompts (filler, comments, whitespace) before the request is sent.
+  - Live Compress Studio with before/after token counts.
+- **🎛 Per-model customisation**:
+  - Custom display name, context window, input token budget, max output tokens, temperature, capabilities, and attached context prompt.
+- **🧠 Context Prompts**:
+  - First-class system prompts (10 built-in templates). Assign globally, per model, or per chat.
+- **📱 Native Android client** (`android/`): Kotlin Compose chat app. Connects with your hub URL + `ah-…` gateway key. No dummy models.
+
+---
+
+## 📱 Native Android app
+
+Open **`android/`** in Android Studio (not the repo root). Full steps: [`android/README.md`](android/README.md).
+
+1. Run the web hub so `/api/ping` and `/v1/models` work.
+2. In the web UI create a gateway key (`ah-…`).
+3. On the phone, paste **Hub URL** + key. The app stays empty until those two calls succeed.
+
+Phone on LAN: `http://<pc-ip>:3000`. Emulator: `http://10.0.2.2:3000`.
 
 ---
 

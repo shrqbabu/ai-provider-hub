@@ -52,7 +52,7 @@ export function ChatBubble({ message, streaming, thinking, onRetry, onDelete }: 
       )}
     >
       {isUser && (
-        <div className="w-8 h-8 rounded-xl shrink-0 flex items-center justify-center bg-primary text-primary-foreground">
+        <div className="hidden md:flex w-8 h-8 rounded-full shrink-0 items-center justify-center bg-secondary text-muted-foreground">
           <User className="w-4 h-4" />
         </div>
       )}
@@ -67,7 +67,7 @@ export function ChatBubble({ message, streaming, thinking, onRetry, onDelete }: 
           className={cn(
             "relative overflow-hidden",
             isUser
-              ? "max-w-[85%] w-fit rounded-2xl px-3 md:px-4 py-2.5 md:py-3 bg-primary/10 border border-primary/20"
+              ? "max-w-[90%] w-fit rounded-[18px] px-3.5 md:px-4 py-2.5 md:py-3 bg-[hsl(var(--user-bubble))] border-0"
               : "w-full rounded-none px-0 py-1 bg-transparent border-0"
           )}
         >
@@ -112,6 +112,14 @@ export function ChatBubble({ message, streaming, thinking, onRetry, onDelete }: 
                 </div>
               )}
               <MarkdownRenderer content={message.content || " "} streaming={streaming} />
+              {!isUser && !streaming && !!message.content && !message.error && (
+                <div className="mt-4 flex items-end justify-between">
+                  <span className="text-primary text-lg leading-none select-none">✱</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    Can make mistakes. Please double-check.
+                  </span>
+                </div>
+              )}
               {message.images && message.images.length > 0 && (
                 <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {message.images.map((url, i) => (

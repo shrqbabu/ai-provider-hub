@@ -14,7 +14,7 @@ class Prefs(context: Context) {
         set(v) { sp.edit().putString("apiKey", v.trim()).apply() }
 
     var lastModel: String
-        get() = sp.getString("lastModel", "")?.orEmpty() ?: ""
+        get() = sp.getString("lastModel", "") ?: ""
         set(v) { sp.edit().putString("lastModel", v).apply() }
 
     var maxTokens: Int
@@ -41,9 +41,29 @@ class Prefs(context: Context) {
         get() = sp.getFloat("threshold", 0.75f)
         set(v) { sp.edit().putFloat("threshold", v).apply() }
 
+    var reserveTokens: Int
+        get() = sp.getInt("reserveTokens", 4096)
+        set(v) { sp.edit().putInt("reserveTokens", v).apply() }
+
     var contextPrompt: String
         get() = sp.getString("contextPrompt", "") ?: ""
         set(v) { sp.edit().putString("contextPrompt", v).apply() }
+
+    var defaultContextPromptId: String
+        get() = sp.getString("defaultContextPromptId", "") ?: ""
+        set(v) { sp.edit().putString("defaultContextPromptId", v).apply() }
+
+    var theme: String
+        get() = sp.getString("theme", "light") ?: "light"
+        set(v) { sp.edit().putString("theme", v).apply() }
+
+    var tokensSaved: Int
+        get() = sp.getInt("tokensSaved", 0)
+        set(v) { sp.edit().putInt("tokensSaved", v).apply() }
+
+    var compressRuns: Int
+        get() = sp.getInt("compressRuns", 0)
+        set(v) { sp.edit().putInt("compressRuns", v).apply() }
 
     fun isConnected(): Boolean = hubUrl.isNotBlank() && apiKey.isNotBlank()
 

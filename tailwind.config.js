@@ -51,6 +51,7 @@ export default {
       },
       fontFamily: {
         sans: ["Inter", "system-ui", "sans-serif"],
+        serif: ["Newsreader", "Georgia", "serif"],
       },
       keyframes: {
         "accordion-down": {

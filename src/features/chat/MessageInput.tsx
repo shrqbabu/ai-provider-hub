@@ -175,9 +175,9 @@ export function MessageInput({ onSend, onStop, streaming, disabled, model, canGe
         isDragActive
           ? "border-primary bg-primary/5 ring-2 ring-primary/30"
           : imageMode
-          ? "border-primary/50 bg-card/70 backdrop-blur-xl ring-1 ring-primary/20"
-          : "border-border bg-card/70 backdrop-blur-xl",
-        "shadow-lg"
+          ? "border-primary/50 bg-card ring-1 ring-primary/20"
+          : "border-black/8 dark:border-white/10 bg-card",
+        "shadow-[0_8px_28px_-12px_rgba(40,30,20,0.28)] rounded-[28px]"
       )}
     >
       <input {...getInputProps()} />
@@ -236,7 +236,7 @@ export function MessageInput({ onSend, onStop, streaming, disabled, model, canGe
           e.target.style.height = Math.min(e.target.scrollHeight, 240) + "px";
         }}
         onKeyDown={onKeyDown}
-        placeholder={imageMode ? "Describe an image to create..." : "Ask anything..."}
+        placeholder={imageMode ? "Describe an image to create..." : model ? `Reply to ${model.displayName}…` : "Start chatting anytime"}
         disabled={disabled}
         rows={1}
         className="w-full bg-transparent px-4 pt-4 pb-2 resize-none outline-none text-sm placeholder:text-muted-foreground"

@@ -10,7 +10,6 @@ import {
   BarChart3,
   Settings,
   Trash2,
-  Sparkles,
   Star,
   Pin,
   X,
@@ -132,13 +131,13 @@ export function Sidebar() {
             onClick={closeOnNav}
             className="flex items-center gap-2"
           >
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-primary-foreground" />
+            <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-lg leading-none">
+              ✱
             </div>
             <div>
-              <div className="text-sm font-semibold">AI Provider Hub</div>
+              <div className="text-sm font-semibold tracking-tight">AI Hub</div>
               <div className="text-[10px] text-muted-foreground">
-                Zero-backend AI
+                Like Claude · every provider
               </div>
             </div>
           </NavLink>
@@ -159,7 +158,7 @@ export function Sidebar() {
         <motion.button
           onClick={newChat}
           whileTap={{ scale: 0.98 }}
-          className="w-full flex items-center gap-2 rounded-xl bg-primary text-primary-foreground px-3 py-2.5 font-medium text-sm shadow-lg shadow-primary/20 hover:brightness-110 transition"
+          className="w-full flex items-center gap-2 rounded-full bg-primary text-primary-foreground px-3 py-2.5 font-medium text-sm hover:brightness-110 transition"
         >
           <MessageSquarePlus className="w-4 h-4" />
           New chat

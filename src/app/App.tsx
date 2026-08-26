@@ -43,6 +43,8 @@ const KeyStorePage = lazyRetry(() => import("@/pages/KeyStorePage").then((m) => 
 const ComboLogsPage = lazyRetry(() => import("@/pages/ComboLogsPage").then((m) => ({ default: m.ComboLogsPage })));
 const CookieManagerPage = lazyRetry(() => import("@/pages/CookieManagerPage").then((m) => ({ default: m.CookieManagerPage })));
 const ProfilePage = lazyRetry(() => import("@/pages/ProfilePage").then((m) => ({ default: m.ProfilePage })));
+const CompressStudioPage = lazyRetry(() => import("@/pages/CompressStudioPage").then((m) => ({ default: m.CompressStudioPage })));
+const MorePage = lazyRetry(() => import("@/pages/MorePage").then((m) => ({ default: m.MorePage })));
 import { useAuthStore } from "@/store/auth-store";
 import { useProviderStore } from "@/store/provider-store";
 import { useModelStore } from "@/store/model-store";
@@ -164,6 +166,14 @@ export default function App() {
       storage.set("models", patched).catch(() => {});
       storage.set("combos", patchedCombos).catch(() => {});
 
+      const settingsState = useSettingsStore.getState();
+      if (
+        !settingsState.settings.contextPromptsSeeded &&
+        !usePromptStore.getState().prompts.some((p) => p.kind === "context")
+      ) {
+        usePromptStore.getState().seedContextPrompts();
+      }
+
       // Best-effort sync of all loaded state back to the server. The gateway /
       // Claude Desktop can only see data stored server-side (it can't read this
       // browser's localStorage), so push whatever we just loaded so combos &
@@ -237,6 +247,8 @@ export default function App() {
             <Route path="/combo-logs" element={<ComboLogsPage />} />
             <Route path="/chat/:id" element={<ChatPage />} />
             <Route path="/prompts" element={<PromptsPage />} />
+            <Route path="/compress" element={<CompressStudioPage />} />
+            <Route path="/more" element={<MorePage />} />
             <Route path="/usage" element={<UsagePage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/profile" element={<ProfilePage />} />

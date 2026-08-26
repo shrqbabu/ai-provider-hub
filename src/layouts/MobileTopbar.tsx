@@ -1,39 +1,33 @@
-import { Menu, MessageSquarePlus, Sparkles } from "lucide-react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { Menu, Settings } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useUIStore } from "@/store/ui-store";
-import { useChatStore } from "@/store/chat-store";
 
 export function MobileTopbar() {
   const toggle = useUIStore((s) => s.toggleSidebar);
   const isOpen = useUIStore((s) => s.sidebarOpen);
-  const create = useChatStore((s) => s.create);
   const navigate = useNavigate();
+  const location = useLocation();
+  const onChat = location.pathname.startsWith("/chat") || location.pathname === "/";
+
+  if (onChat) return null;
 
   return (
-    <header className="md:hidden sticky top-0 z-30 flex items-center gap-2 px-3 h-14 bg-card/60 backdrop-blur-xl border-b border-border/60">
+    <header className="md:hidden sticky top-0 z-30 flex items-center gap-2 px-3 h-14 bg-background">
       <button
         onClick={toggle}
         aria-expanded={isOpen}
-        className="p-2 rounded-xl hover:bg-secondary active:scale-95 transition"
-        aria-label="Toggle sidebar"
+        className="p-2.5 rounded-full hover:bg-secondary active:scale-95 transition"
+        aria-label="Open menu"
       >
         <Menu className="w-5 h-5" />
       </button>
-      <NavLink to="/" className="flex items-center gap-2 flex-1 min-w-0">
-        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
-          <Sparkles className="w-3.5 h-3.5 text-primary-foreground" />
-        </div>
-        <span className="text-sm font-semibold truncate">AI Provider Hub</span>
-      </NavLink>
+      <div className="flex-1" />
       <button
-        onClick={() => {
-          const c = create();
-          navigate(`/chat/${c.id}`);
-        }}
-        className="p-2 rounded-xl bg-primary text-primary-foreground shadow-md shadow-primary/20"
-        aria-label="New chat"
+        onClick={() => navigate("/settings")}
+        className="p-2.5 rounded-full hover:bg-secondary"
+        aria-label="Settings"
       >
-        <MessageSquarePlus className="w-4 h-4" />
+        <Settings className="w-5 h-5" />
       </button>
     </header>
   );

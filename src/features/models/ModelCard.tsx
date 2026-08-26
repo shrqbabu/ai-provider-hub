@@ -1,6 +1,6 @@
 import { useState, type MouseEvent } from "react";
 import { motion } from "framer-motion";
-import { Star, Trash2, Save, Eye, FileText, Zap, Brain, Wrench, CheckCircle2, XCircle, TestTube2, Loader2, Plug, PlugZap, Copy, Check } from "lucide-react";
+import { Star, Trash2, Save, Eye, FileText, Zap, Brain, Wrench, CheckCircle2, XCircle, TestTube2, Loader2, Plug, PlugZap, Copy, Check, SlidersHorizontal, Minimize2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,6 +35,7 @@ interface Props {
   onDelete?: () => void;
   onClick?: () => void;
   onTest?: () => void;
+  onCustomize?: () => void;
   isTesting?: boolean;
   passedTest?: boolean;
 }
@@ -49,6 +50,7 @@ export function ModelCard({
   onDelete,
   onClick,
   onTest,
+  onCustomize,
   isTesting,
   passedTest = model.working,
 }: Props) {
@@ -215,6 +217,17 @@ export function ModelCard({
                 <Brain className="w-3 h-3" /> Reasoning
               </Badge>
             )}
+            {model.maxTokens ? (
+              <Badge variant="outline">{formatNumber(model.maxTokens)} out</Badge>
+            ) : null}
+            {model.tokenLimit ? (
+              <Badge variant="outline">{formatNumber(model.tokenLimit)} in</Badge>
+            ) : null}
+            {(model.tokenCompress !== false || model.promptCompress !== false) && (
+              <Badge variant="secondary">
+                <Minimize2 className="w-3 h-3" /> Compress
+              </Badge>
+            )}
           </div>
 
           {(model.inputPrice || model.outputPrice) && (
@@ -229,6 +242,19 @@ export function ModelCard({
           )}
 
           <div className="flex gap-2 mt-auto pt-2">
+            {onCustomize && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCustomize();
+                }}
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                Custom
+              </Button>
+            )}
             <Button
               size="sm"
               variant={model.saved ? "default" : "outline"}

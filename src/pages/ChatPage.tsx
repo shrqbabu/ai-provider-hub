@@ -3,14 +3,16 @@ import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
   Circle,
-  Zap,
   Pencil,
   Star,
   Pin,
   Trash2,
   Download,
   MoreVertical,
+  Menu,
+  Settings,
 } from "lucide-react";
+import { useUIStore } from "@/store/ui-store";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { ChatBubble } from "@/features/chat/ChatBubble";
 import { MessageInput } from "@/features/chat/MessageInput";
@@ -27,6 +29,10 @@ import type { ChatAttachment, ChatMessage, ConnectedProvider, DiscoveredModel } 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { estimateTokens, formatNumber, cn } from "@/utils";
+import { prepareChatRequest } from "@/utils/prepare-request";
+import { resolveContextWindow } from "@/utils/token-limits";
+import { useSettingsStore } from "@/store/settings-store";
+import { ChatControls } from "@/features/chat/ChatControls";
 
 export function ChatPage() {
   const { id } = useParams<{ id: string }>();
@@ -127,9 +133,10 @@ export function ChatPage() {
     );
   }, [chat]);
 
-  const remaining = model?.contextWindow ? model.contextWindow - contextTokens : undefined;
-  const contextPct = model?.contextWindow
-    ? Math.min(100, (contextTokens / model.contextWindow) * 100)
+  const contextWindow = model ? resolveContextWindow(model) : undefined;
+  const remaining = contextWindow ? contextWindow - contextTokens : undefined;
+  const contextPct = contextWindow
+    ? Math.min(100, (contextTokens / contextWindow) * 100)
     : undefined;
 
   if (!chat) return null;
@@ -255,10 +262,28 @@ export function ChatPage() {
       }
 
       try {
+        const prepared = prepareChatRequest({
+          messages: allMessages,
+          model: curModel,
+          chat,
+        });
+        if (prepared.compressMeta.applied) {
+          const saved =
+            prepared.compressMeta.tokenSaved + prepared.compressMeta.promptSaved;
+          if (saved > 0) {
+            useSettingsStore.getState().recordCompress(saved);
+            toast.message(
+              `Compressed · saved ${formatNumber(saved)} tokens` +
+                (prepared.compressMeta.compressedTurns
+                  ? ` · ${prepared.compressMeta.compressedTurns} turns`
+                  : "")
+            );
+          }
+        }
         await streamChat(
           curProvider,
           curModel,
-          allMessages,
+          prepared.messages,
           {
             onDelta: (d) => {
               // First delta arrives → record thinking duration and hide thinking state.
@@ -386,7 +411,8 @@ export function ChatPage() {
             },
             signal: abortRef.current?.signal ?? undefined,
           },
-          chat.systemPrompt
+          prepared.systemPrompt,
+          { maxTokens: prepared.maxTokens, temperature: prepared.temperature }
         );
       } catch (err: any) {
         console.error("Stream catch:", err);
@@ -520,12 +546,23 @@ export function ChatPage() {
 
   const noProvider = providers.length === 0;
   const noModel = !model && !combo;
+  const toggleDrawer = useUIStore((s) => s.toggleSidebar);
+  const empty = chat.messages.length === 0;
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Header — compact */}
-      <div className="border-b border-border/60 bg-card/40 backdrop-blur-xl px-3 md:px-6 py-1.5 md:py-2.5 flex items-center gap-2 md:gap-3 shrink-0">
-        <div className="flex-1 min-w-0">
+    <div className="h-full flex flex-col bg-background">
+      {/* Header — Claude-quiet */}
+      <div className="px-2 md:px-6 py-1.5 md:py-2.5 flex items-center gap-1 md:gap-3 shrink-0">
+        <button
+          type="button"
+          onClick={toggleDrawer}
+          className="md:hidden p-2.5 rounded-full hover:bg-secondary"
+          aria-label="Open menu"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+        {empty && <div className="flex-1 md:hidden" />}
+        <div className={cn("flex-1 min-w-0", empty && "hidden md:block")}>
           {editingTitle ? (
             <Input
               value={titleDraft}
@@ -546,7 +583,7 @@ export function ChatPage() {
           ) : (
             <button
               onClick={() => setEditingTitle(true)}
-              className="font-semibold text-sm truncate hover:text-primary transition text-left flex items-center gap-1.5 group w-full"
+              className="font-medium text-[15px] truncate hover:text-primary transition text-left flex items-center gap-1.5 group w-full justify-center md:justify-start"
             >
               <span className="truncate">{chat.title}</span>
               <Pencil className="w-3 h-3 opacity-0 group-hover:opacity-60 transition shrink-0" />
@@ -557,9 +594,9 @@ export function ChatPage() {
             {provider && <span>{provider.displayName}</span>}
             {model && <span>· {model.displayName}</span>}
             {combo && <span>· Combo ({combo.name})</span>}
-            {model?.contextWindow && (
+            {contextWindow && (
               <span>
-                · {formatNumber(contextTokens)} / {formatNumber(model.contextWindow)} tok
+                · {formatNumber(contextTokens)} / {formatNumber(contextWindow)} tok
               </span>
             )}
             {remaining != null && remaining < 1000 && (
@@ -568,7 +605,7 @@ export function ChatPage() {
           </div>
         </div>
 
-        <div className="shrink min-w-0 max-w-[45%] md:max-w-none">
+        <div className={empty ? "hidden md:block shrink min-w-0 max-w-[45%] md:max-w-none" : "shrink min-w-0 max-w-[42%] md:max-w-none"}>
           <ModelDropdown modelId={chat.modelId} onChange={pickModel} />
         </div>
 
@@ -586,9 +623,17 @@ export function ChatPage() {
             : "Ready"}
         </div>
 
+        <button
+          type="button"
+          onClick={() => navigate("/settings")}
+          className="md:hidden p-2.5 rounded-full hover:bg-secondary"
+          aria-label="Settings"
+        >
+          <Settings className="w-5 h-5" />
+        </button>
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
-            <Button size="icon" variant="ghost" className="h-8 w-8">
+            <Button size="icon" variant="ghost" className="hidden md:inline-flex h-8 w-8">
               <MoreVertical className="w-4 h-4" />
             </Button>
           </DropdownMenu.Trigger>
@@ -627,19 +672,10 @@ export function ChatPage() {
       <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin">
         <div className="max-w-3xl mx-auto px-3 md:px-6 py-4 md:py-6 space-y-4 md:space-y-5">
           {chat.messages.length === 0 && (
-            <div className="text-center py-16">
-              <div className="w-14 h-14 rounded-2xl mx-auto bg-primary/10 text-primary flex items-center justify-center">
-                <Zap className="w-6 h-6" />
-              </div>
-              <h2 className="mt-4 text-lg font-semibold">Start the conversation</h2>
-              <p className="text-sm text-muted-foreground mt-1">
-                {noProvider
-                  ? "Connect a provider first from the Providers page."
-                  : noModel
-                  ? "Select a model from the top-right dropdown."
-                  : "Type below or drop files to begin."}
-              </p>
-            </div>
+            <ClaudeEmpty
+              noProvider={noProvider}
+              noModel={noModel}
+            />
           )}
           {chat.messages.map((m) => (
             <ChatBubble
@@ -655,8 +691,11 @@ export function ChatPage() {
       </div>
 
       {/* Input */}
-      <div className="p-2 md:p-4 border-t border-border/60 bg-card/30 backdrop-blur-xl shrink-0">
+      <div className="p-3 md:p-4 shrink-0 bg-background">
         <div className="max-w-3xl mx-auto">
+          <div className="hidden md:block">
+            <ChatControls chat={chat} model={model} />
+          </div>
           <MessageInput
             onSend={onSend}
             onStop={onStop}
@@ -721,6 +760,39 @@ export function ChatPage() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ClaudeEmpty({
+  noProvider,
+  noModel,
+}: {
+  noProvider: boolean;
+  noModel: boolean;
+}) {
+  const hour = new Date().getHours();
+  const greet =
+    hour < 12
+      ? "How can I help you this morning?"
+      : hour < 17
+        ? "How can I help you this afternoon?"
+        : "How can I help you this evening?";
+  const hint = noProvider
+    ? "Open the menu and connect a provider first."
+    : noModel
+      ? "Tap the model name in the composer to choose one."
+      : "Start chatting anytime";
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[52vh] text-center px-6">
+      <div className="text-primary text-5xl leading-none mb-6 select-none" aria-hidden>
+        ✱
+      </div>
+      <h2 className="font-serif text-[28px] md:text-[32px] font-medium tracking-tight text-foreground leading-snug">
+        {greet}
+      </h2>
+      <p className="mt-3 text-sm text-muted-foreground">{hint}</p>
     </div>
   );
 }

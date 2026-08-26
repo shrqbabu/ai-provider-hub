@@ -39,18 +39,19 @@ A powerful, universal AI Gateway, Proxy, and Multi-Provider Management Platform.
   - Custom display name, context window, input token budget, max output tokens, temperature, capabilities, and attached context prompt.
 - **🧠 Context Prompts**:
   - First-class system prompts (10 built-in templates). Assign globally, per model, or per chat.
-- **📱 Android / PWA app**:
-  - Installable standalone app (Chrome → Add to Home screen). Bottom navigation, safe-area, and phone-first Control Center.
+- **📱 Native Android client** (`android/`): Kotlin Compose chat app. Connects with your hub URL + `ah-…` gateway key. No dummy models.
 
 ---
 
-## 📱 Install as an Android app (PWA)
+## 📱 Native Android app
 
-1. Open the hub in **Chrome** on Android.
-2. Tap the menu (⋮) → **Add to Home screen** / **Install app**.
-3. Launch **AI Hub** from the home screen — it runs fullscreen like a native app.
+Open **`android/`** in Android Studio (not the repo root). Full steps: [`android/README.md`](android/README.md).
 
-All existing features (providers, models, combos, gateway keys, chat, prompts, backup) work inside the installed app. Token/prompt compress and per-model limits apply automatically.
+1. Run the web hub so `/api/ping` and `/v1/models` work.
+2. In the web UI create a gateway key (`ah-…`).
+3. On the phone, paste **Hub URL** + key. The app stays empty until those two calls succeed.
+
+Phone on LAN: `http://<pc-ip>:3000`. Emulator: `http://10.0.2.2:3000`.
 
 ---
 

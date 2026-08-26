@@ -1,6 +1,7 @@
 {
   "short_name": "AI Hub",
   "name": "AI Provider Hub",
+  "description": "Multi-provider AI gateway with token compress, custom models, and context prompts.",
   "icons": [
     {
       "src": "logo.svg",
@@ -10,8 +11,12 @@
     }
   ],
   "start_url": "/",
-  "background_color": "#09090b",
-  "theme_color": "#f59e0b",
+  "scope": "/",
+  "id": "/",
+  "background_color": "#141210",
+  "theme_color": "#c9884a",
   "display": "standalone",
-  "orientation": "portrait"
+  "orientation": "portrait",
+  "categories": ["productivity", "utilities"],
+  "prefer_related_applications": false
 }

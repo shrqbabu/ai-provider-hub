@@ -48,7 +48,7 @@ export function ProfilePage() {
   const email = user?.email || "user@ai-hub.local";
   const displayName = user?.displayName || email.split("@")[0];
   const photoURL = user?.photoURL;
-  const authProvider = user?.providerData?.[0]?.providerId === "google.com" ? "Google Account" : "Email / Password";
+  const authProvider = user?.provider === "google" || user?.providerData?.[0]?.providerId === "google.com" ? "Google Account" : user?.provider === "github" || user?.providerData?.[0]?.providerId === "github.com" ? "GitHub Account" : user?.provider ? (user.provider.charAt(0).toUpperCase() + user.provider.slice(1) + " Account") : "Email / Password";
   const createdAt = (user?.metadata as any)?.creationTime
     ? new Date((user?.metadata as any).creationTime).toLocaleDateString(undefined, {
         year: "numeric",

@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { getSupabaseAdmin, isSupabaseAdminReady } from "./supabase-admin.js";
 import { getDb, isFirebaseAdminReady } from "./firebase-admin.js";
 import {
   createLocalApiKey,
@@ -22,7 +23,7 @@ export interface ApiKeyRecord {
 }
 
 export interface ApiKeyPublic {
-  id: string; // the hash — safe to expose, it's not the key
+  id: string; // the hash - safe to expose, it's not the key
   label: string;
   last4: string;
   createdAt: number;
@@ -45,6 +46,24 @@ export async function createApiKey(
 ): Promise<{ raw: string; record: ApiKeyPublic }> {
   const result = await createLocalApiKey(uid, label, nowMs);
 
+  // 1. Supabase
+  if (isSupabaseAdminReady()) {
+    try {
+      const supabase = getSupabaseAdmin();
+      await supabase.from("api_keys").upsert({
+        id: result.record.id,
+        user_id: uid || "default_user",
+        label: result.record.label,
+        last4: result.record.last4,
+        created_at: nowMs,
+        revoked: false,
+      });
+    } catch (e) {
+      console.warn("[api-keys] Supabase save failed:", e);
+    }
+  }
+
+  // 2. Firebase
   if (isFirebaseAdminReady()) {
     try {
       await getDb().collection("apiKeys").doc(result.record.id).set({
@@ -54,7 +73,7 @@ export async function createApiKey(
         revoked: false,
       });
     } catch (e) {
-      console.warn("[api-keys] Firestore save failed, saved to local db:", e);
+      console.warn("[api-keys] Firestore save failed:", e);
     }
   }
 
@@ -63,21 +82,42 @@ export async function createApiKey(
 
 /** List a user's gateway keys (never returns raw keys). */
 export async function listApiKeys(uid: string): Promise<ApiKeyPublic[]> {
+  // 1. Supabase
+  if (isSupabaseAdminReady()) {
+    try {
+      const supabase = getSupabaseAdmin();
+      const { data, error } = await supabase
+        .from("api_keys")
+        .select("id, label, last4, created_at, revoked")
+        .eq("user_id", uid)
+        .eq("revoked", false)
+        .order("created_at", { ascending: false });
+
+      if (!error && data && data.length > 0) {
+        return data.map((d: any) => ({
+          id: d.id,
+          label: d.label || "Gateway key",
+          last4: d.last4 || "****",
+          createdAt: Number(d.created_at) || Date.now(),
+          revoked: Boolean(d.revoked),
+        }));
+      }
+    } catch (err) {
+      console.warn("[api-keys] Supabase listApiKeys failed, checking fallback:", err);
+    }
+  }
+
+  // 2. Firebase
   if (isFirebaseAdminReady()) {
     try {
-      const snap = await getDb()
-        .collection("apiKeys")
-        .get();
+      const snap = await getDb().collection("apiKeys").get();
 
       if (!snap.empty) {
-        // First get keys directly belonging to this uid
         let matchedDocs = snap.docs.filter((d) => {
           const r = d.data() as ApiKeyRecord;
           return r.uid === uid && !r.revoked;
         });
 
-        // If user has no keys under this exact UID (e.g. created before sign-in or after session reset),
-        // include all active keys from this Firebase project so keys never disappear!
         if (matchedDocs.length === 0) {
           matchedDocs = snap.docs.filter((d) => !(d.data() as ApiKeyRecord).revoked);
         }
@@ -102,6 +142,7 @@ export async function listApiKeys(uid: string): Promise<ApiKeyPublic[]> {
     }
   }
 
+  // 3. Local DB
   return listLocalApiKeys(uid);
 }
 
@@ -109,6 +150,16 @@ export async function listApiKeys(uid: string): Promise<ApiKeyPublic[]> {
 export async function revokeApiKey(uid: string, id: string): Promise<boolean> {
   keyCache.clear();
   await revokeLocalApiKey(uid, id);
+
+  if (isSupabaseAdminReady()) {
+    try {
+      const supabase = getSupabaseAdmin();
+      await supabase.from("api_keys").update({ revoked: true }).eq("id", id);
+    } catch {
+      // ignore
+    }
+  }
+
   if (isFirebaseAdminReady()) {
     try {
       const ref = getDb().collection("apiKeys").doc(id);
@@ -129,10 +180,29 @@ export async function resolveApiKey(raw: string): Promise<string | null> {
   }
 
   let resolvedUid: string | null = null;
+  const hash = hashKey(raw);
 
-  if (isFirebaseAdminReady()) {
+  // 1. Supabase
+  if (isSupabaseAdminReady()) {
     try {
-      const hash = hashKey(raw);
+      const supabase = getSupabaseAdmin();
+      const { data, error } = await supabase
+        .from("api_keys")
+        .select("user_id, revoked")
+        .eq("id", hash)
+        .maybeSingle();
+
+      if (!error && data && !data.revoked) {
+        resolvedUid = data.user_id || "default_user";
+      }
+    } catch (err) {
+      console.warn("[api-keys] Supabase resolveApiKey failed, checking fallback:", err);
+    }
+  }
+
+  // 2. Firebase
+  if (!resolvedUid && isFirebaseAdminReady()) {
+    try {
       const snap = await getDb().collection("apiKeys").doc(hash).get();
       if (snap.exists) {
         const r = snap.data() as ApiKeyRecord;
@@ -145,6 +215,7 @@ export async function resolveApiKey(raw: string): Promise<string | null> {
     }
   }
 
+  // 3. Local DB
   if (!resolvedUid) {
     resolvedUid = await resolveLocalApiKey(raw);
   }

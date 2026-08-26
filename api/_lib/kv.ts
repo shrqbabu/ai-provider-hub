@@ -1,15 +1,10 @@
+import { getSupabaseAdmin, isSupabaseAdminReady } from "./supabase-admin.js";
 import { getDb, isFirebaseAdminReady } from "./firebase-admin.js";
 import {
   readLocalKV,
   writeLocalKV,
   deleteLocalKV,
 } from "./local-db.js";
-
-interface KVDoc {
-  v: unknown;
-  value?: unknown;
-  updatedAt: number;
-}
 
 // In-memory TTL cache for KV reads (TTL: 30 seconds)
 const CacheTTL = 30000;
@@ -27,8 +22,30 @@ export async function readKV<T>(uid: string, key: string, fallback: T): Promise<
   }
 
   let result: T = fallback;
+  let resolvedFromCloud = false;
 
-  if (isFirebaseAdminReady()) {
+  // 1. Try Supabase
+  if (isSupabaseAdminReady()) {
+    try {
+      const supabase = getSupabaseAdmin();
+      const { data, error } = await supabase
+        .from("user_kv_store")
+        .select("value")
+        .eq("user_id", uid)
+        .eq("key", key)
+        .maybeSingle();
+
+      if (!error && data && data.value !== undefined && data.value !== null) {
+        result = data.value as T;
+        resolvedFromCloud = true;
+      }
+    } catch (err) {
+      console.warn(`[kv] Supabase read for ${key} failed, checking fallback:`, err);
+    }
+  }
+
+  // 2. Try Firebase (if Supabase didn't resolve)
+  if (!resolvedFromCloud && isFirebaseAdminReady()) {
     try {
       const snap = await docRef(uid, key).get();
       if (snap.exists) {
@@ -37,18 +54,20 @@ export async function readKV<T>(uid: string, key: string, fallback: T): Promise<
           const val = data.v ?? data.value ?? data.data;
           if (val !== undefined) {
             result = val as T;
+            resolvedFromCloud = true;
           } else if (typeof data === "object" && data !== null) {
             result = data as T;
+            resolvedFromCloud = true;
           }
         }
-      } else {
-        result = await readLocalKV<T>(uid, key, fallback);
       }
     } catch (err) {
       console.warn(`[kv] Firestore read for ${key} failed, checking local:`, err);
-      result = await readLocalKV<T>(uid, key, fallback);
     }
-  } else {
+  }
+
+  // 3. Try Local DB (if cloud didn't resolve)
+  if (!resolvedFromCloud) {
     result = await readLocalKV<T>(uid, key, fallback);
   }
 
@@ -68,6 +87,25 @@ export async function writeKV(
   // Always update local disk DB as cache
   await writeLocalKV(uid, key, value, nowMs);
 
+  // Write to Supabase
+  if (isSupabaseAdminReady()) {
+    try {
+      const supabase = getSupabaseAdmin();
+      await supabase.from("user_kv_store").upsert(
+        {
+          user_id: uid,
+          key,
+          value,
+          updated_at: new Date(nowMs).toISOString(),
+        },
+        { onConflict: "user_id,key" }
+      );
+    } catch (err) {
+      console.warn(`[kv] Supabase write for ${key} failed:`, err);
+    }
+  }
+
+  // Write to Firebase
   if (isFirebaseAdminReady()) {
     try {
       const doc = { v: value, value: value, updatedAt: nowMs };
@@ -83,6 +121,15 @@ export async function deleteKV(uid: string, key: string): Promise<void> {
   memoryCache.delete(cacheKey);
 
   await deleteLocalKV(uid, key);
+
+  if (isSupabaseAdminReady()) {
+    try {
+      const supabase = getSupabaseAdmin();
+      await supabase.from("user_kv_store").delete().eq("user_id", uid).eq("key", key);
+    } catch (err) {
+      console.warn(`[kv] Supabase delete for ${key} failed:`, err);
+    }
+  }
 
   if (isFirebaseAdminReady()) {
     try {

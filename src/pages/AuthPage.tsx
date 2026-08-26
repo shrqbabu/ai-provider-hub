@@ -1,42 +1,38 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Loader2, Sparkles } from "lucide-react";
+import { Loader2, Sparkles, Github, Mail, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { useAuthStore } from "@/store/auth-store";
 
-// Firebase auth errors carry a `code` (e.g. "auth/invalid-credential"). Map the
-// common ones to clear, actionable messages so 400s from identitytoolkit make
-// sense instead of showing a raw SDK string.
 function authErrorMessage(err: unknown): string {
-  const code =
-    typeof err === "object" && err && "code" in err
-      ? String((err as { code: unknown }).code)
-      : "";
-  switch (code) {
-    case "auth/invalid-credential":
-    case "auth/wrong-password":
-    case "auth/user-not-found":
-      return "Wrong email or password. No account yet? Tap “Sign up” below.";
-    case "auth/email-already-in-use":
-      return "That email already has an account. Switch to “Sign in”.";
-    case "auth/invalid-email":
-      return "That email address looks invalid.";
-    case "auth/weak-password":
-      return "Password is too weak — use at least 6 characters.";
-    case "auth/operation-not-allowed":
-      return "Email/Password sign-in is disabled. Enable it in Firebase Console → Authentication → Sign-in method.";
-    case "auth/network-request-failed":
-      return "Network error — check your connection and try again.";
-    case "auth/too-many-requests":
-      return "Too many attempts. Wait a moment and try again.";
-    case "auth/api-key-not-valid":
-    case "auth/invalid-api-key":
-      return "Firebase API key is invalid. Check VITE_FIREBASE_API_KEY in your env.";
-    default:
-      return err instanceof Error ? err.message : "Authentication failed.";
+  if (!err) return "Authentication failed.";
+  if (typeof err === "string") return err;
+  
+  const message = (err as any)?.message || "";
+  const code = (err as any)?.code || "";
+
+  if (message.includes("Invalid login credentials") || code === "invalid_credentials") {
+    return "Invalid email or password. Don't have an account yet? Click Sign up below.";
   }
+  if (message.includes("User already registered") || code === "user_already_exists") {
+    return "An account with this email already exists. Please switch to Sign in.";
+  }
+  if (message.includes("Password should be at least")) {
+    return "Password is too weak. Please use at least 6 characters.";
+  }
+  if (message.includes("Email not confirmed")) {
+    return "Please confirm your email address or check your Supabase Auth settings.";
+  }
+  if (message.includes("rate limit") || code === "over_request_rate_limit") {
+    return "Too many requests. Please wait a moment and try again.";
+  }
+  if (message.includes("NetworkError") || message.includes("Failed to fetch")) {
+    return "Network error. Please check your internet connection or Supabase URL.";
+  }
+
+  return message || "Authentication failed.";
 }
 
 export function AuthPage() {
@@ -44,8 +40,12 @@ export function AuthPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [oauthLoading, setOauthLoading] = useState<string | null>(null);
+
   const signup = useAuthStore((s) => s.signup);
   const login = useAuthStore((s) => s.login);
+  const loginWithGoogle = useAuthStore((s) => s.loginWithGoogle);
+  const loginWithGithub = useAuthStore((s) => s.loginWithGithub);
   const navigate = useNavigate();
 
   const isSignup = mode === "signup";
@@ -64,10 +64,10 @@ export function AuthPage() {
     try {
       if (isSignup) {
         await signup(email, password);
-        toast.success("Account created! Signing you in…");
+        toast.success("Account created successfully! Signing you in...");
       } else {
         await login(email, password);
-        toast.success("Signed in!");
+        toast.success("Signed in successfully!");
       }
       navigate("/");
     } catch (err: unknown) {
@@ -77,18 +77,17 @@ export function AuthPage() {
     }
   };
 
-  const loginWithGoogle = useAuthStore((s) => s.loginWithGoogle);
-
-  const handleGoogleSignIn = async () => {
-    setLoading(true);
+  const handleOAuthSignIn = async (provider: "google" | "github") => {
+    setOauthLoading(provider);
     try {
-      await loginWithGoogle();
-      toast.success("Signed in with Google!");
-      navigate("/");
+      if (provider === "google") {
+        await loginWithGoogle();
+      } else {
+        await loginWithGithub();
+      }
     } catch (err: unknown) {
       toast.error(authErrorMessage(err));
-    } finally {
-      setLoading(false);
+      setOauthLoading(null);
     }
   };
 
@@ -108,39 +107,61 @@ export function AuthPage() {
           </div>
         </div>
 
-        {/* Form */}
+        {/* Auth Form Card */}
         <div className="rounded-2xl border border-border/60 bg-card/40 backdrop-blur-xl p-5 sm:p-6 shadow-2xl space-y-4">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleGoogleSignIn}
-            className="w-full flex items-center justify-center gap-2.5 h-11 text-sm font-medium hover:bg-secondary/60 transition-colors"
-            disabled={loading}
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24">
-              <path
-                fill="#4285F4"
-                d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"
-              />
-              <path
-                fill="#34A853"
-                d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.34 24 12 24z"
-              />
-              <path
-                fill="#FBBC05"
-                d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
-              />
-              <path
-                fill="#EA4335"
-                d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.34 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
-              />
-            </svg>
-            Continue with Google
-          </Button>
+          {/* OAuth Buttons */}
+          <div className="grid grid-cols-2 gap-2.5">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => handleOAuthSignIn("google")}
+              className="w-full flex items-center justify-center gap-2 h-11 text-xs sm:text-sm font-medium hover:bg-secondary/60 transition-colors"
+              disabled={loading || Boolean(oauthLoading)}
+            >
+              {oauthLoading === "google" ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                  <path
+                    fill="#4285F4"
+                    d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.34 24 12 24z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.34 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
+                  />
+                </svg>
+              )}
+              <span>Google</span>
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => handleOAuthSignIn("github")}
+              className="w-full flex items-center justify-center gap-2 h-11 text-xs sm:text-sm font-medium hover:bg-secondary/60 transition-colors"
+              disabled={loading || Boolean(oauthLoading)}
+            >
+              {oauthLoading === "github" ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Github className="w-4 h-4 shrink-0" />
+              )}
+              <span>GitHub</span>
+            </Button>
+          </div>
 
           <div className="flex items-center gap-2">
             <div className="flex-1 h-px bg-border/60" />
-            <span className="text-[11px] uppercase tracking-wider text-muted-foreground">or email</span>
+            <span className="text-[11px] uppercase tracking-wider text-muted-foreground">or continue with email</span>
             <div className="flex-1 h-px bg-border/60" />
           </div>
 
@@ -153,7 +174,7 @@ export function AuthPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
                 autoComplete="email"
-                disabled={loading}
+                disabled={loading || Boolean(oauthLoading)}
               />
             </div>
             <div className="space-y-1.5">
@@ -162,21 +183,21 @@ export function AuthPage() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder={isSignup ? "At least 6 characters" : "••••••••"}
+                placeholder={isSignup ? "At least 6 characters" : "��������"}
                 autoComplete={isSignup ? "new-password" : "current-password"}
-                disabled={loading}
+                disabled={loading || Boolean(oauthLoading)}
               />
             </div>
             <Button
               type="submit"
               className="w-full h-11"
-              disabled={loading}
+              disabled={loading || Boolean(oauthLoading)}
               size="lg"
             >
               {loading ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  {isSignup ? "Creating account…" : "Signing in…"}
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  {isSignup ? "Creating account..." : "Signing in..."}
                 </>
               ) : isSignup ? (
                 "Create account"
@@ -187,7 +208,7 @@ export function AuthPage() {
           </form>
         </div>
 
-        {/* Toggle */}
+        {/* Toggle Mode */}
         <div className="text-center text-sm">
           {isSignup ? (
             <>
@@ -195,7 +216,7 @@ export function AuthPage() {
               <button
                 onClick={() => setMode("login")}
                 className="text-primary hover:underline font-medium"
-                disabled={loading}
+                disabled={loading || Boolean(oauthLoading)}
               >
                 Sign in
               </button>
@@ -206,7 +227,7 @@ export function AuthPage() {
               <button
                 onClick={() => setMode("signup")}
                 className="text-primary hover:underline font-medium"
-                disabled={loading}
+                disabled={loading || Boolean(oauthLoading)}
               >
                 Sign up
               </button>

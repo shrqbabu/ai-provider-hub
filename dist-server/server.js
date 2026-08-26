@@ -7,6 +7,37 @@ import { fileURLToPath } from "node:url";
 // api/_lib/api-keys.ts
 import { createHash as createHash2, randomBytes as randomBytes2 } from "node:crypto";
 
+// api/_lib/supabase-admin.ts
+import { createClient } from "@supabase/supabase-js";
+var adminClient = null;
+function getSupabaseCredentials() {
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
+  if (!url || !key || url === "https://your-project-id.supabase.co" || url.includes("your_supabase")) {
+    return null;
+  }
+  return { url, key };
+}
+function isSupabaseAdminReady() {
+  return getSupabaseCredentials() !== null;
+}
+function getSupabaseAdmin() {
+  if (adminClient) return adminClient;
+  const creds = getSupabaseCredentials();
+  if (!creds) {
+    throw new Error(
+      "Supabase credentials not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env."
+    );
+  }
+  adminClient = createClient(creds.url, creds.key, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false
+    }
+  });
+  return adminClient;
+}
+
 // api/_lib/firebase-admin.ts
 import fs from "node:fs";
 import path from "node:path";
@@ -270,6 +301,21 @@ function hashKey2(raw) {
 }
 async function createApiKey(uid, label, nowMs) {
   const result = await createLocalApiKey(uid, label, nowMs);
+  if (isSupabaseAdminReady()) {
+    try {
+      const supabase = getSupabaseAdmin();
+      await supabase.from("api_keys").upsert({
+        id: result.record.id,
+        user_id: uid || "default_user",
+        label: result.record.label,
+        last4: result.record.last4,
+        created_at: nowMs,
+        revoked: false
+      });
+    } catch (e) {
+      console.warn("[api-keys] Supabase save failed:", e);
+    }
+  }
   if (isFirebaseAdminReady()) {
     try {
       await getDb().collection("apiKeys").doc(result.record.id).set({
@@ -279,12 +325,29 @@ async function createApiKey(uid, label, nowMs) {
         revoked: false
       });
     } catch (e) {
-      console.warn("[api-keys] Firestore save failed, saved to local db:", e);
+      console.warn("[api-keys] Firestore save failed:", e);
     }
   }
   return result;
 }
 async function listApiKeys(uid) {
+  if (isSupabaseAdminReady()) {
+    try {
+      const supabase = getSupabaseAdmin();
+      const { data, error } = await supabase.from("api_keys").select("id, label, last4, created_at, revoked").eq("user_id", uid).eq("revoked", false).order("created_at", { ascending: false });
+      if (!error && data && data.length > 0) {
+        return data.map((d) => ({
+          id: d.id,
+          label: d.label || "Gateway key",
+          last4: d.last4 || "****",
+          createdAt: Number(d.created_at) || Date.now(),
+          revoked: Boolean(d.revoked)
+        }));
+      }
+    } catch (err) {
+      console.warn("[api-keys] Supabase listApiKeys failed, checking fallback:", err);
+    }
+  }
   if (isFirebaseAdminReady()) {
     try {
       const snap = await getDb().collection("apiKeys").get();
@@ -317,6 +380,13 @@ async function listApiKeys(uid) {
 async function revokeApiKey(uid, id) {
   keyCache.clear();
   await revokeLocalApiKey(uid, id);
+  if (isSupabaseAdminReady()) {
+    try {
+      const supabase = getSupabaseAdmin();
+      await supabase.from("api_keys").update({ revoked: true }).eq("id", id);
+    } catch {
+    }
+  }
   if (isFirebaseAdminReady()) {
     try {
       const ref = getDb().collection("apiKeys").doc(id);
@@ -333,9 +403,20 @@ async function resolveApiKey(raw) {
     return cached.uid;
   }
   let resolvedUid = null;
-  if (isFirebaseAdminReady()) {
+  const hash = hashKey2(raw);
+  if (isSupabaseAdminReady()) {
     try {
-      const hash = hashKey2(raw);
+      const supabase = getSupabaseAdmin();
+      const { data, error } = await supabase.from("api_keys").select("user_id, revoked").eq("id", hash).maybeSingle();
+      if (!error && data && !data.revoked) {
+        resolvedUid = data.user_id || "default_user";
+      }
+    } catch (err) {
+      console.warn("[api-keys] Supabase resolveApiKey failed, checking fallback:", err);
+    }
+  }
+  if (!resolvedUid && isFirebaseAdminReady()) {
+    try {
       const snap = await getDb().collection("apiKeys").doc(hash).get();
       if (snap.exists) {
         const r = snap.data();
@@ -367,7 +448,20 @@ async function readKV(uid, key, fallback) {
     return cached.val;
   }
   let result = fallback;
-  if (isFirebaseAdminReady()) {
+  let resolvedFromCloud = false;
+  if (isSupabaseAdminReady()) {
+    try {
+      const supabase = getSupabaseAdmin();
+      const { data, error } = await supabase.from("user_kv_store").select("value").eq("user_id", uid).eq("key", key).maybeSingle();
+      if (!error && data && data.value !== void 0 && data.value !== null) {
+        result = data.value;
+        resolvedFromCloud = true;
+      }
+    } catch (err) {
+      console.warn(`[kv] Supabase read for ${key} failed, checking fallback:`, err);
+    }
+  }
+  if (!resolvedFromCloud && isFirebaseAdminReady()) {
     try {
       const snap = await docRef(uid, key).get();
       if (snap.exists) {
@@ -376,18 +470,18 @@ async function readKV(uid, key, fallback) {
           const val = data.v ?? data.value ?? data.data;
           if (val !== void 0) {
             result = val;
+            resolvedFromCloud = true;
           } else if (typeof data === "object" && data !== null) {
             result = data;
+            resolvedFromCloud = true;
           }
         }
-      } else {
-        result = await readLocalKV(uid, key, fallback);
       }
     } catch (err) {
       console.warn(`[kv] Firestore read for ${key} failed, checking local:`, err);
-      result = await readLocalKV(uid, key, fallback);
     }
-  } else {
+  }
+  if (!resolvedFromCloud) {
     result = await readLocalKV(uid, key, fallback);
   }
   memoryCache.set(cacheKey, { val: result, expiresAt: Date.now() + CacheTTL });
@@ -397,6 +491,22 @@ async function writeKV(uid, key, value, nowMs) {
   const cacheKey = `${uid}:${key}`;
   memoryCache.set(cacheKey, { val: value, expiresAt: Date.now() + CacheTTL });
   await writeLocalKV(uid, key, value, nowMs);
+  if (isSupabaseAdminReady()) {
+    try {
+      const supabase = getSupabaseAdmin();
+      await supabase.from("user_kv_store").upsert(
+        {
+          user_id: uid,
+          key,
+          value,
+          updated_at: new Date(nowMs).toISOString()
+        },
+        { onConflict: "user_id,key" }
+      );
+    } catch (err) {
+      console.warn(`[kv] Supabase write for ${key} failed:`, err);
+    }
+  }
   if (isFirebaseAdminReady()) {
     try {
       const doc = { v: value, value, updatedAt: nowMs };
@@ -410,6 +520,14 @@ async function deleteKV(uid, key) {
   const cacheKey = `${uid}:${key}`;
   memoryCache.delete(cacheKey);
   await deleteLocalKV(uid, key);
+  if (isSupabaseAdminReady()) {
+    try {
+      const supabase = getSupabaseAdmin();
+      await supabase.from("user_kv_store").delete().eq("user_id", uid).eq("key", key);
+    } catch (err) {
+      console.warn(`[kv] Supabase delete for ${key} failed:`, err);
+    }
+  }
   if (isFirebaseAdminReady()) {
     try {
       await docRef(uid, key).delete();
@@ -596,15 +714,27 @@ function bearerToken(req) {
 async function requireUser(req) {
   const token = bearerToken(req);
   const headerUid = req.header("x-user-uid");
+  const isConfigured = isSupabaseAdminReady() || isFirebaseConfigured();
   if (!token) {
-    return headerUid || (isFirebaseConfigured() ? null : "local_user");
+    return headerUid || (isConfigured ? null : "local_user");
   }
-  if (isFirebaseConfigured()) {
+  if (isSupabaseAdminReady()) {
+    try {
+      const admin = getSupabaseAdmin();
+      const { data, error } = await admin.auth.getUser(token);
+      if (!error && data?.user?.id) {
+        return data.user.id;
+      }
+    } catch (e) {
+      console.warn("[Auth] Supabase token verify error:", e);
+    }
+  }
+  if (isFirebaseAdminReady()) {
     try {
       const decoded = await getAdminAuth().verifyIdToken(token);
-      return decoded.uid;
+      if (decoded?.uid) return decoded.uid;
     } catch (e) {
-      console.warn("[Auth] Firebase Admin token verify failed:", e);
+      console.warn("[Auth] Firebase token verify error:", e);
     }
   }
   try {
@@ -612,14 +742,14 @@ async function requireUser(req) {
     if (parts.length === 3) {
       const payloadJson = Buffer.from(parts[1], "base64").toString("utf-8");
       const payload = JSON.parse(payloadJson);
-      if (payload.user_id || payload.sub) {
-        return payload.user_id || payload.sub;
+      if (payload.sub || payload.user_id) {
+        return payload.sub || payload.user_id;
       }
     }
-  } catch (e) {
+  } catch {
   }
   if (headerUid) return headerUid;
-  return isFirebaseConfigured() ? null : "local_user";
+  return isConfigured ? null : "local_user";
 }
 
 // api/_lib/http.ts

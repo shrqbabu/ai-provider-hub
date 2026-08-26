@@ -1,16 +1,21 @@
 import { create } from "zustand";
-import {
-  createUserWithEmailAndPassword,
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  signInWithPopup,
-  signInWithRedirect,
-  getRedirectResult,
-  GoogleAuthProvider,
-  signOut,
-  type User,
-} from "firebase/auth";
-import { getFirebaseAuth, firebaseConfigured } from "@/services/firebase";
+import type { User as SupabaseUser, Session } from "@supabase/supabase-js";
+import { getSupabase, supabaseConfigured } from "@/services/supabase";
+
+export interface AppUser {
+  id: string;
+  uid: string; // compatibility alias
+  email?: string;
+  displayName?: string;
+  photoURL?: string;
+  provider?: string;
+  createdAt?: string;
+  rawUser: SupabaseUser;
+  metadata?: {
+    creationTime?: string;
+  };
+  providerData?: Array<{ providerId: string }>;
+}
 
 const LOCAL_UID_KEY = "ai-provider-hub:local-uid";
 
@@ -24,12 +29,45 @@ function getOrCreateLocalUid(): string {
   return uid;
 }
 
+function mapSupabaseUser(user: SupabaseUser | null): AppUser | null {
+  if (!user) return null;
+  const meta = user.user_metadata || {};
+  const appMeta = user.app_metadata || {};
+  const provider = (appMeta.provider as string) || "email";
+  const displayName =
+    meta.full_name ||
+    meta.name ||
+    meta.user_name ||
+    (user.email ? user.email.split("@")[0] : "User");
+  const photoURL = meta.avatar_url || meta.picture || "";
+
+  return {
+    id: user.id,
+    uid: user.id,
+    email: user.email,
+    displayName,
+    photoURL,
+    provider,
+    createdAt: user.created_at,
+    rawUser: user,
+    metadata: {
+      creationTime: user.created_at,
+    },
+    providerData: [
+      {
+        providerId: provider === "google" ? "google.com" : provider,
+      },
+    ],
+  };
+}
+
 interface State {
-  user: User | null;
-  /** True until the initial onAuthStateChanged fires — avoids auth flash. */
+  user: AppUser | null;
+  session: Session | null;
+  /** True until the initial auth check completes - avoids auth flash. */
   loading: boolean;
   configured: boolean;
-  /** Local user ID for when Firebase is not configured */
+  /** Local user ID for when cloud auth is not configured */
   localUid: string;
 }
 
@@ -37,88 +75,144 @@ interface Actions {
   init: () => void;
   signup: (email: string, password: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
+  loginWithOAuth: (provider: "google" | "github" | "gitlab" | "discord") => Promise<void>;
   loginWithGoogle: () => Promise<void>;
+  loginWithGithub: () => Promise<void>;
   logout: () => Promise<void>;
 }
 
-let unsub: (() => void) | null = null;
+let initialized = false;
 
-export const useAuthStore = create<State & Actions>((set) => ({
+export const useAuthStore = create<State & Actions>((set, get) => ({
   user: null,
+  session: null,
   loading: true,
-  configured: firebaseConfigured,
+  configured: supabaseConfigured,
   localUid: getOrCreateLocalUid(),
 
   init: () => {
-    if (!firebaseConfigured) {
+    if (!supabaseConfigured) {
       set({ loading: false });
       return;
     }
-    if (unsub) return; // already subscribed
-    const auth = getFirebaseAuth();
+    if (initialized) return;
+    initialized = true;
 
-    // Check if returning from redirect sign-in
-    getRedirectResult(auth).catch(() => {
-      // ignore redirect error if any
-    });
-
-    unsub = onAuthStateChanged(auth, (user) => {
-      set({ user, loading: false });
-    });
-  },
-
-  signup: async (email, password) => {
-    const auth = getFirebaseAuth();
-    await createUserWithEmailAndPassword(auth, email, password);
-  },
-
-  login: async (email, password) => {
-    const auth = getFirebaseAuth();
-    await signInWithEmailAndPassword(auth, email, password);
-  },
-
-  loginWithGoogle: async () => {
-    const auth = getFirebaseAuth();
-    const provider = new GoogleAuthProvider();
-    provider.setCustomParameters({ prompt: "select_account" });
     try {
-      await signInWithPopup(auth, provider);
-    } catch (err: any) {
-      if (
-        err?.code === "auth/popup-blocked" ||
-        err?.code === "auth/cancelled-popup-request" ||
-        err?.code === "auth/popup-closed-by-user"
-      ) {
-        // Fallback to full page redirect if popup is blocked by browser
-        await signInWithRedirect(auth, provider);
-        return;
-      }
-      throw err;
+      const client = getSupabase();
+
+      // Check current session on startup
+      client.auth.getSession().then(({ data: { session }, error }) => {
+        if (error) {
+          console.warn("[Auth] getSession error:", error);
+        }
+        set({
+          session,
+          user: session ? mapSupabaseUser(session.user) : null,
+          loading: false,
+        });
+      });
+
+      // Listen to auth changes (sign in, sign out, token refresh, OAuth redirect)
+      client.auth.onAuthStateChange((_event, session) => {
+        set({
+          session,
+          user: session ? mapSupabaseUser(session.user) : null,
+          loading: false,
+        });
+      });
+    } catch (e) {
+      console.warn("[Auth] Supabase init error:", e);
+      set({ loading: false });
     }
   },
 
+  signup: async (email, password) => {
+    const client = getSupabase();
+    const { data, error } = await client.auth.signUp({
+      email,
+      password,
+    });
+    if (error) throw error;
+    if (data.session) {
+      set({
+        session: data.session,
+        user: mapSupabaseUser(data.session.user),
+      });
+    }
+  },
+
+  login: async (email, password) => {
+    const client = getSupabase();
+    const { data, error } = await client.auth.signInWithPassword({
+      email,
+      password,
+    });
+    if (error) throw error;
+    if (data.session) {
+      set({
+        session: data.session,
+        user: mapSupabaseUser(data.session.user),
+      });
+    }
+  },
+
+  loginWithOAuth: async (provider) => {
+    const client = getSupabase();
+    const redirectTo = window.location.origin;
+    const { error } = await client.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo,
+        queryParams: {
+          access_type: "offline",
+          prompt: "consent",
+        },
+      },
+    });
+    if (error) throw error;
+  },
+
+  loginWithGoogle: async () => {
+    await get().loginWithOAuth("google");
+  },
+
+  loginWithGithub: async () => {
+    await get().loginWithOAuth("github");
+  },
+
   logout: async () => {
-    const auth = getFirebaseAuth();
-    await signOut(auth);
+    if (supabaseConfigured) {
+      const client = getSupabase();
+      await client.auth.signOut();
+    }
+    set({ user: null, session: null });
   },
 }));
 
 /**
- * Fresh Firebase ID token for authenticating backend calls (/api/data,
- * /api/keys). Returns null if signed out or Firebase not configured.
- * Firebase caches and auto-refreshes the token, so calling this per-request is cheap.
+ * Fresh Supabase JWT access token for authenticating backend calls (/api/data, /api/keys).
+ * Returns null if signed out or Supabase is not configured.
  */
 export async function getIdToken(): Promise<string | null> {
-  if (!firebaseConfigured) return null;
-  const user = getFirebaseAuth().currentUser;
-  if (!user) return null;
-  return user.getIdToken();
+  if (!supabaseConfigured) return null;
+  try {
+    const state = useAuthStore.getState();
+    if (state.session?.access_token) {
+      return state.session.access_token;
+    }
+    const client = getSupabase();
+    const { data } = await client.auth.getSession();
+    return data.session?.access_token || null;
+  } catch {
+    return null;
+  }
 }
 
 export function getAuthUid(): string | null {
-  if (!firebaseConfigured) return getOrCreateLocalUid();
-  const user = getFirebaseAuth().currentUser;
-  return user?.uid || null;
+  if (!supabaseConfigured) return getOrCreateLocalUid();
+  const state = useAuthStore.getState();
+  return state.user?.id || null;
 }
 
 /**

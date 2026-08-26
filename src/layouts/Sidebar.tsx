@@ -1,5 +1,5 @@
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   MessageSquarePlus,
   Search,
@@ -282,35 +282,42 @@ export function Sidebar() {
         {inner}
       </aside>
 
-      {/* Mobile drawer — always mounted, x driven purely by the mobileOpen flag.
-          This replaces AnimatePresence + dragSnapToOrigin, which raced an exit
-          animation the drawer never finished, leaving it stuck (and <body>
-          scroll-locked) on touch devices. No exit animation here means closing
-          always completes. */}
-      <motion.div
-        initial={false}
-        animate={{ opacity: mobileOpen ? 1 : 0 }}
-        transition={{ duration: 0.2 }}
-        onClick={() => setMobileOpen(false)}
-        onTouchStart={() => setMobileOpen(false)}
-        className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm md:hidden cursor-pointer"
-        style={{
-          WebkitTapHighlightColor: "transparent",
-          pointerEvents: mobileOpen ? "auto" : "none",
-        }}
-        aria-hidden={!mobileOpen}
-      />
-      <motion.aside
-        initial={false}
-        animate={{ x: mobileOpen ? 0 : "-100%" }}
-        transition={{ type: "spring", damping: 28, stiffness: 280 }}
-        className="fixed z-50 top-0 left-0 h-full w-[85%] max-w-[320px] bg-card/95 backdrop-blur-2xl border-r border-border/60 flex flex-col md:hidden shadow-2xl"
-        style={{ pointerEvents: mobileOpen ? "auto" : "none" }}
-        aria-hidden={!mobileOpen}
-        inert={!mobileOpen}
-      >
-        {inner}
-      </motion.aside>
+      {/* Mobile drawer */}
+      <AnimatePresence>
+        {mobileOpen && (
+          <>
+            <motion.div
+              key="backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setMobileOpen(false)}
+              onTouchStart={() => setMobileOpen(false)}
+              className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm md:hidden cursor-pointer"
+              style={{ WebkitTapHighlightColor: "transparent" }}
+            />
+            <motion.aside
+              key="drawer"
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              drag="x"
+              dragConstraints={{ left: 0, right: 0 }}
+              dragElastic={{ left: 0.2, right: 0 }}
+              dragSnapToOrigin
+              onDragEnd={(_e, info) => {
+                if (info.offset.x < -60 || info.velocity.x < -200) {
+                  setMobileOpen(false);
+                }
+              }}
+              transition={{ type: "spring", damping: 28, stiffness: 280 }}
+              className="fixed z-50 top-0 left-0 h-full w-[85%] max-w-[320px] bg-card/95 backdrop-blur-2xl border-r border-border/60 flex flex-col md:hidden shadow-2xl"
+            >
+              {inner}
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
 
       <SearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
     </>

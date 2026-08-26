@@ -61,6 +61,14 @@ export const useModelStore = create<State & Actions>((set, get) => ({
           favorite: prev.favorite,
           saved: prev.saved,
           working: prev.working,
+          maxTokens: prev.maxTokens ?? m.maxTokens,
+          tokenLimit: prev.tokenLimit ?? m.tokenLimit,
+          temperature: prev.temperature ?? m.temperature,
+          contextPromptId: prev.contextPromptId,
+          customSystemPrompt: prev.customSystemPrompt,
+          tokenCompress: prev.tokenCompress,
+          promptCompress: prev.promptCompress,
+          compressMode: prev.compressMode,
         });
       } else {
         map.set(key, { ...m, id: m.id ?? uuid() });

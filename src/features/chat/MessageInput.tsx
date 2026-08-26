@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ChatAttachment, DiscoveredModel } from "@/types";
-import { fileToDataUrl, formatBytes, isTextLike } from "@/utils";
+import { estimateTokens, fileToDataUrl, formatBytes, formatNumber, isTextLike } from "@/utils";
 import { toast } from "sonner";
 import { v4 as uuid } from "uuid";
 import { cn } from "@/utils";
@@ -305,6 +305,11 @@ export function MessageInput({ onSend, onStop, streaming, disabled, model, canGe
           </Button>
         )}
         <div className="flex-1" />
+        {text.trim() && (
+          <span className="text-[10px] text-muted-foreground tabular-nums mr-1">
+            ~{formatNumber(estimateTokens(text))} tok
+          </span>
+        )}
         {streaming ? (
           <Button size="sm" variant="destructive" onClick={onStop} type="button">
             <StopCircle className="w-4 h-4" />

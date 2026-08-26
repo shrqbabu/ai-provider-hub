@@ -1,8 +1,8 @@
 import type { ChatMessage, ConnectedProvider, DiscoveredModel } from "@/types";
 import { resolveRawRequest, extractErrorMessage } from "./provider-service";
 import { dataUrlToText, isTextLike } from "@/utils";
-import { useSettingsStore } from "@/store/settings-store";
-import type { StreamHandlers } from "./chat-service";
+import { resolveMaxOutputTokens, resolveTemperature } from "@/utils/token-limits";
+import type { StreamHandlers, StreamOptions } from "./chat-service";
 
 interface AnthropicMessage {
   role: "user" | "assistant";
@@ -17,14 +17,9 @@ interface AnthropicMessage {
   }>;
 }
 
-function resolveMaxTokens(model: DiscoveredModel): number {
-  const userMax = useSettingsStore.getState().settings.maxTokens;
-  if (userMax && userMax > 0) return userMax;
-  const id = model.modelId.toLowerCase();
-  if (model.reasoning || /o[13]|deepseek-r1|qwq|thinking/.test(id)) {
-    return 32_768;
-  }
-  return 16_384;
+function resolveMaxTokens(model: DiscoveredModel, override?: number): number {
+  if (override && override > 0) return override;
+  return resolveMaxOutputTokens(model);
 }
 
 function buildAnthropicMessages(
@@ -99,7 +94,8 @@ export async function streamAnthropicChat(
   model: DiscoveredModel,
   messages: ChatMessage[],
   handlers: StreamHandlers,
-  systemPrompt?: string
+  systemPrompt?: string,
+  options?: StreamOptions
 ): Promise<void> {
   const start = performance.now();
   console.log("[Anthropic Service] Starting stream:", {
@@ -120,12 +116,14 @@ export async function streamAnthropicChat(
     // Anthropic native API requires anthropic-version header
     headers["anthropic-version"] = "2023-06-01";
 
+    const temperature = options?.temperature ?? resolveTemperature(model);
     const body = {
       model: model.modelId,
       messages: anthropicMessages,
-      max_tokens: resolveMaxTokens(model),
+      max_tokens: resolveMaxTokens(model, options?.maxTokens),
       stream: true,
       ...(finalSystem ? { system: finalSystem } : {}),
+      ...(temperature != null ? { temperature } : {}),
     };
 
     console.log("[Anthropic Service] Request:", {

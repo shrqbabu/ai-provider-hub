@@ -2,6 +2,8 @@ import { create } from "zustand";
 import { v4 as uuid } from "uuid";
 import type { Prompt } from "@/types";
 import { storage } from "@/services/storage";
+import { BUILTIN_CONTEXT_PROMPTS } from "@/constants/context-prompts";
+import { useSettingsStore } from "./settings-store";
 
 const KEY = "prompts";
 
@@ -17,6 +19,8 @@ interface Actions {
   remove: (id: string) => void;
   duplicate: (id: string) => Prompt | undefined;
   toggleFavorite: (id: string) => void;
+  setDefaultContext: (id: string | null) => void;
+  seedContextPrompts: () => void;
 }
 
 async function persist(list: Prompt[]) {
@@ -29,6 +33,40 @@ export const usePromptStore = create<State & Actions>((set, get) => ({
   hydrate: async () => {
     const list = await storage.get<Prompt[]>(KEY, []);
     set({ prompts: list, hydrated: true });
+  },
+  seedContextPrompts: () => {
+    const existing = get().prompts;
+    const have = new Set(existing.map((p) => p.title.toLowerCase()));
+    const now = Date.now();
+    const extras: Prompt[] = BUILTIN_CONTEXT_PROMPTS.filter(
+      (p) => !have.has(p.title.toLowerCase())
+    ).map((p, i) => ({
+      ...p,
+      id: uuid(),
+      createdAt: now + i,
+      updatedAt: now + i,
+    }));
+    if (extras.length === 0) {
+      useSettingsStore.getState().update({ contextPromptsSeeded: true });
+      return;
+    }
+    const list = [...extras, ...existing];
+    set({ prompts: list });
+    void persist(list);
+    useSettingsStore.getState().update({
+      contextPromptsSeeded: true,
+      defaultContextPromptId:
+        useSettingsStore.getState().settings.defaultContextPromptId || extras[0]?.id || "",
+    });
+  },
+  setDefaultContext: (id) => {
+    const list = get().prompts.map((p) => ({
+      ...p,
+      isDefault: !!id && p.id === id,
+    }));
+    set({ prompts: list });
+    void persist(list);
+    useSettingsStore.getState().update({ defaultContextPromptId: id || "" });
   },
   add: (p) => {
     const prompt: Prompt = {
@@ -62,6 +100,7 @@ export const usePromptStore = create<State & Actions>((set, get) => ({
       content: p.content,
       tags: p.tags,
       folder: p.folder,
+      kind: p.kind,
     });
   },
   toggleFavorite: (id) => {

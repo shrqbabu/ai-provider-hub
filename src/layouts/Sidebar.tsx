@@ -20,6 +20,8 @@ import {
   Cookie,
   User,
   Gauge,
+  Minimize2,
+  LayoutGrid,
 } from "lucide-react";
 import { useChatStore } from "@/store/chat-store";
 import { useUIStore } from "@/store/ui-store";
@@ -40,6 +42,8 @@ const nav = [
   { to: "/combos", label: "Combos", icon: Boxes },
   { to: "/combo-logs", label: "Combo Logs", icon: Activity },
   { to: "/prompts", label: "Prompt Library", icon: BookOpen },
+  { to: "/compress", label: "Compress Studio", icon: Minimize2 },
+  { to: "/more", label: "Control Center", icon: LayoutGrid },
   { to: "/usage", label: "Usage", icon: BarChart3 },
   { to: "/settings", label: "Settings", icon: Settings },
   { to: "/trash", label: "Trash", icon: Trash2 },

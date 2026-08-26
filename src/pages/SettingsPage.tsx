@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { Settings, Download, Upload, Trash2, RotateCcw, Database, HardDrive, CheckCircle2 } from "lucide-react";
+import { Settings, Download, Upload, Trash2, RotateCcw, Database, HardDrive, CheckCircle2, Minimize2, BookOpen, Gauge } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -21,6 +21,10 @@ import { usePromptStore } from "@/store/prompt-store";
 import { useUsageStore } from "@/store/usage-store";
 import { useComboStore } from "@/store/combo-store";
 import { useKeyStoreStore } from "@/store/keystore-store";
+import { COMPRESS_MODES } from "@/utils/compress";
+import { OUTPUT_TOKEN_PRESETS } from "@/utils/token-limits";
+import { cn } from "@/utils";
+import { NavLink } from "react-router-dom";
 
 export function SettingsPage() {
   const settings = useSettingsStore((s) => s.settings);
@@ -32,8 +36,11 @@ export function SettingsPage() {
   const combos = useComboStore((s) => s.combos);
   const chats = useChatStore((s) => s.chats);
   const prompts = usePromptStore((s) => s.prompts);
+  const setDefaultContext = usePromptStore((s) => s.setDefaultContext);
+  const contexts = prompts.filter((p) => (p.kind ?? "snippet") === "context");
   const keystore = useKeyStoreStore((s) => s.items);
   const usage = useUsageStore((s) => s.usage);
+  void usage;
 
   const exportAll = async () => {
     const backupData = {
@@ -45,6 +52,8 @@ export function SettingsPage() {
       combos: useComboStore.getState().combos,
       keystore: useKeyStoreStore.getState().items,
       chats: useChatStore.getState().chats,
+      prompts: usePromptStore.getState().prompts,
+      settings: useSettingsStore.getState().settings,
     };
 
     const countSummary = `${backupData.providers.length} providers, ${backupData.models.length} models, ${backupData.combos.length} combos, ${backupData.keystore.length} keys, ${backupData.chats.length} chats`;
@@ -264,6 +273,140 @@ export function SettingsPage() {
                 the limit, the app auto-continues it in the same message. Higher
                 values may be rejected by models with smaller output caps.
               </p>
+              <div className="flex flex-wrap gap-1.5">
+                {OUTPUT_TOKEN_PRESETS.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => update({ maxTokens: p.value })}
+                    className={cn(
+                      "px-2.5 h-8 rounded-lg text-xs border",
+                      (settings.maxTokens || 0) === p.value
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "border-border hover:bg-secondary"
+                    )}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Minimize2 className="w-3.5 h-3.5 text-primary" /> Token & prompt compress
+                </div>
+                <NavLink to="/compress" className="text-xs text-primary hover:underline">
+                  Open studio
+                </NavLink>
+              </div>
+              <Row label="Token compress (chat history)">
+                <Switch
+                  checked={settings.tokenCompress !== false}
+                  onCheckedChange={(v) => update({ tokenCompress: v })}
+                />
+              </Row>
+              <Row label="Prompt compress (system / context)">
+                <Switch
+                  checked={settings.promptCompress !== false}
+                  onCheckedChange={(v) => update({ promptCompress: v })}
+                />
+              </Row>
+              <div>
+                <div className="text-sm mb-2">Token compress mode</div>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {COMPRESS_MODES.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => update({ tokenCompressMode: m.id })}
+                      className={cn(
+                        "rounded-lg text-[11px] py-1.5 border font-medium",
+                        (settings.tokenCompressMode || "smart") === m.id
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "border-border hover:bg-secondary"
+                      )}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="text-sm mb-2">Prompt compress mode</div>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {COMPRESS_MODES.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => update({ promptCompressMode: m.id })}
+                      className={cn(
+                        "rounded-lg text-[11px] py-1.5 border font-medium",
+                        (settings.promptCompressMode || "smart") === m.id
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "border-border hover:bg-secondary"
+                      )}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <Row label={`Trigger at ${Math.round((settings.tokenCompressThreshold ?? 0.75) * 100)}% of window`}>
+                <input
+                  type="range"
+                  min={40}
+                  max={95}
+                  value={Math.round((settings.tokenCompressThreshold ?? 0.75) * 100)}
+                  onChange={(e) => update({ tokenCompressThreshold: Number(e.target.value) / 100 })}
+                  className="w-[140px] accent-[hsl(var(--primary))]"
+                />
+              </Row>
+              <Row label="Keep last messages">
+                <Input
+                  type="number"
+                  min={2}
+                  className="w-[100px]"
+                  value={settings.keepLastMessages ?? 6}
+                  onChange={(e) =>
+                    update({ keepLastMessages: Math.max(2, Number(e.target.value) || 6) })
+                  }
+                />
+              </Row>
+              <p className="text-xs text-muted-foreground">
+                Saved so far: {settings.compressStats?.tokensSaved ?? 0} tokens across{" "}
+                {settings.compressStats?.runs ?? 0} compressed requests.
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-5 space-y-4">
+              <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                <BookOpen className="w-3.5 h-3.5 text-primary" /> Default context prompt
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Applied to every new chat (and to models that don't set their own). Override per chat from the composer chips.
+              </p>
+              <Select
+                value={settings.defaultContextPromptId || "none"}
+                onValueChange={(v) => setDefaultContext(v === "none" ? null : v)}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="None" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {contexts.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </CardContent>
           </Card>
 

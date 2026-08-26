@@ -1,8 +1,13 @@
 import type { ChatMessage, ConnectedProvider, DiscoveredModel } from "@/types";
 import { createClient, extractErrorMessage } from "./provider-service";
 import { dataUrlToText, isTextLike } from "@/utils";
-import { useSettingsStore } from "@/store/settings-store";
+import { resolveMaxOutputTokens, resolveTemperature } from "@/utils/token-limits";
 import { streamAnthropicChat } from "./anthropic-service";
+
+export interface StreamOptions {
+  maxTokens?: number;
+  temperature?: number;
+}
 
 export interface StreamHandlers {
   onDelta: (delta: string) => void;
@@ -48,16 +53,9 @@ const CONTINUE_PROMPT =
 // Ask for a generous output budget. Many OpenAI-compatible servers default
 // max_tokens to something small (512–4096) when omitted — that's the usual
 // reason long files get cut off mid-way.
-// User can override in Settings → Chat → Max output tokens (0 = auto).
-function resolveMaxTokens(model: DiscoveredModel): number {
-  const userMax = useSettingsStore.getState().settings.maxTokens;
-  if (userMax && userMax > 0) return userMax;
-  const id = model.modelId.toLowerCase();
-  // Reasoning models burn output budget on thinking — give them extra room.
-  if (model.reasoning || /o[13]|deepseek-r1|qwq|thinking/.test(id)) {
-    return 32_768;
-  }
-  return 16_384;
+function resolveMaxTokens(model: DiscoveredModel, override?: number): number {
+  if (override && override > 0) return override;
+  return resolveMaxOutputTokens(model);
 }
 
 // Some servers (older vLLM, LM Studio, certain gateways) reject
@@ -156,11 +154,12 @@ export async function streamChat(
   model: DiscoveredModel,
   messages: ChatMessage[],
   handlers: StreamHandlers,
-  systemPrompt?: string
+  systemPrompt?: string,
+  options?: StreamOptions
 ): Promise<void> {
   // Route to Anthropic Messages API if provider uses that format
   if (provider.apiFormat === "anthropic") {
-    return streamAnthropicChat(provider, model, messages, handlers, systemPrompt);
+    return streamAnthropicChat(provider, model, messages, handlers, systemPrompt, options);
   }
 
   // Otherwise use OpenAI-compatible API
@@ -206,6 +205,7 @@ export async function streamChat(
 
       let stream: unknown;
       try {
+        const temperature = options?.temperature ?? resolveTemperature(model);
         stream = await createCompletionStream(
           client,
           {
@@ -217,8 +217,9 @@ export async function streamChat(
             messages: requestMessages as any,
             stream: true,
             stream_options: { include_usage: true },
+            ...(temperature != null ? { temperature } : {}),
           },
-          resolveMaxTokens(model),
+          resolveMaxTokens(model, options?.maxTokens),
           handlers.signal
         );
       } catch (createErr: unknown) {

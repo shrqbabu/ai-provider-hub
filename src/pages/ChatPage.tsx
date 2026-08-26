@@ -27,6 +27,10 @@ import type { ChatAttachment, ChatMessage, ConnectedProvider, DiscoveredModel } 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { estimateTokens, formatNumber, cn } from "@/utils";
+import { prepareChatRequest } from "@/utils/prepare-request";
+import { resolveContextWindow } from "@/utils/token-limits";
+import { useSettingsStore } from "@/store/settings-store";
+import { ChatControls } from "@/features/chat/ChatControls";
 
 export function ChatPage() {
   const { id } = useParams<{ id: string }>();
@@ -127,9 +131,10 @@ export function ChatPage() {
     );
   }, [chat]);
 
-  const remaining = model?.contextWindow ? model.contextWindow - contextTokens : undefined;
-  const contextPct = model?.contextWindow
-    ? Math.min(100, (contextTokens / model.contextWindow) * 100)
+  const contextWindow = model ? resolveContextWindow(model) : undefined;
+  const remaining = contextWindow ? contextWindow - contextTokens : undefined;
+  const contextPct = contextWindow
+    ? Math.min(100, (contextTokens / contextWindow) * 100)
     : undefined;
 
   if (!chat) return null;
@@ -255,10 +260,28 @@ export function ChatPage() {
       }
 
       try {
+        const prepared = prepareChatRequest({
+          messages: allMessages,
+          model: curModel,
+          chat,
+        });
+        if (prepared.compressMeta.applied) {
+          const saved =
+            prepared.compressMeta.tokenSaved + prepared.compressMeta.promptSaved;
+          if (saved > 0) {
+            useSettingsStore.getState().recordCompress(saved);
+            toast.message(
+              `Compressed · saved ${formatNumber(saved)} tokens` +
+                (prepared.compressMeta.compressedTurns
+                  ? ` · ${prepared.compressMeta.compressedTurns} turns`
+                  : "")
+            );
+          }
+        }
         await streamChat(
           curProvider,
           curModel,
-          allMessages,
+          prepared.messages,
           {
             onDelta: (d) => {
               // First delta arrives → record thinking duration and hide thinking state.
@@ -386,7 +409,8 @@ export function ChatPage() {
             },
             signal: abortRef.current?.signal ?? undefined,
           },
-          chat.systemPrompt
+          prepared.systemPrompt,
+          { maxTokens: prepared.maxTokens, temperature: prepared.temperature }
         );
       } catch (err: any) {
         console.error("Stream catch:", err);
@@ -557,9 +581,9 @@ export function ChatPage() {
             {provider && <span>{provider.displayName}</span>}
             {model && <span>· {model.displayName}</span>}
             {combo && <span>· Combo ({combo.name})</span>}
-            {model?.contextWindow && (
+            {contextWindow && (
               <span>
-                · {formatNumber(contextTokens)} / {formatNumber(model.contextWindow)} tok
+                · {formatNumber(contextTokens)} / {formatNumber(contextWindow)} tok
               </span>
             )}
             {remaining != null && remaining < 1000 && (

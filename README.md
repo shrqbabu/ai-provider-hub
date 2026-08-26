@@ -31,6 +31,26 @@ A powerful, universal AI Gateway, Proxy, and Multi-Provider Management Platform.
 - **🧪 Live Model Testing & Filtering**:
   - 1-Click model connectivity and latency testing.
   - Filter models by provider, tier (free/paid), favorite, or disconnected state.
+- **📉 Token Compress & Prompt Compress**:
+  - Extractive compression of older chat turns when the context window fills up (Light / Smart / Max).
+  - Prompt compress tightens system + context prompts (filler, comments, whitespace) before the request is sent.
+  - Live Compress Studio with before/after token counts.
+- **🎛 Per-model customisation**:
+  - Custom display name, context window, input token budget, max output tokens, temperature, capabilities, and attached context prompt.
+- **🧠 Context Prompts**:
+  - First-class system prompts (10 built-in templates). Assign globally, per model, or per chat.
+- **📱 Android / PWA app**:
+  - Installable standalone app (Chrome → Add to Home screen). Bottom navigation, safe-area, and phone-first Control Center.
+
+---
+
+## 📱 Install as an Android app (PWA)
+
+1. Open the hub in **Chrome** on Android.
+2. Tap the menu (⋮) → **Add to Home screen** / **Install app**.
+3. Launch **AI Hub** from the home screen — it runs fullscreen like a native app.
+
+All existing features (providers, models, combos, gateway keys, chat, prompts, backup) work inside the installed app. Token/prompt compress and per-model limits apply automatically.
 
 ---
 

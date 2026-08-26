@@ -8,6 +8,8 @@ import {
   Copy,
   Trash2,
   Pencil,
+  Sparkles,
+  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -23,7 +25,8 @@ import { usePromptStore } from "@/store/prompt-store";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/utils";
-import type { Prompt } from "@/types";
+import type { Prompt, PromptKind } from "@/types";
+import { useSettingsStore } from "@/store/settings-store";
 
 export function PromptsPage() {
   const prompts = usePromptStore((s) => s.prompts);
@@ -32,13 +35,23 @@ export function PromptsPage() {
   const remove = usePromptStore((s) => s.remove);
   const duplicate = usePromptStore((s) => s.duplicate);
   const toggleFav = usePromptStore((s) => s.toggleFavorite);
+  const setDefaultContext = usePromptStore((s) => s.setDefaultContext);
+  const seedContextPrompts = usePromptStore((s) => s.seedContextPrompts);
+  const defaultId = useSettingsStore((s) => s.settings.defaultContextPromptId);
 
   const [q, setQ] = useState("");
   const [folder, setFolder] = useState<string>("all");
+  const [kindTab, setKindTab] = useState<PromptKind | "all">("context");
   const [dialog, setDialog] = useState<{ open: boolean; editing?: Prompt }>({
     open: false,
   });
-  const [f, setF] = useState({ title: "", content: "", tags: "", folder: "" });
+  const [f, setF] = useState({
+    title: "",
+    content: "",
+    tags: "",
+    folder: "",
+    kind: "context" as PromptKind,
+  });
 
   const folders = useMemo(() => {
     const set = new Set<string>();
@@ -48,6 +61,9 @@ export function PromptsPage() {
 
   const filtered = useMemo(() => {
     let list = prompts;
+    if (kindTab !== "all") {
+      list = list.filter((p) => (p.kind ?? "snippet") === kindTab);
+    }
     if (folder !== "all") {
       list =
         folder === "favorites"
@@ -64,10 +80,16 @@ export function PromptsPage() {
       );
     }
     return list;
-  }, [prompts, folder, q]);
+  }, [prompts, folder, q, kindTab]);
 
   const openNew = () => {
-    setF({ title: "", content: "", tags: "", folder: "" });
+    setF({
+      title: "",
+      content: "",
+      tags: "",
+      folder: kindTab === "snippet" ? "" : "Context",
+      kind: kindTab === "all" ? "context" : kindTab,
+    });
     setDialog({ open: true });
   };
 
@@ -77,6 +99,7 @@ export function PromptsPage() {
       content: p.content,
       tags: p.tags.join(", "),
       folder: p.folder ?? "",
+      kind: p.kind ?? "snippet",
     });
     setDialog({ open: true, editing: p });
   };
@@ -91,6 +114,7 @@ export function PromptsPage() {
       content: f.content.trim(),
       tags: f.tags.split(",").map((t) => t.trim()).filter(Boolean),
       folder: f.folder.trim() || undefined,
+      kind: f.kind,
     };
     if (dialog.editing) update(dialog.editing.id, payload);
     else add(payload);
@@ -99,7 +123,7 @@ export function PromptsPage() {
   };
 
   return (
-    <div className="h-full overflow-y-auto scrollbar-thin">
+    <div className="h-full overflow-y-auto scrollbar-thin pb-24 md:pb-0">
       <div className="max-w-6xl mx-auto p-4 md:p-8">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
           <div>
@@ -107,12 +131,38 @@ export function PromptsPage() {
               <BookOpen className="w-5 h-5 md:w-6 md:h-6 text-primary" /> Prompt Library
             </h1>
             <p className="text-sm text-muted-foreground">
-              Save reusable prompts. Copy them into any chat.
+              Context prompts inject as system instructions. Snippets copy into chat.
             </p>
           </div>
-          <Button onClick={openNew}>
-            <Plus className="w-4 h-4" /> New prompt
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => seedContextPrompts()}>
+              <Sparkles className="w-4 h-4" /> Seed templates
+            </Button>
+            <Button onClick={openNew}>
+              <Plus className="w-4 h-4" /> New
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-1 p-1 rounded-2xl bg-secondary/60 mb-5">
+          {(
+            [
+              ["context", "Context"],
+              ["snippet", "Snippets"],
+              ["all", "All"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setKindTab(id)}
+              className={cn(
+                "h-9 rounded-xl text-sm font-medium transition",
+                kindTab === id ? "bg-card shadow text-foreground" : "text-muted-foreground"
+              )}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
         <div className="flex flex-wrap gap-2 mb-5">
@@ -255,19 +305,39 @@ export function PromptsPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
+                  <Label>Type</Label>
+                  <div className="grid grid-cols-2 gap-1">
+                    {(["context", "snippet"] as const).map((k) => (
+                      <button
+                        key={k}
+                        type="button"
+                        onClick={() => setF({ ...f, kind: k })}
+                        className={cn(
+                          "h-10 rounded-xl border text-sm capitalize",
+                          f.kind === k
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "border-border"
+                        )}
+                      >
+                        {k}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-1.5">
                   <Label>Folder</Label>
                   <Input
                     value={f.folder}
                     onChange={(e) => setF({ ...f, folder: e.target.value })}
                   />
                 </div>
-                <div className="space-y-1.5">
-                  <Label>Tags (comma-separated)</Label>
-                  <Input
-                    value={f.tags}
-                    onChange={(e) => setF({ ...f, tags: e.target.value })}
-                  />
-                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Tags (comma-separated)</Label>
+                <Input
+                  value={f.tags}
+                  onChange={(e) => setF({ ...f, tags: e.target.value })}
+                />
               </div>
             </div>
             <DialogFooter>

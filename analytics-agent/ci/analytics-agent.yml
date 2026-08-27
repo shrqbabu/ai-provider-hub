@@ -76,14 +76,14 @@ jobs:
           EOF
 
       - name: Unit tests
-        run: gradle --no-daemon testDebugUnitTest
+        run: gradle --no-daemon --stacktrace testDebugUnitTest
 
       - name: Lint
         run: gradle --no-daemon lintDebug
         continue-on-error: true
 
       - name: Assemble debug APK
-        run: gradle --no-daemon assembleDebug
+        run: gradle --no-daemon --stacktrace assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

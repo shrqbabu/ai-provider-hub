@@ -150,7 +150,9 @@ def execute(run_id: str, owner_id: str, project_id: str) -> None:
         frames=frames,
         profiles=profiles,
         dashboard_title=(project.get("name") or "Analytics Dashboard")[:70],
-        dashboard_subtitle=(run.get("user_prompt") or "")[:130],
+        # Pass the prompt whole: the renderer truncates it on a sentence or word
+        # boundary, which a blind slice here would pre-empt mid-word.
+        dashboard_subtitle=(run.get("user_prompt") or ""),
         llm=LlmClient(settings),
         progress=progress,
         cancelled=lambda: is_cancelled(run_id),

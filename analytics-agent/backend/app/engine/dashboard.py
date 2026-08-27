@@ -375,14 +375,44 @@ class DashboardRenderer:
         if not self.insights:
             self._empty(ax, "No insights generated")
             return
-        y = 0.84
         palette = {"critical": t.negative, "high": t.warning, "medium": t.accent, "low": t.ink_soft}
+
+        # Lay the entries out against the real space available rather than a
+        # fixed step, so wrapped text can never collide with the next title or
+        # spill past the bottom of the panel.
+        title_line = 0.058
+        body_line = 0.048
+        title_gap = 0.008
+        gap = 0.034
+        y_top, y_floor = 0.86, 0.045
+
+        blocks = []
+        y = y_top
         for insight in self.insights[:4]:
+            title = _wrap(insight["title"], 46, 2)
+            finding = _wrap(insight.get("finding", ""), 62, 2)
+            n_title = title.count("\n") + 1 if title else 0
+            n_body = finding.count("\n") + 1 if finding else 0
+            height = n_title * title_line + n_body * body_line + (title_gap if n_body else 0.0)
+            if y - height < y_floor:
+                break
+            blocks.append((insight, title, finding, y, n_title, height))
+            y -= height + gap
+
+        for insight, title, finding, y_block, n_title, height in blocks:
             colour = palette.get(insight.get("priority", "medium"), t.accent)
-            ax.add_patch(plt.Rectangle((0.035, y - 0.10), 0.008, 0.14, color=colour, zorder=3))
-            ax.text(0.065, y, _wrap(insight["title"], 46), color=t.ink, fontsize=11, fontweight="bold", va="top")
-            ax.text(0.065, y - 0.062, _wrap(insight["finding"], 60, 2), color=t.ink_soft, fontsize=9.2, va="top", linespacing=1.45)
-            y -= 0.215
+            ax.add_patch(
+                plt.Rectangle((0.035, y_block - height + 0.012), 0.008, height, color=colour, zorder=3)
+            )
+            ax.text(
+                0.065, y_block, title, color=t.ink, fontsize=10.5,
+                fontweight="bold", va="top", linespacing=1.3,
+            )
+            if finding:
+                ax.text(
+                    0.065, y_block - n_title * title_line - title_gap, finding,
+                    color=t.ink_soft, fontsize=8.8, va="top", linespacing=1.38,
+                )
 
     def _empty(self, ax, message: str) -> None:
         ax.text(0.5, 0.5, message, ha="center", va="center", color=self.theme.ink_soft, fontsize=11, transform=ax.transAxes)
@@ -480,7 +510,7 @@ class DashboardRenderer:
         header.axis("off")
         header.text(0.026, 0.60, title[:70], color=t.ink, fontsize=26, fontweight="bold", va="center")
         if subtitle:
-            header.text(0.026, 0.20, subtitle[:130], color=t.ink_soft, fontsize=11.5, va="center")
+            header.text(0.026, 0.20, _ellipsis(subtitle, 130), color=t.ink_soft, fontsize=11.5, va="center")
         date_range = None
         trend_metric = self.registry.get("revenue_trend")
         if trend_metric and trend_metric.period:
@@ -573,6 +603,25 @@ class DashboardRenderer:
         elif kind == "table":
             metric, title = payload
             self._table_panel(ax, metric, title)
+
+
+def _ellipsis(text: str, limit: int) -> str:
+    """
+    Truncate for display without ever ending mid-word.
+
+    Prefers a sentence boundary when one falls in the last 40% of the budget,
+    so a long report prompt reads as a complete thought rather than a fragment.
+    """
+    clean = " ".join(str(text).split())
+    if len(clean) <= limit:
+        return clean
+    cut = clean[:limit]
+    sentence_end = max(cut.rfind(". "), cut.rfind("? "), cut.rfind("! "))
+    if sentence_end >= int(limit * 0.6):
+        return cut[: sentence_end + 1] + " …"
+    if " " in cut:
+        cut = cut[: cut.rindex(" ")]
+    return cut.rstrip(" ,;:.-") + "…"
 
 
 def _wrap(text: str, width: int, max_lines: int = 3) -> str:

@@ -170,8 +170,39 @@ class MetricRegistry:
             )
         )
 
+    _UNSUPPORTED_NOISE = {
+        "rate", "ratio", "percent", "percentage", "pct", "analysis", "metric",
+        "metrics", "report", "the", "a", "an", "of", "by", "per", "for",
+    }
+
+    @classmethod
+    def _unsupported_key(cls, requested: str) -> frozenset:
+        words = {w.strip(".,;:()").lower() for w in str(requested).split()}
+        return frozenset(w for w in words if w and w not in cls._UNSUPPORTED_NOISE)
+
     def mark_unsupported(self, requested: str, reason: str, alternative: str = "") -> None:
-        """Record an explicitly unsupported request instead of fabricating it."""
+        """
+        Record an explicitly unsupported request instead of fabricating it.
+
+        The planner and the individual skills can independently decline the same
+        thing (for example "customer churn" and "contractual customer churn
+        rate"). Report it once: if one phrasing's significant words are a subset
+        of another's, they are the same refusal, and the entry carrying the
+        fuller explanation is kept.
+        """
+        key = self._unsupported_key(requested)
+        for existing in self._unsupported:
+            existing_key = self._unsupported_key(existing["requested"])
+            if not key or not existing_key:
+                continue
+            if key <= existing_key or existing_key <= key:
+                # Keep whichever phrasing explains itself best.
+                if len(reason) > len(existing.get("reason", "")):
+                    existing["requested"] = requested
+                    existing["reason"] = reason
+                if alternative and not existing.get("alternative"):
+                    existing["alternative"] = alternative
+                return
         self._unsupported.append(
             {"requested": requested, "status": NOT_SUPPORTED, "reason": reason, "alternative": alternative}
         )

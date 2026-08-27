@@ -9,6 +9,11 @@ artifact. An administrator creates a project, attaches data, writes one descript
 they want, and the agent runs a fixed, validated pipeline that produces a report, verified metrics,
 insights, DAX measures and a high-resolution dashboard image.
 
+![Generated dashboard](docs/demo-dashboard.png)
+
+*Produced end to end from `backend/sample/retail_sales.csv` (6,000 rows × 12 columns) — 3840 × 2160 PNG,
+41 validated metrics, validation passed 12/12. Every figure on it is reconciled against the metric registry.*
+
 ---
 
 ## Contents

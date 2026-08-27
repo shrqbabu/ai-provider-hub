@@ -8,7 +8,6 @@ import com.analytics.agent.data.model.Dataset
 import com.analytics.agent.data.model.Project
 import com.analytics.agent.data.remote.AppError
 import com.analytics.agent.data.repository.AnalyticsRepository
-import com.analytics.agent.ui.UiState
 import com.analytics.agent.ui.toAppError
 import com.analytics.agent.util.FileUtils
 import kotlinx.coroutines.Job

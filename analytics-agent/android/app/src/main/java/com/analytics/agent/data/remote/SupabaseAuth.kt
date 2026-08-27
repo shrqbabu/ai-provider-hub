@@ -1,6 +1,5 @@
 package com.analytics.agent.data.remote
 
-import com.analytics.agent.data.model.AdminProfile
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject

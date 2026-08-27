@@ -39,6 +39,9 @@ Every push and pull request touching `analytics-agent/` runs the backend suite, 
 tests, `lintDebug`, `assembleDebug` (APK uploaded as an artifact) and the secret/scope scan. See
 `analytics-agent/ci/analytics-agent.yml` and `analytics-agent/ci/README.md`.
 
+The workflow ships outside `.github/workflows/` because the agent integration that wrote it has no
+GitHub App `workflows` permission. Install it once with `./analytics-agent/ci/install-ci.sh`.
+
 ## Manual verification performed
 
 A live end-to-end run against a 6,000-row × 12-column synthetic retail dataset
@@ -53,3 +56,44 @@ A live end-to-end run against a 6,000-row × 12-column synthetic retail dataset
 - Headline figures: Total Revenue 4.66M · Total Orders 6,000 · Unique Customers 898 ·
   Average Order Value 776.69 · Revenue Growth (MoM) −14.7 %. Data quality 100/100.
 - Forecast fitted with Holt-Winters (additive trend, 12-month seasonality) over 33 months.
+
+## Kotlin verification without an Android toolchain
+
+The authoring sandbox cannot build an APK: `dl.google.com`, `maven.google.com`,
+`repo1.maven.org`, `services.gradle.org` and `api.adoptium.net` are all network-blocked, so the
+Android SDK, the Android Gradle Plugin and every AndroidX/Compose artifact are unreachable. CI is
+therefore the first real compile, and the first APK comes from the `android` job.
+
+To narrow the risk of a first-run failure, the sources were checked as far as is possible offline.
+A JDK (`jdk4py`) and the Kotlin K2 CLI compiler (bundled inside `kotlin-jupyter-kernel`) are both
+reachable from PyPI, which allowed running the real compiler rather than only inspecting text.
+
+**Parse check — the whole app.** All 39 main sources plus the 4 test sources were fed to the K2
+compiler. Every error was `unresolved reference` or a type-inference failure downstream of one;
+there was **not a single parse or syntax error**. The handful of unusual-looking diagnostics were
+each traced to a missing dependency rather than a defect:
+
+| Diagnostic | Cause |
+| --- | --- |
+| `annotation argument must be a compile-time constant` | `@OptIn(ExperimentalMaterial3WindowSizeClassApi::class)` — the annotation class is in the missing Material3 artifact |
+| `no value passed for parameter 'block'` (SessionStore) | `prefs.edit()` is unresolved, so `.apply()` binds to the stdlib `apply { }` extension instead of `SharedPreferences.Editor.apply()` |
+| `no value passed for parameter 'p1'` (Common.kt) | the `@Composable () -> Unit` parameter type is unresolved |
+| `one type argument expected … UiState.Success<*>` | bare-type inference needs the subject type, which was an error type here |
+
+The last one was confirmed harmless by compiling and **running** a standalone reproduction of
+`UiState` and the exact `(state as? UiState.Success)?.data` cast: it compiles clean and prints the
+expected value. The same pattern is used in five places and only the one with a broken subject type
+was flagged.
+
+**Full type-check — the dependency-free subset.** `Models.kt`, `AppError.kt`, `Route.kt`,
+`Formatters.kt` and `PipelineStage.kt` import nothing from Android or AndroidX, so they were
+compiled for real against kotlin-stdlib and kotlinx-serialization: **zero errors, zero warnings,
+76 class files**.
+
+**Structural cross-check.** Every `@Composable` call site in `AnalyticsNavHost` was matched against
+its declaration (missing and unknown named arguments), every ViewModel constructor arity against
+its `VmFactory` site, and every `Icons.<style>.<name>` against its import: no mismatches. Two
+genuinely unused imports were found and removed.
+
+None of this substitutes for a compile against the real AndroidX artifacts — only the CI `android`
+job can do that, which is why both Gradle steps run with `--stacktrace`.

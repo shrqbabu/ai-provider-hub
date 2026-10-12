@@ -233,6 +233,8 @@ export default function App() {
     <TooltipProvider>
       <Suspense fallback={<PageFallback />}>
         <Routes>
+          <Route path="/auth" element={<AuthPage />} />
+          <Route path="/login" element={<AuthPage />} />
           <Route element={<AppShell />}>
             <Route path="/" element={<RedirectToChat />} />
             <Route path="/chat" element={<RedirectToChat />} />

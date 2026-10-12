@@ -182,11 +182,16 @@ export const useAuthStore = create<State & Actions>((set, get) => ({
   },
 
   logout: async () => {
-    if (supabaseConfigured) {
-      const client = getSupabase();
-      await client.auth.signOut();
+    try {
+      if (supabaseConfigured) {
+        const client = getSupabase();
+        await client.auth.signOut();
+      }
+    } catch (e) {
+      console.warn("[Auth] signOut error:", e);
+    } finally {
+      set({ user: null, session: null });
     }
-    set({ user: null, session: null });
   },
 }));
 

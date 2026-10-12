@@ -15,6 +15,7 @@ import {
   X,
   KeyRound,
   LogOut,
+  LogIn,
   Activity,
   Cookie,
   User,
@@ -240,7 +241,7 @@ export function Sidebar() {
             to="/profile"
             onClick={closeOnNav}
             className="flex items-center gap-2.5 min-w-0 flex-1 p-1.5 -m-1 rounded-xl hover:bg-secondary/60 transition group"
-            title="View User Profile & Account Data"
+            title={user ? "View User Profile & Account Data" : "View Local Guest Profile"}
           >
             {user?.photoURL ? (
               <img
@@ -250,26 +251,40 @@ export function Sidebar() {
               />
             ) : (
               <div className="w-7 h-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-bold text-xs ring-1 ring-primary/30 shrink-0">
-                {(user?.displayName || user?.email || "U").charAt(0).toUpperCase()}
+                {(user?.displayName || user?.email || "G").charAt(0).toUpperCase()}
               </div>
             )}
             <div className="min-w-0 flex-1 text-left">
               <div className="text-xs font-semibold truncate group-hover:text-primary transition">
-                {user?.displayName || user?.email || "My Account"}
+                {user?.displayName || user?.email || "Guest (Local Mode)"}
               </div>
               <div className="text-[10px] text-muted-foreground truncate">
-                View Account & UID
+                {user ? "View Account & UID" : "Offline / Local Session"}
               </div>
             </div>
           </NavLink>
-          <button
-            onClick={handleLogout}
-            className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition shrink-0"
-            aria-label="Sign out"
-            title="Sign out"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
+          {user ? (
+            <button
+              onClick={handleLogout}
+              className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition shrink-0"
+              aria-label="Sign out"
+              title="Sign out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                setMobileOpen(false);
+                navigate("/auth");
+              }}
+              className="p-2 rounded-lg text-primary hover:bg-primary/10 transition shrink-0"
+              aria-label="Sign in"
+              title="Sign in"
+            >
+              <LogIn className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
     </>

@@ -19,6 +19,7 @@ import {
   ExternalLink,
   ChevronRight,
   Database,
+  LogIn,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -44,18 +45,19 @@ export function ProfilePage() {
   const [copiedUid, setCopiedUid] = useState(false);
   const [activeTab, setActiveTab] = useState<"overview" | "providers" | "combos" | "keys" | "export">("overview");
 
+  const isGuest = !user;
   const uid = user?.uid || "local_user";
-  const email = user?.email || "user@ai-hub.local";
-  const displayName = user?.displayName || email.split("@")[0];
+  const email = user?.email || (isGuest ? "Not signed in" : "user@ai-hub.local");
+  const displayName = user?.displayName || (isGuest ? "Guest User" : email.split("@")[0]);
   const photoURL = user?.photoURL;
-  const authProvider = user?.provider === "google" || user?.providerData?.[0]?.providerId === "google.com" ? "Google Account" : user?.provider === "github" || user?.providerData?.[0]?.providerId === "github.com" ? "GitHub Account" : user?.provider ? (user.provider.charAt(0).toUpperCase() + user.provider.slice(1) + " Account") : "Email / Password";
+  const authProvider = user?.provider === "google" || user?.providerData?.[0]?.providerId === "google.com" ? "Google Account" : user?.provider === "github" || user?.providerData?.[0]?.providerId === "github.com" ? "GitHub Account" : user?.provider ? (user.provider.charAt(0).toUpperCase() + user.provider.slice(1) + " Account") : isGuest ? "Local Mode (Offline)" : "Email / Password";
   const createdAt = (user?.metadata as any)?.creationTime
     ? new Date((user?.metadata as any).creationTime).toLocaleDateString(undefined, {
         year: "numeric",
         month: "short",
         day: "numeric",
       })
-    : "Active Account";
+    : isGuest ? "Current Session" : "Active Account";
 
   const fetchKeys = async () => {
     setLoadingKeys(true);
@@ -158,6 +160,17 @@ export function ProfilePage() {
             </div>
 
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+              {isGuest && (
+                <NavLink to="/auth">
+                  <Button
+                    size="sm"
+                    className="gap-2 rounded-xl h-9 text-xs"
+                  >
+                    <LogIn className="w-3.5 h-3.5" />
+                    Sign In / Register
+                  </Button>
+                </NavLink>
+              )}
               <Button
                 variant="outline"
                 size="sm"

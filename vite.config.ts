@@ -143,10 +143,15 @@ export default defineConfig(({ mode }) => {
                 const k = key.toLowerCase();
                 if (HOP_BY_HOP.has(k)) continue;
                 if (k === "host" || k === "origin" || k === "referer") continue;
+                if (k === "cookie") continue;
                 if (k === "x-provider-key") continue;
                 if (k === "x-provider-cookie") continue;
+                if (k === "user-agent") continue;
+                if (k.startsWith("x-vercel-") || k.startsWith("cf-") || k.startsWith("sec-") || k.startsWith("x-forwarded-") || k === "priority") continue;
                 outHeaders[key] = Array.isArray(value) ? value.join(",") : value;
               }
+              outHeaders["user-agent"] = "AIProviderHub/1.0";
+
               const providerToken = req.headers["x-provider-key"];
               if (providerToken) {
                 const token = Array.isArray(providerToken)
@@ -159,6 +164,7 @@ export default defineConfig(({ mode }) => {
                   upstreamPath.includes("/messages")
                 ) {
                   outHeaders["x-api-key"] = token;
+                  outHeaders["anthropic-version"] = "2023-06-01";
                 } else {
                   outHeaders["Authorization"] = `Bearer ${token}`;
                 }

@@ -73,13 +73,17 @@ export default async function handler(req: Request): Promise<Response> {
     if (k === "cookie") return;
     if (k === "x-provider-key") return;
     if (k === "x-provider-cookie") return;
-    if (k.startsWith("x-vercel-") || k.startsWith("cf-") || k.startsWith("sec-")) return;
+    if (k === "user-agent") return;
+    if (k.startsWith("x-vercel-") || k.startsWith("cf-") || k.startsWith("sec-") || k.startsWith("x-forwarded-") || k === "priority") return;
     outHeaders.set(key, value);
   });
+
+  outHeaders.set("User-Agent", "AIProviderHub/1.0");
 
   if (providerToken && (providerKey !== "google" || providerToken.startsWith("ya29."))) {
     if (upstreamPath.includes("/messages") || providerKey === "anthropic") {
       outHeaders.set("x-api-key", providerToken);
+      outHeaders.set("anthropic-version", "2023-06-01");
     } else {
       outHeaders.set("Authorization", `Bearer ${providerToken}`);
     }

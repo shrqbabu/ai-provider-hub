@@ -32,13 +32,52 @@ function isLocalhost(url: string): boolean {
   return /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])/i.test(url);
 }
 
+function isSameOrigin(url: string): boolean {
+  try {
+    if (typeof window === "undefined") return false;
+    const parsed = new URL(url, window.location.origin);
+    return parsed.origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
+function isDirectGateway(url: string): boolean {
+  try {
+    const parsed = new URL(url, typeof window !== "undefined" ? window.location.origin : "http://localhost");
+    const host = parsed.hostname.toLowerCase();
+    return host.includes("ai-provider-hub") || host.includes("onrender.com");
+  } catch {
+    return false;
+  }
+}
+
+function normalizeBaseURL(url: string): string {
+  let cleanUrl = url.trim().replace(/\/+$/, "");
+  cleanUrl = cleanUrl
+    .replace(/\/chat\/completions\/?$/i, "")
+    .replace(/\/models\/?$/i, "")
+    .replace(/\/messages\/?$/i, "")
+    .replace(/\/+$/, "");
+
+  try {
+    const parsed = new URL(cleanUrl);
+    if (!parsed.pathname || parsed.pathname === "/" || parsed.pathname === "") {
+      cleanUrl += "/v1";
+    }
+  } catch {}
+  return cleanUrl;
+}
+
 function resolveBaseURL(
   url: string,
   providerKey?: string,
   authMode?: string,
   apiKey?: string
 ): Resolved {
-  if (isLocalhost(url)) return { baseURL: url, proxied: false };
+  if (isLocalhost(url) || isSameOrigin(url) || isDirectGateway(url)) {
+    return { baseURL: normalizeBaseURL(url), proxied: false };
+  }
   const origin = window.location.origin;
 
   if (
@@ -65,20 +104,8 @@ function resolveBaseURL(
   // Target is passed via query param because Edge functions route by path.
   if (/^https:\/\//i.test(url)) {
     try {
-      let cleanUrl = url.trim().replace(/\/$/, "");
-      cleanUrl = cleanUrl
-        .replace(/\/chat\/completions\/?$/i, "")
-        .replace(/\/models\/?$/i, "")
-        .replace(/\/messages\/?$/i, "")
-        .replace(/\/$/, "");
-
-      let parsed = new URL(cleanUrl);
-      // Auto-append /v1 for custom OpenAI-compatible gateways if path is empty or root
-      if (!parsed.pathname || parsed.pathname === "/") {
-        cleanUrl += "/v1";
-        parsed = new URL(cleanUrl);
-      }
-
+      const cleanUrl = normalizeBaseURL(url);
+      const parsed = new URL(cleanUrl);
       const remainingPath = parsed.pathname.replace(/\/$/, "");
       const baseHost = `${parsed.protocol}//${parsed.host}`;
 
@@ -404,7 +431,7 @@ export async function testConnection(
     };
   } catch (err: unknown) {
     const message = extractErrorMessage(err);
-    // For providers without /models (e.g. Anthropic), a 404 still means auth might work.
+    // For providers without /models (e.g. Anthropic, restricted keys), a 404/403 might still allow chatting.
     if (/404/.test(message) || /not.?found/i.test(message)) {
       return {
         ok: true,
@@ -412,17 +439,37 @@ export async function testConnection(
           "Connected. This provider does not expose a /models endpoint — add models manually.",
       };
     }
+    // If testing custom provider with a default model set, try a quick chat test
+    if (provider.defaultModel) {
+      try {
+        const singleOk = await testSingleModel(provider, provider.defaultModel);
+        if (singleOk) {
+          return {
+            ok: true,
+            message: `Connected — verified with model ${provider.defaultModel}.`,
+            modelCount: 1,
+          };
+        }
+      } catch {}
+    }
     return { ok: false, message };
   }
 }
 
 // If the error body is actually an HTML page (proxy/web 404, wrong base URL,
-// captive portal), never show raw markup — replace it with a readable message.
+// Cloudflare challenge, captive portal), never show raw markup — replace it with a readable message.
 function cleanBodyMsg(msg: unknown): string {
   if (typeof msg !== "string") return msg == null ? "" : String(msg);
+  if (/Just a moment/i.test(msg) || /Cloudflare/i.test(msg)) {
+    return "Cloudflare bot protection challenged the request. Ensure the Base URL is an API endpoint with /v1.";
+  }
   if (/<\/?[a-z][\s\S]*>/i.test(msg)) {
     const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(msg);
-    return title?.[1]?.trim() || "Upstream returned an HTML page instead of an API response. Check the Base URL (include /v1).";
+    const titleText = title?.[1]?.trim();
+    if (titleText && !/Just a moment/i.test(titleText) && !/Attention Required/i.test(titleText)) {
+      return titleText;
+    }
+    return "Upstream returned an HTML page instead of an API response. Check the Base URL (include /v1).";
   }
   return msg;
 }
@@ -443,7 +490,12 @@ export function extractErrorMessage(err: unknown): string {
       bodyMsg && bodyMsg !== "401 status code (no body)" ? `Detail: ${bodyMsg}` : ""
     }`.trim();
   }
-  if (status === 403) return `403 Forbidden — key valid but lacks access. ${bodyMsg ?? ""}`.trim();
+  if (status === 403) {
+    if (/Cloudflare|bot protection|Just a moment/i.test(bodyMsg)) {
+      return `403 Forbidden — Cloudflare / Bot protection blocked this request. Make sure the Base URL is an API endpoint with /v1 (not a website).`;
+    }
+    return `403 Forbidden — Access denied by upstream provider. ${bodyMsg ?? ""}`.trim();
+  }
   if (status === 404) {
     return `404 Not Found — the model ID doesn't exist on this provider. Pick a different model, or make sure you're chatting through the correct provider (e.g. OpenRouter models can only run through OpenRouter). ${
       bodyMsg && bodyMsg !== "404 status code (no body)" ? `Detail: ${bodyMsg}` : ""
